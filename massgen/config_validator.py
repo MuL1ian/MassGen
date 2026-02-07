@@ -987,6 +987,34 @@ class ConfigValidator:
                     "Use null (unlimited) or a positive integer like 1, 2, or 3",
                 )
 
+        # Validate fairness controls if present
+        if "fairness_enabled" in orchestrator_config:
+            fairness_enabled = orchestrator_config["fairness_enabled"]
+            if not isinstance(fairness_enabled, bool):
+                result.add_error(
+                    f"'fairness_enabled' must be a boolean, got {type(fairness_enabled).__name__}",
+                    f"{location}.fairness_enabled",
+                    "Use true or false",
+                )
+
+        if "fairness_lead_cap_answers" in orchestrator_config:
+            lead_cap = orchestrator_config["fairness_lead_cap_answers"]
+            if isinstance(lead_cap, bool) or not isinstance(lead_cap, int) or lead_cap < 0:
+                result.add_error(
+                    f"'fairness_lead_cap_answers' must be a non-negative integer, got {type(lead_cap).__name__}",
+                    f"{location}.fairness_lead_cap_answers",
+                    "Use 0 (strict lockstep) or a positive integer like 1 or 2",
+                )
+
+        if "max_midstream_injections_per_round" in orchestrator_config:
+            injection_cap = orchestrator_config["max_midstream_injections_per_round"]
+            if isinstance(injection_cap, bool) or not isinstance(injection_cap, int) or injection_cap <= 0:
+                result.add_error(
+                    f"'max_midstream_injections_per_round' must be a positive integer, got {type(injection_cap).__name__}",
+                    f"{location}.max_midstream_injections_per_round",
+                    "Use a positive integer like 1 or 2",
+                )
+
         # Validate timeout if present
         if "timeout" in orchestrator_config:
             timeout = orchestrator_config["timeout"]

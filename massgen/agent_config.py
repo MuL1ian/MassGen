@@ -235,6 +235,9 @@ class AgentConfig:
         max_new_answers_per_agent: Maximum number of new answers each agent can provide (None = unlimited)
         max_new_answers_global: Maximum number of new answers across all agents (None = unlimited)
         answer_novelty_requirement: How different new answers must be from existing ones ("lenient", "balanced", "strict")
+        fairness_enabled: Enable fairness controls across all coordination modes (default: True)
+        fairness_lead_cap_answers: Maximum allowed lead in answer revisions over slowest active peer
+        max_midstream_injections_per_round: Maximum unseen source updates injected per agent per round
     """
 
     # Core backend configuration (includes tool enablement)
@@ -248,6 +251,9 @@ class AgentConfig:
     max_new_answers_per_agent: Optional[int] = None
     max_new_answers_global: Optional[int] = None
     answer_novelty_requirement: str = "lenient"
+    fairness_enabled: bool = True
+    fairness_lead_cap_answers: int = 2
+    max_midstream_injections_per_round: int = 2
 
     # Agent customization
     agent_id: Optional[str] = None
@@ -946,6 +952,9 @@ class AgentConfig:
             "max_new_answers_per_agent": self.max_new_answers_per_agent,
             "max_new_answers_global": self.max_new_answers_global,
             "answer_novelty_requirement": self.answer_novelty_requirement,
+            "fairness_enabled": self.fairness_enabled,
+            "fairness_lead_cap_answers": self.fairness_lead_cap_answers,
+            "max_midstream_injections_per_round": self.max_midstream_injections_per_round,
             "timeout_config": {
                 "orchestrator_timeout_seconds": self.timeout_config.orchestrator_timeout_seconds,
                 "initial_round_timeout_seconds": self.timeout_config.initial_round_timeout_seconds,
@@ -991,6 +1000,9 @@ class AgentConfig:
         max_new_answers_per_agent = data.get("max_new_answers_per_agent")
         max_new_answers_global = data.get("max_new_answers_global")
         answer_novelty_requirement = data.get("answer_novelty_requirement", "lenient")
+        fairness_enabled = data.get("fairness_enabled", True)
+        fairness_lead_cap_answers = data.get("fairness_lead_cap_answers", 2)
+        max_midstream_injections_per_round = data.get("max_midstream_injections_per_round", 2)
 
         # Handle timeout_config
         timeout_config = TimeoutConfig()
@@ -1023,6 +1035,9 @@ class AgentConfig:
             max_new_answers_per_agent=max_new_answers_per_agent,
             max_new_answers_global=max_new_answers_global,
             answer_novelty_requirement=answer_novelty_requirement,
+            fairness_enabled=fairness_enabled,
+            fairness_lead_cap_answers=fairness_lead_cap_answers,
+            max_midstream_injections_per_round=max_midstream_injections_per_round,
             timeout_config=timeout_config,
             coordination_config=coordination_config,
         )

@@ -12,10 +12,14 @@ Tests cover:
 - AgentState stop metadata fields
 """
 
+import time
+
 import pytest
 
+import massgen.orchestrator as orchestrator_module
 from massgen.agent_config import AgentConfig, CoordinationConfig
 from massgen.config_validator import ConfigValidator
+from massgen.mcp_tools.hooks import RoundTimeoutState
 from massgen.orchestrator import AgentState, Orchestrator
 from massgen.task_decomposer import TaskDecomposerConfig
 from massgen.tool.workflow_toolkits import get_workflow_tools
@@ -363,6 +367,7 @@ class TestDecompositionAnswerLimits:
         config = AgentConfig()
         config.coordination_mode = "decomposition"
         config.max_new_answers_per_agent = 2
+        config.fairness_enabled = False
         orchestrator = Orchestrator(
             agents={"frontend": _StubAgent(), "backend": _StubAgent()},
             config=config,
@@ -452,6 +457,290 @@ class TestDecompositionAnswerLimits:
         assert orchestrator._is_vote_only_mode("frontend") is False
         assert orchestrator.agent_states["frontend"].has_voted is True
         assert "global answer limit" in (orchestrator.agent_states["frontend"].stop_summary or "")
+
+
+class TestFairnessControls:
+    """Test fairness controls for answer pacing and injection behavior."""
+
+    @staticmethod
+    def _answer_revisions(count: int, start_ts: float = 1.0):
+        return [type("Answer", (), {"timestamp": start_ts + i, "label": f"agent1.{i + 1}", "content": f"answer{i + 1}"})() for i in range(count)]
+
+    def test_fairness_lead_cap_blocks_runaway_new_answer(self):
+        config = AgentConfig()
+        config.fairness_enabled = True
+        config.fairness_lead_cap_answers = 1
+        orchestrator = Orchestrator(
+            agents={"fast": _StubAgent(), "slow": _StubAgent()},
+            config=config,
+        )
+
+        orchestrator.coordination_tracker.answers_by_agent["fast"] = self._answer_revisions(2)
+        orchestrator.coordination_tracker.answers_by_agent["slow"] = []
+
+        can_answer, error = orchestrator._check_answer_count_limit("fast")
+
+        assert can_answer is False
+        assert error and "Fairness lead cap reached" in error
+
+    def test_fairness_lead_cap_can_be_disabled(self):
+        config = AgentConfig()
+        config.fairness_enabled = False
+        config.fairness_lead_cap_answers = 0
+        orchestrator = Orchestrator(
+            agents={"fast": _StubAgent(), "slow": _StubAgent()},
+            config=config,
+        )
+
+        orchestrator.coordination_tracker.answers_by_agent["fast"] = self._answer_revisions(4)
+        orchestrator.coordination_tracker.answers_by_agent["slow"] = []
+
+        can_answer, _ = orchestrator._check_answer_count_limit("fast")
+        assert can_answer is True
+
+    def test_midstream_selection_is_latest_first_and_marks_only_injected_sources(self):
+        config = AgentConfig()
+        config.coordination_mode = "decomposition"
+        config.fairness_enabled = True
+        config.max_midstream_injections_per_round = 1
+        orchestrator = Orchestrator(
+            agents={
+                "frontend": _StubAgent(),
+                "backend": _StubAgent(),
+                "qa": _StubAgent(),
+            },
+            config=config,
+        )
+
+        state = orchestrator.agent_states["frontend"]
+        state.seen_answer_counts = {"frontend": 1, "backend": 0, "qa": 0}
+        state.midstream_injections_this_round = 0
+        state.decomposition_answer_streak = 2
+
+        orchestrator.coordination_tracker.answers_by_agent["backend"] = self._answer_revisions(1, start_ts=10.0)
+        orchestrator.coordination_tracker.answers_by_agent["qa"] = self._answer_revisions(1, start_ts=20.0)
+
+        selected, had_unseen = orchestrator._select_midstream_answer_updates(
+            "frontend",
+            {
+                "backend": "backend update",
+                "qa": "qa update",
+            },
+        )
+
+        assert had_unseen is True
+        assert list(selected.keys()) == ["qa"]
+
+        orchestrator._register_injected_answer_updates("frontend", list(selected.keys()))
+
+        assert state.decomposition_answer_streak == 0
+        assert state.seen_answer_counts["qa"] == 1
+        assert state.seen_answer_counts["backend"] == 0
+
+    def test_partial_midstream_injection_keeps_unseen_peer_pending(self):
+        config = AgentConfig()
+        config.fairness_enabled = True
+        config.max_midstream_injections_per_round = 1
+        orchestrator = Orchestrator(
+            agents={
+                "frontend": _StubAgent(),
+                "backend": _StubAgent(),
+                "qa": _StubAgent(),
+            },
+            config=config,
+        )
+
+        state = orchestrator.agent_states["frontend"]
+        state.seen_answer_counts = {"frontend": 0, "backend": 0, "qa": 0}
+
+        orchestrator.coordination_tracker.answers_by_agent["backend"] = self._answer_revisions(1, start_ts=10.0)
+        orchestrator.coordination_tracker.answers_by_agent["qa"] = self._answer_revisions(1, start_ts=20.0)
+        orchestrator.agent_states["backend"].answer = "backend update"
+        orchestrator.agent_states["qa"].answer = "qa update"
+
+        selected, had_unseen = orchestrator._select_midstream_answer_updates(
+            "frontend",
+            {
+                "backend": "backend update",
+                "qa": "qa update",
+            },
+        )
+
+        assert had_unseen is True
+        assert list(selected.keys()) == ["qa"]
+
+        orchestrator._register_injected_answer_updates("frontend", list(selected.keys()))
+
+        assert orchestrator._has_unseen_answer_updates("frontend") is True
+        assert orchestrator._get_unseen_source_agent_ids("frontend") == ["backend"]
+
+    def test_terminal_fairness_gate_requires_latest_peer_updates(self):
+        config = AgentConfig()
+        config.fairness_enabled = True
+        orchestrator = Orchestrator(
+            agents={"frontend": _StubAgent(), "backend": _StubAgent()},
+            config=config,
+        )
+
+        orchestrator.coordination_tracker.answers_by_agent["backend"] = self._answer_revisions(1, start_ts=42.0)
+        orchestrator.agent_states["backend"].answer = "backend revision"
+        orchestrator.agent_states["frontend"].seen_answer_counts = {"frontend": 0, "backend": 0}
+
+        can_terminal, error = orchestrator._check_terminal_fairness_gate("frontend")
+        assert can_terminal is False
+        assert error and "Fairness gate" in error
+
+        orchestrator._mark_seen_answer_revisions("frontend", ["backend"])
+        can_terminal_after_sync, error_after_sync = orchestrator._check_terminal_fairness_gate("frontend")
+        assert can_terminal_after_sync is True
+        assert error_after_sync is None
+
+    def test_terminal_fairness_gate_allows_hard_timeout_cutoff(self):
+        config = AgentConfig()
+        config.fairness_enabled = True
+        config.timeout_config.round_timeout_grace_seconds = 5
+        orchestrator = Orchestrator(
+            agents={"frontend": _StubAgent(), "backend": _StubAgent()},
+            config=config,
+        )
+
+        orchestrator.coordination_tracker.answers_by_agent["backend"] = self._answer_revisions(1, start_ts=42.0)
+        orchestrator.agent_states["backend"].answer = "backend revision"
+        orchestrator.agent_states["frontend"].seen_answer_counts = {"frontend": 0, "backend": 0}
+
+        timeout_state = RoundTimeoutState()
+        timeout_state.soft_timeout_fired_at = time.time() - 10
+        orchestrator.agent_states["frontend"].round_timeout_state = timeout_state
+
+        can_terminal, error = orchestrator._check_terminal_fairness_gate("frontend")
+        assert can_terminal is True
+        assert error is None
+
+    def test_prestart_fairness_pause_waits_after_two_answer_lead(self):
+        config = AgentConfig()
+        config.fairness_enabled = True
+        config.fairness_lead_cap_answers = 2
+        orchestrator = Orchestrator(
+            agents={"fast": _StubAgent(), "slow": _StubAgent()},
+            config=config,
+        )
+
+        orchestrator.coordination_tracker.answers_by_agent["fast"] = self._answer_revisions(2)
+        orchestrator.coordination_tracker.answers_by_agent["slow"] = []
+
+        should_pause, reason = orchestrator._should_pause_agent_for_fairness("fast")
+
+        assert should_pause is True
+        assert reason and "Fairness lead cap reached" in reason
+
+    def test_prestart_fairness_pause_does_not_block_first_answer(self):
+        config = AgentConfig()
+        config.fairness_enabled = True
+        config.fairness_lead_cap_answers = 2
+        orchestrator = Orchestrator(
+            agents={"fast": _StubAgent(), "slow": _StubAgent()},
+            config=config,
+        )
+
+        should_pause, reason = orchestrator._should_pause_agent_for_fairness("fast")
+
+        assert should_pause is False
+        assert reason is None
+
+    def test_fairness_prestart_pause_logging_deduplicates_until_state_changes(
+        self,
+        monkeypatch,
+    ):
+        config = AgentConfig()
+        config.fairness_enabled = True
+        config.fairness_lead_cap_answers = 1
+        orchestrator = Orchestrator(
+            agents={"fast": _StubAgent(), "slow": _StubAgent()},
+            config=config,
+        )
+
+        captured_logs = []
+
+        def _capture_info(message, *args, **kwargs):
+            del kwargs  # Unused in this test hook.
+            if args:
+                try:
+                    message = message % args
+                except Exception:
+                    pass
+            captured_logs.append(str(message))
+
+        monkeypatch.setattr(orchestrator_module.logger, "info", _capture_info)
+
+        orchestrator.coordination_tracker.answers_by_agent["fast"] = self._answer_revisions(2)
+        orchestrator.coordination_tracker.answers_by_agent["slow"] = []
+
+        for _ in range(3):
+            paused, reason = orchestrator._should_pause_agent_for_fairness("fast")
+            assert paused is True
+            orchestrator._update_fairness_pause_log_state("fast", paused, reason)
+
+        pause_logs = [line for line in captured_logs if "Pausing fast before round start due to fairness gate" in line]
+        assert len(pause_logs) == 1
+
+        orchestrator.coordination_tracker.answers_by_agent["slow"] = self._answer_revisions(2)
+
+        for _ in range(2):
+            paused, reason = orchestrator._should_pause_agent_for_fairness("fast")
+            assert paused is False
+            orchestrator._update_fairness_pause_log_state("fast", paused, reason)
+
+        resume_logs = [line for line in captured_logs if "Fairness gate cleared for fast; resuming round starts" in line]
+        assert len(resume_logs) == 1
+
+    def test_fairness_lead_cap_block_logging_deduplicates_until_unblocked(
+        self,
+        monkeypatch,
+    ):
+        config = AgentConfig()
+        config.fairness_enabled = True
+        config.fairness_lead_cap_answers = 1
+        orchestrator = Orchestrator(
+            agents={"fast": _StubAgent(), "slow": _StubAgent()},
+            config=config,
+        )
+
+        captured_logs = []
+
+        def _capture_info(message, *args, **kwargs):
+            del kwargs  # Unused in this test hook.
+            if args:
+                try:
+                    message = message % args
+                except Exception:
+                    pass
+            captured_logs.append(str(message))
+
+        monkeypatch.setattr(orchestrator_module.logger, "info", _capture_info)
+
+        orchestrator.coordination_tracker.answers_by_agent["fast"] = self._answer_revisions(2)
+        orchestrator.coordination_tracker.answers_by_agent["slow"] = []
+
+        for _ in range(3):
+            can_answer, error = orchestrator._check_fairness_answer_lead_cap("fast")
+            assert can_answer is False
+            assert error and "Fairness lead cap reached" in error
+
+        block_logs = [line for line in captured_logs if "Fairness gate blocked new_answer for fast" in line]
+        assert len(block_logs) == 1
+
+        orchestrator.coordination_tracker.answers_by_agent["slow"] = self._answer_revisions(2)
+        can_answer, error = orchestrator._check_fairness_answer_lead_cap("fast")
+        assert can_answer is True
+        assert error is None
+
+        orchestrator.coordination_tracker.answers_by_agent["slow"] = []
+        can_answer, error = orchestrator._check_fairness_answer_lead_cap("fast")
+        assert can_answer is False
+        assert error and "Fairness lead cap reached" in error
+
+        block_logs = [line for line in captured_logs if "Fairness gate blocked new_answer for fast" in line]
+        assert len(block_logs) == 2
 
 
 # =============================================================================

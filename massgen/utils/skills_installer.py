@@ -4,11 +4,16 @@
 This module provides cross-platform installation of skills including:
 - openskills CLI (npm package)
 - Anthropic skills collection
+- OpenAI skills collection
+- Vercel agent skills collection
+- Vercel Agent Browser skill
 - Crawl4AI skill
 
 Works on Windows, macOS, and Linux.
 """
 
+import json
+import os
 import platform
 import shutil
 import subprocess
@@ -16,8 +21,9 @@ import sys
 import tempfile
 import urllib.request
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 # Color constants for terminal output
 RESET = "\033[0m"
@@ -25,6 +31,93 @@ BRIGHT_GREEN = "\033[92m"
 BRIGHT_CYAN = "\033[96m"
 BRIGHT_YELLOW = "\033[93m"
 BRIGHT_RED = "\033[91m"
+
+OPENSKILLS_PACKAGE_SOURCES = {
+    "anthropic": "anthropics/skills",
+    "openai": "openai/skills",
+    "vercel": "vercel-labs/agent-skills",
+    "agent_browser": "vercel-labs/agent-browser",
+}
+
+SKILL_PACKAGE_METADATA = {
+    "anthropic": {
+        "name": "Anthropic Skills Collection",
+        "description": "Official Anthropic skills including code analysis, research, and more",
+    },
+    "openai": {
+        "name": "OpenAI Skills Collection",
+        "description": "Official OpenAI skill library with curated and experimental skill sets",
+    },
+    "vercel": {
+        "name": "Vercel Agent Skills",
+        "description": "Vercel-maintained skill pack for modern full-stack and app workflows",
+    },
+    "agent_browser": {
+        "name": "Vercel Agent Browser Skill",
+        "description": "Skill for browser-native automation via the agent-browser runtime",
+    },
+    "crawl4ai": {
+        "name": "Crawl4AI",
+        "description": "Web crawling and scraping skill for extracting content from websites",
+    },
+}
+
+# Marker skills from anthropics/skills. Used to detect installs done outside MassGen.
+ANTHROPIC_MARKER_SKILLS = {
+    "algorithmic-art",
+    "artifacts-builder",
+    "brand-guidelines",
+    "canvas-design",
+    "internal-comms",
+    "mcp-builder",
+    "theme-factory",
+    "webapp-testing",
+}
+
+
+def _get_package_manifest_path() -> Path:
+    """Return metadata file tracking package installations done by MassGen."""
+    return Path.home() / ".agent" / "skills" / ".massgen_package_installs.json"
+
+
+def _load_package_manifest() -> dict[str, Any]:
+    """Load package install metadata tracked by MassGen."""
+    manifest_path = _get_package_manifest_path()
+    if not manifest_path.exists():
+        return {}
+
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+    if not isinstance(data, dict):
+        return {}
+    return data
+
+
+def _save_package_manifest(manifest: dict[str, Any]) -> None:
+    """Persist package install metadata tracked by MassGen."""
+    manifest_path = _get_package_manifest_path()
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _record_package_install(package_id: str, source: str) -> None:
+    """Record successful package installation for future status checks."""
+    manifest = _load_package_manifest()
+    manifest[package_id] = {
+        "source": source,
+        "installed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _save_package_manifest(manifest)
+
+
+def _is_package_recorded(package_id: str) -> bool:
+    """Check if a package was previously installed by MassGen."""
+    manifest = _load_package_manifest()
+    pkg = manifest.get(package_id, {})
+    return isinstance(pkg, dict) and bool(pkg.get("source"))
 
 
 def _print_header(message: str) -> None:
@@ -68,6 +161,8 @@ def _run_command(
     command: list[str],
     check: bool = True,
     capture_output: bool = False,
+    input_text: Optional[str] = None,
+    env: Optional[dict[str, str]] = None,
 ) -> Optional[subprocess.CompletedProcess]:
     """Run a shell command.
 
@@ -75,6 +170,8 @@ def _run_command(
         command: Command and arguments as a list
         check: Whether to raise on non-zero exit
         capture_output: Whether to capture stdout/stderr
+        input_text: Optional stdin text to send to the process
+        env: Optional environment variable overrides
 
     Returns:
         CompletedProcess if successful, None if failed and check=False
@@ -85,6 +182,8 @@ def _run_command(
             check=check,
             capture_output=capture_output,
             text=True,
+            input=input_text,
+            env=env,
         )
     except subprocess.CalledProcessError:
         if check:
@@ -125,7 +224,7 @@ def install_openskills_cli() -> bool:
     Returns:
         True if successful, False otherwise
     """
-    _print_step("1", "3", "Installing openskills CLI...")
+    _print_step("1", "6", "Installing openskills CLI...")
 
     # Check if npm is available
     if not _check_command_exists("npm"):
@@ -160,7 +259,45 @@ def install_anthropic_skills() -> bool:
     Returns:
         True if successful, False otherwise
     """
-    _print_step("2", "3", "Installing Anthropic skills collection...")
+    _print_step("2", "6", "Installing Anthropic skills collection...")
+    return _install_openskills_skill_package("anthropic")
+
+
+def install_openai_skills() -> bool:
+    """Install OpenAI skills collection via openskills.
+
+    Returns:
+        True if successful, False otherwise
+    """
+    _print_step("3", "6", "Installing OpenAI skills collection...")
+    return _install_openskills_skill_package("openai")
+
+
+def install_vercel_skills() -> bool:
+    """Install Vercel agent skills collection via openskills.
+
+    Returns:
+        True if successful, False otherwise
+    """
+    _print_step("4", "6", "Installing Vercel agent skills collection...")
+    return _install_openskills_skill_package("vercel")
+
+
+def install_agent_browser_skill() -> bool:
+    """Install Vercel Agent Browser skill via openskills.
+
+    Returns:
+        True if successful, False otherwise
+    """
+    _print_step("5", "6", "Installing Vercel Agent Browser skill...")
+    return _install_openskills_skill_package("agent_browser")
+
+
+def _install_openskills_skill_package(package_id: str) -> bool:
+    """Install a specific openskills package and record install metadata."""
+    if package_id not in OPENSKILLS_PACKAGE_SOURCES:
+        _print_error(f"Unknown openskills package: {package_id}")
+        return False
 
     # Check if openskills is available
     if not _check_command_exists("openskills"):
@@ -168,32 +305,42 @@ def install_anthropic_skills() -> bool:
         _print_info("Run with --setup-skills again to install openskills first")
         return False
 
-    # Check if skills directory exists
-    skills_dir = Path.home() / ".agent" / "skills"
-    if skills_dir.exists() and any(skills_dir.iterdir()):
-        skill_count = len(list(skills_dir.iterdir()))
-        _print_warning(f"Skills directory exists with {skill_count} skills")
-        _print_info("Installing/updating Anthropic skills...")
-    else:
-        _print_info("Installing Anthropic skills (first time)...")
+    source = OPENSKILLS_PACKAGE_SOURCES[package_id]
+    package_name = SKILL_PACKAGE_METADATA[package_id]["name"]
 
-    # Install Anthropic skills
+    _print_info(f"Installing/updating from {source}...")
+    openskills_env = os.environ.copy()
+    openskills_env["CI"] = "1"
     result = _run_command(
-        ["openskills", "install", "anthropics/skills", "--universal", "-y"],
+        ["openskills", "install", source, "--universal", "-y"],
         check=False,
+        capture_output=True,
+        # Handle edge-cases where openskills still prompts (e.g. duplicate skill names).
+        # Sending newlines makes the command non-blocking in non-interactive flows.
+        input_text="\n\n\n\n",
+        env=openskills_env,
     )
 
     if result and result.returncode == 0:
-        # Count installed skills
-        if skills_dir.exists():
-            skill_count = len(list(skills_dir.iterdir()))
-            _print_success(f"Anthropic skills installed ({skill_count} total skills)")
-        else:
-            _print_success("Anthropic skills installed")
+        _record_package_install(package_id, source)
+        _print_success(f"{package_name} installed")
         return True
-    else:
-        _print_error("Failed to install Anthropic skills")
-        return False
+
+    # openskills may return non-zero after partial success (e.g. duplicate skill prompt path).
+    # Treat Agent Browser package as installed if the target skill now exists.
+    if package_id == "agent_browser":
+        if (Path.home() / ".agent" / "skills" / "agent-browser").exists():
+            _record_package_install(package_id, source)
+            _print_warning(f"{package_name} appears installed despite non-zero openskills exit")
+            return True
+
+    _print_error(f"Failed to install {package_name}")
+    if result and (result.stdout or result.stderr):
+        tail = "\n".join((result.stdout or "").splitlines()[-8:] + (result.stderr or "").splitlines()[-8:])
+        if tail.strip():
+            _print_info("openskills output (tail):")
+            print(tail)
+    return False
 
 
 def install_crawl4ai_skill() -> bool:
@@ -202,7 +349,7 @@ def install_crawl4ai_skill() -> bool:
     Returns:
         True if successful, False otherwise
     """
-    _print_step("3", "3", "Installing Crawl4AI skill...")
+    _print_step("6", "6", "Installing Crawl4AI skill...")
 
     skills_dir = Path.home() / ".agent" / "skills"
     crawl4ai_dir = skills_dir / "crawl4ai"
@@ -326,24 +473,51 @@ def check_skill_packages_installed() -> dict:
     skills = list_available_skills()
     # Installed skills = user + project (excluding builtin)
     installed_skills = skills["user"] + skills["project"]
+    installed_skill_names = {s["name"].strip().lower() for s in installed_skills}
+    manifest = _load_package_manifest()
 
-    # Check for Anthropic skills (installed via openskills, not crawl4ai)
-    anthropic_skills = [s for s in installed_skills if not s["name"].lower().startswith("crawl4ai")]
-    has_anthropic = len(anthropic_skills) > 0
+    # Check for Anthropic skills. Use marker skills for better specificity and
+    # fallback to MassGen install metadata.
+    anthropic_skills = [s for s in installed_skills if s["name"].lower() in ANTHROPIC_MARKER_SKILLS]
+    has_anthropic = bool(anthropic_skills) or _is_package_recorded("anthropic")
+    has_openai = _is_package_recorded("openai")
+    has_vercel = _is_package_recorded("vercel")
 
-    # Check for Crawl4AI
+    # Check for Agent Browser and Crawl4AI by installed skill names
+    has_agent_browser = "agent-browser" in installed_skill_names or _is_package_recorded("agent_browser")
     has_crawl4ai = any(s["name"].lower().startswith("crawl4ai") for s in installed_skills)
+
+    # Keep legacy compatibility with potential older manifest formats.
+    if not has_openai and isinstance(manifest.get("openai"), dict):
+        has_openai = bool(manifest["openai"].get("source"))
+    if not has_vercel and isinstance(manifest.get("vercel"), dict):
+        has_vercel = bool(manifest["vercel"].get("source"))
 
     return {
         "anthropic": {
-            "name": "Anthropic Skills Collection",
-            "description": "Official Anthropic skills including code analysis, research, and more",
+            "name": SKILL_PACKAGE_METADATA["anthropic"]["name"],
+            "description": SKILL_PACKAGE_METADATA["anthropic"]["description"],
             "installed": has_anthropic,
             "skill_count": len(anthropic_skills) if has_anthropic else 0,
         },
+        "openai": {
+            "name": SKILL_PACKAGE_METADATA["openai"]["name"],
+            "description": SKILL_PACKAGE_METADATA["openai"]["description"],
+            "installed": has_openai,
+        },
+        "vercel": {
+            "name": SKILL_PACKAGE_METADATA["vercel"]["name"],
+            "description": SKILL_PACKAGE_METADATA["vercel"]["description"],
+            "installed": has_vercel,
+        },
+        "agent_browser": {
+            "name": SKILL_PACKAGE_METADATA["agent_browser"]["name"],
+            "description": SKILL_PACKAGE_METADATA["agent_browser"]["description"],
+            "installed": has_agent_browser,
+        },
         "crawl4ai": {
-            "name": "Crawl4AI",
-            "description": "Web crawling and scraping skill for extracting content from websites",
+            "name": SKILL_PACKAGE_METADATA["crawl4ai"]["name"],
+            "description": SKILL_PACKAGE_METADATA["crawl4ai"]["description"],
             "installed": has_crawl4ai,
         },
     }
@@ -389,7 +563,10 @@ def install_skills() -> None:
     Installs:
     1. openskills CLI (npm package)
     2. Anthropic skills collection
-    3. Crawl4AI skill
+    3. OpenAI skills collection
+    4. Vercel agent skills collection
+    5. Vercel Agent Browser skill
+    6. Crawl4AI skill
 
     This function is called by `massgen --setup-skills` command.
     """
@@ -404,15 +581,24 @@ def install_skills() -> None:
     results.append(("openskills CLI", install_openskills_cli()))
     print()
 
-    # 2. Install Anthropic skills (only if openskills succeeded)
+    # 2-5. Install openskills-backed packages (only if openskills succeeded)
     if results[0][1]:
         results.append(("Anthropic skills", install_anthropic_skills()))
+        print()
+        results.append(("OpenAI skills", install_openai_skills()))
+        print()
+        results.append(("Vercel agent skills", install_vercel_skills()))
+        print()
+        results.append(("Vercel Agent Browser skill", install_agent_browser_skill()))
     else:
-        _print_warning("Skipping Anthropic skills (openskills required)")
+        _print_warning("Skipping openskills packages (openskills CLI required)")
         results.append(("Anthropic skills", False))
+        results.append(("OpenAI skills", False))
+        results.append(("Vercel agent skills", False))
+        results.append(("Vercel Agent Browser skill", False))
     print()
 
-    # 3. Install Crawl4AI skill
+    # 6. Install Crawl4AI skill
     results.append(("Crawl4AI skill", install_crawl4ai_skill()))
     print()
 
@@ -455,6 +641,102 @@ def install_skills() -> None:
         print("  • Run 'massgen --setup-skills' again to retry")
         print()
         sys.exit(1)
+
+
+def install_quickstart_skills() -> bool:
+    """Ensure quickstart-required skill packages are installed.
+
+    This is used by ``massgen --quickstart``. Unlike ``install_skills()``,
+    this function never exits the process and only installs missing packages.
+
+    Returns:
+        True if required skill packages are available after installation attempts,
+        False otherwise.
+    """
+    _print_header("Quickstart Skills Setup")
+
+    packages = check_skill_packages_installed()
+    openskills_installed = _check_command_exists("openskills")
+    anthropic_installed = packages["anthropic"]["installed"]
+    openai_installed = packages["openai"]["installed"]
+    vercel_installed = packages["vercel"]["installed"]
+    agent_browser_installed = packages["agent_browser"]["installed"]
+    crawl4ai_installed = packages["crawl4ai"]["installed"]
+
+    if openskills_installed and anthropic_installed and openai_installed and vercel_installed and agent_browser_installed and crawl4ai_installed:
+        _print_success("Required quickstart skill packages are already installed")
+        return True
+
+    results = []
+
+    # Ensure openskills CLI is available for skill reads.
+    if openskills_installed:
+        _print_success("openskills CLI already installed")
+        results.append(("openskills CLI", True))
+    else:
+        results.append(("openskills CLI", install_openskills_cli()))
+
+    openskills_ok = results[-1][1]
+
+    # Install Anthropic collection only when missing.
+    if anthropic_installed:
+        _print_success("Anthropic skills already installed")
+        results.append(("Anthropic skills", True))
+    else:
+        if openskills_ok:
+            results.append(("Anthropic skills", install_anthropic_skills()))
+        else:
+            _print_warning("Skipping Anthropic skills because openskills failed to install")
+            results.append(("Anthropic skills", False))
+
+    # Install OpenAI collection only when missing.
+    if openai_installed:
+        _print_success("OpenAI skills already installed")
+        results.append(("OpenAI skills", True))
+    else:
+        if openskills_ok:
+            results.append(("OpenAI skills", install_openai_skills()))
+        else:
+            _print_warning("Skipping OpenAI skills because openskills failed to install")
+            results.append(("OpenAI skills", False))
+
+    # Install Vercel agent skills collection only when missing.
+    if vercel_installed:
+        _print_success("Vercel agent skills already installed")
+        results.append(("Vercel agent skills", True))
+    else:
+        if openskills_ok:
+            results.append(("Vercel agent skills", install_vercel_skills()))
+        else:
+            _print_warning("Skipping Vercel agent skills because openskills failed to install")
+            results.append(("Vercel agent skills", False))
+
+    # Install Vercel Agent Browser skill only when missing.
+    if agent_browser_installed:
+        _print_success("Vercel Agent Browser skill already installed")
+        results.append(("Vercel Agent Browser skill", True))
+    else:
+        if openskills_ok:
+            results.append(("Vercel Agent Browser skill", install_agent_browser_skill()))
+        else:
+            _print_warning("Skipping Vercel Agent Browser skill because openskills failed to install")
+            results.append(("Vercel Agent Browser skill", False))
+
+    # Install Crawl4AI only when missing.
+    if crawl4ai_installed:
+        _print_success("Crawl4AI skill already installed")
+        results.append(("Crawl4AI skill", True))
+    else:
+        results.append(("Crawl4AI skill", install_crawl4ai_skill()))
+
+    all_success = all(success for _, success in results)
+    if all_success:
+        _print_success("Quickstart skills are ready")
+    else:
+        _print_warning("Quickstart will continue, but some skill packages failed to install")
+        _print_info("Run 'massgen --setup-skills' to retry skill installation")
+
+    return all_success
 
 
 if __name__ == "__main__":

@@ -1089,23 +1089,47 @@ class SetupWizard(WizardModal):
             _setup_log(f"SetupWizard: Installing skill packages: {packages_to_install}")
             try:
                 from massgen.utils.skills_installer import (
+                    install_agent_browser_skill,
                     install_anthropic_skills,
                     install_crawl4ai_skill,
+                    install_openai_skills,
                     install_openskills_cli,
+                    install_vercel_skills,
                 )
 
-                # Always need openskills CLI first for anthropic skills
-                if "anthropic" in packages_to_install:
-                    _setup_log("SetupWizard: Installing openskills CLI")
-                    if install_openskills_cli():
-                        _setup_log("SetupWizard: Installing Anthropic skills")
-                        if install_anthropic_skills():
-                            installed_packages.append("anthropic")
+                openskills_installers = {
+                    "anthropic": install_anthropic_skills,
+                    "openai": install_openai_skills,
+                    "vercel": install_vercel_skills,
+                    "agent_browser": install_agent_browser_skill,
+                }
 
-                if "crawl4ai" in packages_to_install:
-                    _setup_log("SetupWizard: Installing Crawl4AI")
-                    if install_crawl4ai_skill():
-                        installed_packages.append("crawl4ai")
+                requested_openskills_packages = [pkg for pkg in packages_to_install if pkg in openskills_installers]
+                if requested_openskills_packages:
+                    _setup_log("SetupWizard: Installing openskills CLI")
+                    openskills_ready = install_openskills_cli()
+                else:
+                    openskills_ready = True
+
+                for package_id in packages_to_install:
+                    if package_id == "crawl4ai":
+                        _setup_log("SetupWizard: Installing Crawl4AI")
+                        if install_crawl4ai_skill():
+                            installed_packages.append("crawl4ai")
+                        continue
+
+                    installer = openskills_installers.get(package_id)
+                    if installer is None:
+                        _setup_log(f"SetupWizard: Unknown package '{package_id}', skipping")
+                        continue
+
+                    if not openskills_ready:
+                        _setup_log(f"SetupWizard: Skipping '{package_id}' because openskills CLI install failed")
+                        continue
+
+                    _setup_log(f"SetupWizard: Installing '{package_id}'")
+                    if installer():
+                        installed_packages.append(package_id)
 
             except Exception as e:
                 _setup_log(f"SetupWizard: Skills installation failed: {e}")

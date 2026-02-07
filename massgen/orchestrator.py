@@ -95,6 +95,8 @@ class AgentState:
         timeout_reason: Reason for timeout (if applicable)
         answer_count: Number of answers this agent has created (increments on new_answer)
         injection_count: Number of update injections this agent has received
+        midstream_injections_this_round: Number of source-agent updates injected in current round
+            (used to cap update fanout for stragglers).
         round_start_time: Timestamp when current round started (for per-round timeouts)
         round_timeout_hooks: Tuple of (post_hook, pre_hook) for per-round timeouts, or None
         round_timeout_state: Shared state for timeout hooks (tracks consecutive denials)
@@ -114,6 +116,7 @@ class AgentState:
     paraphrase: Optional[str] = None
     answer_count: int = 0  # Track number of answers for memory archiving
     injection_count: int = 0  # Track injections received for mid-stream injection timing
+    midstream_injections_this_round: int = 0  # Count source updates injected in current round
     restart_count: int = 0  # Track full restarts (TUI round = restart_count + 1)
     known_answer_ids: set = field(default_factory=set)  # Agent IDs whose answers this agent has seen
     decomposition_answer_streak: int = 0  # Decomposition mode: consecutive answers since unseen external updates
@@ -304,6 +307,9 @@ class Orchestrator(ChatAgent):
         # Coordination state tracking for cleanup
         self._active_streams: Dict = {}
         self._active_tasks: Dict = {}
+        # Fairness gate logging state to suppress repeated spam lines.
+        self._fairness_pause_log_reasons: Dict[str, str] = {}
+        self._fairness_block_log_states: Dict[str, Tuple[int, int]] = {}
 
         # Per-round worktree tracking: {agent_id: branch_name}
         # Each agent has exactly ONE branch alive at a time (one-branch-per-agent invariant)
@@ -1744,6 +1750,8 @@ class Orchestrator(ChatAgent):
 
             # Reset restart_pending flag at start of coordination (will be set again if restart needed)
             self.restart_pending = False
+            self._fairness_pause_log_reasons.clear()
+            self._fairness_block_log_states.clear()
 
             # Clear context path write tracking at start of each turn
             self._clear_context_path_write_tracking()
@@ -3375,6 +3383,15 @@ Your answer:"""
                 if self._apply_decomposition_auto_stop_if_needed(agent_id):
                     continue
 
+                pause_for_fairness, pause_reason = self._should_pause_agent_for_fairness(agent_id)
+                self._update_fairness_pause_log_state(
+                    agent_id,
+                    pause_for_fairness,
+                    pause_reason,
+                )
+                if pause_for_fairness:
+                    continue
+
                 if agent_id not in active_streams and not self.agent_states[agent_id].has_voted and not self.agent_states[agent_id].is_killed:
                     # Apply rate limiting before starting agent
                     await self._apply_agent_startup_rate_limit(agent_id)
@@ -3613,13 +3630,11 @@ Your answer:"""
                             logger.debug(
                                 f"VOTE BLOCK ENTERED for {agent_id}, result_data={result_data}",
                             )
-                            # Ignore votes from agents with restart pending (votes are about current state)
-                            # EXCEPTION 1: For single agent, if it's voting for itself after producing
-                            # its first answer, accept the vote (no other agents to wait for)
-                            # EXCEPTION 2: If restart_pending is stale (agent has already seen all
-                            # current answers), clear it and accept the vote. This prevents infinite
-                            # restart loops for fast agents that vote without tool calls (so the
-                            # mid-stream injection callback never fires to clear restart_pending).
+                            # Ignore votes from agents with restart pending (votes are about current state).
+                            # EXCEPTION 1: Single-agent run can clear stale restart_pending once it has an answer.
+                            # EXCEPTION 2: Revision-aware stale detection clears restart_pending when no unseen
+                            # latest peer updates remain.
+                            # EXCEPTION 3: Hard timeout acts as fairness cutoff and allows terminal actions.
                             restart_pending = self._check_restart_pending(agent_id)
                             is_single_agent = len(self.agents) == 1
                             agent_has_answer = self.agent_states[agent_id].answer is not None
@@ -3629,16 +3644,20 @@ Your answer:"""
                                 restart_pending = False
                                 logger.info(f"[Orchestrator] Single agent {agent_id} vote accepted (has own answer)")
                             if restart_pending:
-                                # Check if there are genuinely unseen answers
-                                current_answer_ids = {aid for aid, state in self.agent_states.items() if state.answer}
-                                known = self.agent_states[agent_id].known_answer_ids
-                                unseen = current_answer_ids - known
-                                if not unseen:
-                                    # No new answers the agent hasn't seen - stale restart_pending
+                                unseen_sources = self._get_unseen_source_agent_ids(agent_id)
+                                if self._is_hard_timeout_active(agent_id):
                                     self.agent_states[agent_id].restart_pending = False
                                     restart_pending = False
                                     logger.info(
-                                        f"[Orchestrator] Agent {agent_id} vote accepted (no unseen answers, clearing stale restart_pending)",
+                                        "[Orchestrator] Agent %s vote accepted at hard-timeout cutoff despite unseen updates",
+                                        agent_id,
+                                    )
+                                elif not unseen_sources:
+                                    # No unseen latest revisions remain - stale restart_pending.
+                                    self.agent_states[agent_id].restart_pending = False
+                                    restart_pending = False
+                                    logger.info(
+                                        f"[Orchestrator] Agent {agent_id} vote accepted (no unseen revisions, clearing stale restart_pending)",
                                     )
                             if restart_pending:
                                 voted_for = result_data.get("agent_id", "<unknown>")
@@ -4772,14 +4791,24 @@ Your answer:"""
 
             # Get CURRENT answers from agent_states
             current_answers = {aid: state.answer for aid, state in self.agent_states.items() if state.answer}
+            selected_answers, had_unseen_updates = self._select_midstream_answer_updates(
+                agent_id,
+                current_answers,
+            )
 
-            # Filter to only NEW answers (ones that didn't exist when this agent started)
-            new_answers = {aid: ans for aid, ans in current_answers.items() if aid not in answers}
-
-            if not new_answers:
-                # No new answers to inject - agent already has full context.
-                # Clear restart_pending since there's nothing new to show them.
-                self.agent_states[agent_id].restart_pending = False
+            if not selected_answers:
+                if had_unseen_updates:
+                    # Keep restart pending when unseen updates still exist.
+                    self.agent_states[agent_id].restart_pending = True
+                    cap = getattr(self.config, "max_midstream_injections_per_round", 2)
+                    logger.info(
+                        "[Orchestrator] Skipping mid-stream injection for %s: per-round cap reached (%s)",
+                        agent_id,
+                        cap,
+                    )
+                else:
+                    # No unseen updates remain: this was a stale restart_pending flag.
+                    self.agent_states[agent_id].restart_pending = False
                 return None
 
             # TIMING CONSTRAINT: Only use mid-stream injection after first traditional injection
@@ -4801,7 +4830,7 @@ Your answer:"""
             # Build injection content (pass existing answers to detect updates vs new)
             injection = self._build_tool_result_injection(
                 agent_id,
-                new_answers,
+                selected_answers,
                 existing_answers=answers,
             )
 
@@ -4812,7 +4841,7 @@ Your answer:"""
                     viewing_agent.backend.filesystem_manager.agent_temporary_workspace,
                 )
                 agent_mapping = self.coordination_tracker.get_reverse_agent_mapping()
-                for aid in new_answers.keys():
+                for aid in selected_answers.keys():
                     anon_id = agent_mapping.get(aid, f"agent_{aid}")
                     workspace_path = os.path.join(temp_workspace_base, anon_id)
                     if os.path.exists(workspace_path):
@@ -4830,23 +4859,24 @@ Your answer:"""
                             f"[Orchestrator] Injection workspace {workspace_path} does NOT exist!",
                         )
 
-            # Clear restart_pending since injection satisfies the update need
-            self.agent_states[agent_id].restart_pending = False
-
             # Increment injection count
             self.agent_states[agent_id].injection_count += 1
+            self.agent_states[agent_id].midstream_injections_this_round += len(selected_answers)
 
             # Update answers to include newly injected answers (prevents re-injection)
             # This mutates the captured closure variable so future callbacks see updated state
-            answers.update(new_answers)
+            answers.update(selected_answers)
 
             # Update known_answer_ids so vote validation knows this agent has seen these
-            self.agent_states[agent_id].known_answer_ids.update(new_answers.keys())
-            self._sync_decomposition_answer_visibility(agent_id)
+            self.agent_states[agent_id].known_answer_ids.update(selected_answers.keys())
+            self._register_injected_answer_updates(agent_id, list(selected_answers.keys()))
+
+            # Keep restart pending if additional unseen revisions still remain.
+            self.agent_states[agent_id].restart_pending = self._has_unseen_answer_updates(agent_id)
 
             # Track the injection
             logger.info(
-                f"[Orchestrator] Mid-stream injection for {agent_id}: {len(new_answers)} new answer(s)",
+                f"[Orchestrator] Mid-stream injection for {agent_id}: {len(selected_answers)} answer update(s)",
             )
             # Log the actual injection content at debug level (may contain sensitive data)
             preview = injection[:2000] + ("..." if len(injection) > 2000 else "")
@@ -4854,7 +4884,7 @@ Your answer:"""
             self.coordination_tracker.track_agent_action(
                 agent_id,
                 ActionType.UPDATE_INJECTED,
-                f"Mid-stream: {len(new_answers)} answer(s)",
+                f"Mid-stream: {len(selected_answers)} answer(s)",
             )
 
             # Emit injection_received event for TUI
@@ -4863,14 +4893,14 @@ Your answer:"""
             if _inj_emitter:
                 _inj_emitter.emit_injection_received(
                     agent_id=agent_id,
-                    source_agents=list(new_answers.keys()),
+                    source_agents=list(selected_answers.keys()),
                     injection_type="mid_stream",
                 )
 
             # Update agent's context labels
             self.coordination_tracker.update_agent_context_with_new_answers(
                 agent_id,
-                list(new_answers.keys()),
+                list(selected_answers.keys()),
             )
 
             return injection
@@ -5081,6 +5111,9 @@ Your answer:"""
         # Define the injection callback (same logic as GeneralHookManager path)
         async def get_injection_content() -> Optional[str]:
             """Check if mid-stream injection is needed and return content."""
+            if self.config.disable_injection:
+                return None
+
             if not self._check_restart_pending(agent_id):
                 return None
 
@@ -5090,14 +5123,22 @@ Your answer:"""
 
             # Get CURRENT answers from agent_states
             current_answers = {aid: state.answer for aid, state in self.agent_states.items() if state.answer}
+            selected_answers, had_unseen_updates = self._select_midstream_answer_updates(
+                agent_id,
+                current_answers,
+            )
 
-            # Filter to only NEW answers
-            new_answers = {aid: ans for aid, ans in current_answers.items() if aid not in answers}
-
-            if not new_answers:
-                # No new answers to inject - agent already has full context.
-                # Clear restart_pending since there's nothing new to show them.
-                self.agent_states[agent_id].restart_pending = False
+            if not selected_answers:
+                if had_unseen_updates:
+                    self.agent_states[agent_id].restart_pending = True
+                    cap = getattr(self.config, "max_midstream_injections_per_round", 2)
+                    logger.info(
+                        "[Orchestrator] Skipping native mid-stream injection for %s: per-round cap reached (%s)",
+                        agent_id,
+                        cap,
+                    )
+                else:
+                    self.agent_states[agent_id].restart_pending = False
                 return None
 
             # TIMING CONSTRAINT: Only use mid-stream injection after first traditional injection
@@ -5117,23 +5158,24 @@ Your answer:"""
             # Build injection content
             injection = self._build_tool_result_injection(
                 agent_id,
-                new_answers,
+                selected_answers,
                 existing_answers=answers,
             )
 
-            # Clear restart_pending since injection satisfies the update need
-            self.agent_states[agent_id].restart_pending = False
-
             # Increment injection count
             self.agent_states[agent_id].injection_count += 1
+            self.agent_states[agent_id].midstream_injections_this_round += len(selected_answers)
 
             # Update answers to include newly injected answers (prevents re-injection)
             # This mutates the captured closure variable so future callbacks see updated state
-            answers.update(new_answers)
+            answers.update(selected_answers)
 
             # Update known_answer_ids so vote validation knows this agent has seen these
-            self.agent_states[agent_id].known_answer_ids.update(new_answers.keys())
-            self._sync_decomposition_answer_visibility(agent_id)
+            self.agent_states[agent_id].known_answer_ids.update(selected_answers.keys())
+            self._register_injected_answer_updates(agent_id, list(selected_answers.keys()))
+
+            # Keep restart pending if additional unseen revisions still remain.
+            self.agent_states[agent_id].restart_pending = self._has_unseen_answer_updates(agent_id)
 
             # Emit injection_received event for TUI
 
@@ -5141,24 +5183,24 @@ Your answer:"""
             if _inj_emitter:
                 _inj_emitter.emit_injection_received(
                     agent_id=agent_id,
-                    source_agents=list(new_answers.keys()),
+                    source_agents=list(selected_answers.keys()),
                     injection_type="mid_stream",
                 )
 
             # Track the injection
             logger.info(
-                f"[Orchestrator] Mid-stream injection (native) for {agent_id}: {len(new_answers)} new answer(s)",
+                f"[Orchestrator] Mid-stream injection (native) for {agent_id}: {len(selected_answers)} answer update(s)",
             )
             self.coordination_tracker.track_agent_action(
                 agent_id,
                 ActionType.UPDATE_INJECTED,
-                f"Mid-stream (native): {len(new_answers)} answer(s)",
+                f"Mid-stream (native): {len(selected_answers)} answer(s)",
             )
 
             # Update agent's context labels
             self.coordination_tracker.update_agent_context_with_new_answers(
                 agent_id,
-                list(new_answers.keys()),
+                list(selected_answers.keys()),
             )
 
             return injection
@@ -5515,18 +5557,89 @@ Your answer:"""
         """Return True when orchestration is running in decomposition mode."""
         return getattr(self.config, "coordination_mode", "voting") == "decomposition"
 
+    def _is_fairness_enabled(self) -> bool:
+        """Return True when fairness controls are enabled."""
+        return bool(getattr(self.config, "fairness_enabled", True))
+
+    def _update_fairness_pause_log_state(
+        self,
+        agent_id: str,
+        is_paused: bool,
+        pause_reason: Optional[str],
+    ) -> None:
+        """Log fairness pre-start pause transitions once per state change."""
+        if is_paused:
+            reason = pause_reason or "waiting for peers"
+            if self._fairness_pause_log_reasons.get(agent_id) == reason:
+                return
+            self._fairness_pause_log_reasons[agent_id] = reason
+            logger.info(
+                f"[Orchestrator] Pausing {agent_id} before round start due to fairness gate: {reason}",
+            )
+            return
+
+        if agent_id in self._fairness_pause_log_reasons:
+            self._fairness_pause_log_reasons.pop(agent_id, None)
+            logger.info(
+                f"[Orchestrator] Fairness gate cleared for {agent_id}; resuming round starts",
+            )
+
+    def _log_fairness_answer_lead_block(
+        self,
+        agent_id: str,
+        projected_lead: int,
+        lead_cap: int,
+    ) -> None:
+        """Log fairness lead-cap block once per distinct blocked state."""
+        block_state = (projected_lead, lead_cap)
+        if self._fairness_block_log_states.get(agent_id) == block_state:
+            return
+        self._fairness_block_log_states[agent_id] = block_state
+        logger.info(
+            f"[Orchestrator] Fairness gate blocked new_answer for {agent_id} " f"(projected_lead={projected_lead}, cap={lead_cap})",
+        )
+
+    def _clear_fairness_answer_lead_block_log(self, agent_id: str) -> None:
+        """Clear per-agent fairness lead-cap block log state."""
+        self._fairness_block_log_states.pop(agent_id, None)
+
+    def _get_agent_answer_revision_count(self, agent_id: str) -> int:
+        """Get total answer revisions submitted by an agent."""
+        return len(self.coordination_tracker.answers_by_agent.get(agent_id, []))
+
+    def _get_active_fairness_agents(self) -> List[str]:
+        """Return agents currently active for fairness gating.
+
+        Agents already done (has_voted/stop) or killed are excluded so fairness
+        does not deadlock late-stage coordination.
+        """
+        active_agents: List[str] = []
+        for aid, state in self.agent_states.items():
+            if state.is_killed or state.has_voted:
+                continue
+            active_agents.append(aid)
+        return active_agents
+
+    def _terminal_action_wording(self) -> str:
+        """Return mode-specific terminal action guidance for error messaging."""
+        if self._is_decomposition_mode():
+            return "call `stop`"
+        return "vote for an existing answer"
+
     def _get_answer_revision_counts(self) -> Dict[str, int]:
         """Get current answer revision counts for all orchestrated agents."""
         return {aid: len(self.coordination_tracker.answers_by_agent.get(aid, [])) for aid in self.agents.keys()}
 
-    def _sync_decomposition_answer_visibility(self, agent_id: str) -> None:
-        """Update seen-answer revision snapshot and reset streak on unseen external updates.
+    def _get_current_answers_snapshot(self) -> Dict[str, str]:
+        """Return latest submitted answer content for each agent that has one."""
+        return {aid: state.answer for aid, state in self.agent_states.items() if state.answer}
 
-        In decomposition mode, per-agent answer limits are tracked as consecutive
-        answers since the agent last saw any external answer update.
+    def _sync_decomposition_answer_visibility(self, agent_id: str) -> None:
+        """Update seen-answer revision snapshot for an agent.
+
+        In decomposition mode this also resets the consecutive answer streak when
+        unseen external updates were observed.
         """
-        if not self._is_decomposition_mode():
-            return
 
         state = self.agent_states.get(agent_id)
         if not state:
@@ -5535,7 +5648,7 @@ Your answer:"""
         current_counts = self._get_answer_revision_counts()
         saw_unseen_external_update = any(other_id != agent_id and current_count > state.seen_answer_counts.get(other_id, 0) for other_id, current_count in current_counts.items())
 
-        if saw_unseen_external_update and state.decomposition_answer_streak > 0:
+        if self._is_decomposition_mode() and saw_unseen_external_update and state.decomposition_answer_streak > 0:
             logger.info(
                 "[Orchestrator] Reset decomposition answer streak for %s after seeing external answer updates",
                 agent_id,
@@ -5543,6 +5656,234 @@ Your answer:"""
             state.decomposition_answer_streak = 0
 
         state.seen_answer_counts = current_counts
+
+    def _mark_seen_answer_revisions(self, agent_id: str, source_agent_ids: List[str]) -> None:
+        """Mark current answer revisions from source agents as seen by `agent_id`."""
+        state = self.agent_states.get(agent_id)
+        if not state:
+            return
+        for source_agent_id in source_agent_ids:
+            state.seen_answer_counts[source_agent_id] = self._get_agent_answer_revision_count(source_agent_id)
+
+    def _get_latest_answer_revision_timestamp(self, source_agent_id: str) -> float:
+        """Get timestamp of the latest answer revision for an agent."""
+        revisions = self.coordination_tracker.answers_by_agent.get(source_agent_id, [])
+        if not revisions:
+            return 0.0
+        latest_revision = revisions[-1]
+        return float(getattr(latest_revision, "timestamp", 0.0) or 0.0)
+
+    def _get_unseen_answer_update_candidates(
+        self,
+        agent_id: str,
+        current_answers: Dict[str, str],
+    ) -> List[Tuple[str, str, float]]:
+        """Return unseen source answer updates sorted newest-first by revision timestamp."""
+        state = self.agent_states.get(agent_id)
+        if not state:
+            return []
+
+        unseen_candidates: List[Tuple[str, str, float]] = []
+        for source_agent_id, answer_content in current_answers.items():
+            # Never inject an agent's own answer back into itself.
+            if source_agent_id == agent_id:
+                continue
+
+            seen_revision_count = state.seen_answer_counts.get(source_agent_id, 0)
+            current_revision_count = self._get_agent_answer_revision_count(source_agent_id)
+            if current_revision_count <= seen_revision_count:
+                continue
+
+            unseen_candidates.append(
+                (
+                    source_agent_id,
+                    answer_content,
+                    self._get_latest_answer_revision_timestamp(source_agent_id),
+                ),
+            )
+
+        unseen_candidates.sort(key=lambda item: item[2], reverse=True)
+        return unseen_candidates
+
+    def _get_unseen_source_agent_ids(self, agent_id: str) -> List[str]:
+        """Return source agents whose latest revisions are unseen by `agent_id`."""
+        unseen_candidates = self._get_unseen_answer_update_candidates(
+            agent_id,
+            self._get_current_answers_snapshot(),
+        )
+        return [source_agent_id for source_agent_id, _, _ in unseen_candidates]
+
+    def _has_unseen_answer_updates(self, agent_id: str) -> bool:
+        """Return True when `agent_id` still has unseen latest peer revisions."""
+        return bool(self._get_unseen_source_agent_ids(agent_id))
+
+    def _select_midstream_answer_updates(
+        self,
+        agent_id: str,
+        current_answers: Dict[str, str],
+    ) -> tuple[Dict[str, str], bool]:
+        """Select answer updates for mid-stream injection.
+
+        Returns:
+            Tuple of (selected_answers, had_unseen_updates). selected_answers may be
+            empty if unseen updates exist but fairness cap for this round is exhausted.
+        """
+        unseen_candidates = self._get_unseen_answer_update_candidates(
+            agent_id,
+            current_answers,
+        )
+        if not unseen_candidates:
+            return ({}, False)
+
+        state = self.agent_states.get(agent_id)
+        if not state:
+            return ({}, True)
+
+        selected_candidates = unseen_candidates
+        if self._is_fairness_enabled():
+            cap = int(getattr(self.config, "max_midstream_injections_per_round", 2))
+            remaining_slots = max(cap - state.midstream_injections_this_round, 0)
+            if remaining_slots <= 0:
+                return ({}, True)
+            selected_candidates = unseen_candidates[:remaining_slots]
+
+        selected_answers = {source_agent_id: answer for source_agent_id, answer, _ in selected_candidates}
+        return (selected_answers, True)
+
+    def _register_injected_answer_updates(self, agent_id: str, source_agent_ids: List[str]) -> None:
+        """Apply per-agent state updates after mid-stream answer injection."""
+        state = self.agent_states.get(agent_id)
+        if not state or not source_agent_ids:
+            return
+
+        external_sources = [source_id for source_id in source_agent_ids if source_id != agent_id]
+        if self._is_decomposition_mode() and external_sources and state.decomposition_answer_streak > 0:
+            logger.info(
+                "[Orchestrator] Reset decomposition answer streak for %s after mid-stream answer injection",
+                agent_id,
+            )
+            state.decomposition_answer_streak = 0
+
+        self._mark_seen_answer_revisions(agent_id, source_agent_ids)
+
+    def _check_fairness_answer_lead_cap(self, agent_id: str) -> tuple[bool, Optional[str]]:
+        """Enforce max lead in answer revisions over slowest active peer."""
+        if not self._is_fairness_enabled():
+            self._clear_fairness_answer_lead_block_log(agent_id)
+            return (True, None)
+
+        lead_cap = getattr(self.config, "fairness_lead_cap_answers", 1)
+        if lead_cap is None:
+            self._clear_fairness_answer_lead_block_log(agent_id)
+            return (True, None)
+
+        active_agents = self._get_active_fairness_agents()
+        if agent_id not in active_agents or len(active_agents) <= 1:
+            self._clear_fairness_answer_lead_block_log(agent_id)
+            return (True, None)
+
+        peer_counts = [self._get_agent_answer_revision_count(aid) for aid in active_agents if aid != agent_id]
+        if not peer_counts:
+            self._clear_fairness_answer_lead_block_log(agent_id)
+            return (True, None)
+
+        current_count = self._get_agent_answer_revision_count(agent_id)
+        projected_lead = (current_count + 1) - min(peer_counts)
+
+        if projected_lead <= lead_cap:
+            self._clear_fairness_answer_lead_block_log(agent_id)
+            return (True, None)
+
+        terminal_action = self._terminal_action_wording()
+        error_msg = (
+            f"Fairness lead cap reached: submitting another `new_answer` would put you {projected_lead} answer(s) "
+            f"ahead of the slowest active peer (cap={lead_cap}). Please wait for peers to catch up or {terminal_action}."
+        )
+        self._log_fairness_answer_lead_block(
+            agent_id,
+            projected_lead,
+            lead_cap,
+        )
+        return (False, error_msg)
+
+    def _should_pause_agent_for_fairness(self, agent_id: str) -> tuple[bool, Optional[str]]:
+        """Return whether an agent should wait before starting due to fairness lead cap.
+
+        This is a pre-round gate that prevents a fast agent from starting another
+        expensive iteration when `new_answer` would be rejected anyway.
+        """
+        if not self._is_fairness_enabled():
+            return (False, None)
+        if self.config.disable_injection:
+            return (False, None)
+
+        state = self.agent_states.get(agent_id)
+        if not state or state.has_voted or state.is_killed:
+            return (False, None)
+
+        # Never block first answer round.
+        if self._get_agent_answer_revision_count(agent_id) == 0:
+            return (False, None)
+
+        # At hard timeout, allow terminal progress instead of pausing indefinitely.
+        if self._is_hard_timeout_active(agent_id):
+            return (False, None)
+
+        fairness_ok, fairness_error = self._check_fairness_answer_lead_cap(agent_id)
+        if fairness_ok:
+            return (False, None)
+        return (True, fairness_error)
+
+    def _is_hard_timeout_active(self, agent_id: str) -> bool:
+        """Return True when hard timeout is currently active for an agent."""
+        state = self.agent_states.get(agent_id)
+        if not state:
+            return False
+
+        timeout_config = getattr(self.config, "timeout_config", None)
+        if timeout_config is None:
+            return False
+
+        grace_seconds = timeout_config.round_timeout_grace_seconds or 0
+        shared_timeout_state = state.round_timeout_state
+        if shared_timeout_state and shared_timeout_state.soft_timeout_fired_at is not None:
+            return (time.time() - shared_timeout_state.soft_timeout_fired_at) >= grace_seconds
+
+        if state.round_start_time is None:
+            return False
+
+        current_round = self.coordination_tracker.get_agent_round(agent_id)
+        if current_round == 0:
+            soft_timeout = timeout_config.initial_round_timeout_seconds
+        else:
+            soft_timeout = timeout_config.subsequent_round_timeout_seconds
+        if soft_timeout is None:
+            return False
+
+        elapsed = time.time() - state.round_start_time
+        return elapsed >= (soft_timeout + grace_seconds)
+
+    def _check_terminal_fairness_gate(self, agent_id: str) -> tuple[bool, Optional[str]]:
+        """Enforce that terminal actions only happen after latest peer updates are seen."""
+        if not self._is_fairness_enabled():
+            return (True, None)
+
+        # In independent refinement mode, agents do not receive cross-agent updates.
+        if self.config.disable_injection:
+            return (True, None)
+
+        # Hard timeout is the fairness cutoff: allow terminal actions to avoid deadlock.
+        if self._is_hard_timeout_active(agent_id):
+            return (True, None)
+
+        unseen_sources = self._get_unseen_source_agent_ids(agent_id)
+        if not unseen_sources:
+            return (True, None)
+
+        source_list = ", ".join(unseen_sources)
+        terminal_action = self._terminal_action_wording()
+        error_msg = f"Fairness gate: before you {terminal_action}, you must first observe the latest update(s) " f"from: {source_list}. Continue working and wait for context injection."
+        return (False, error_msg)
 
     def _get_agent_answer_count_for_limit(self, agent_id: str) -> int:
         """Get answer count used for per-agent answer limit enforcement."""
@@ -5590,28 +5931,31 @@ Your answer:"""
             )
             return (False, error_msg)
 
-        # No per-agent limit set
-        if self.config.max_new_answers_per_agent is None:
-            return (True, None)
+        if self.config.max_new_answers_per_agent is not None:
+            # In voting mode this is total answers by agent; in decomposition mode this is
+            # the consecutive streak since the agent last saw external updates.
+            answer_count = self._get_agent_answer_count_for_limit(agent_id)
 
-        # In voting mode this is total answers by agent; in decomposition mode this is
-        # the consecutive streak since the agent last saw external updates.
-        answer_count = self._get_agent_answer_count_for_limit(agent_id)
-
-        if answer_count >= self.config.max_new_answers_per_agent:
-            if is_decomposition:
-                error_msg = (
-                    f"You've reached the maximum of {self.config.max_new_answers_per_agent} " "consecutive new answer(s) without seeing external updates. " "Please call `stop` to signal you are done."
+            if answer_count >= self.config.max_new_answers_per_agent:
+                if is_decomposition:
+                    error_msg = (
+                        f"You've reached the maximum of {self.config.max_new_answers_per_agent} "
+                        "consecutive new answer(s) without seeing external updates. "
+                        "Please call `stop` to signal you are done."
+                    )
+                else:
+                    error_msg = f"You've reached the maximum of {self.config.max_new_answers_per_agent} " "new answer(s). Please vote for the best existing answer using the `vote` tool."
+                logger.info(
+                    "[Orchestrator] Answer rejected: %s has reached per-agent limit (%s/%s)",
+                    agent_id,
+                    answer_count,
+                    self.config.max_new_answers_per_agent,
                 )
-            else:
-                error_msg = f"You've reached the maximum of {self.config.max_new_answers_per_agent} " "new answer(s). Please vote for the best existing answer using the `vote` tool."
-            logger.info(
-                "[Orchestrator] Answer rejected: %s has reached per-agent limit (%s/%s)",
-                agent_id,
-                answer_count,
-                self.config.max_new_answers_per_agent,
-            )
-            return (False, error_msg)
+                return (False, error_msg)
+
+        fairness_ok, fairness_error = self._check_fairness_answer_lead_cap(agent_id)
+        if not fairness_ok:
+            return (False, fairness_error)
 
         return (True, None)
 
@@ -6166,6 +6510,7 @@ Your answer:"""
         # Initialize agent state
         self.agent_states[agent_id].is_killed = False
         self.agent_states[agent_id].timeout_reason = None
+        self.agent_states[agent_id].midstream_injections_this_round = 0
 
         # Track whether we've notified TUI of new round (done once per real execution)
         _notified_round = False
@@ -7297,6 +7642,48 @@ Your answer:"""
                                     yield ("done", None)
                                     return
 
+                            terminal_ok, terminal_error = self._check_terminal_fairness_gate(agent_id)
+                            if not terminal_ok:
+                                # Keep restart_pending so the next tool cycle can inject unseen updates.
+                                self.agent_states[agent_id].restart_pending = True
+
+                                if attempt < max_attempts - 1:
+                                    yield (
+                                        "content",
+                                        f"❌ Retry ({attempt + 1}/{max_attempts}): {terminal_error}",
+                                    )
+
+                                    buffer_preview, buffer_chars = self._get_buffer_content(agent)
+                                    self.coordination_tracker.track_enforcement_event(
+                                        agent_id=agent_id,
+                                        reason="fairness_terminal_wait",
+                                        attempt=attempt + 1,
+                                        max_attempts=max_attempts,
+                                        tool_calls=["vote"],
+                                        error_message=terminal_error,
+                                        buffer_preview=buffer_preview,
+                                        buffer_chars=buffer_chars,
+                                    )
+
+                                    enforcement_msg = self._create_tool_error_messages(
+                                        agent,
+                                        [tool_call],
+                                        terminal_error,
+                                    )
+                                    attempt += 1
+                                    continue
+
+                                logger.info(
+                                    "[Orchestrator] Fairness gate forcing restart for %s after repeated premature vote attempts",
+                                    agent_id,
+                                )
+                                yield (
+                                    "content",
+                                    f"⏳ {terminal_error} Restarting with latest context.",
+                                )
+                                yield ("done", None)
+                                return
+
                             voted_agent_anon = tool_args.get("agent_id")
                             reason = tool_args.get("reason", "")
 
@@ -7398,6 +7785,47 @@ Your answer:"""
 
                         elif tool_name == "stop":
                             workflow_tool_found = True
+                            terminal_ok, terminal_error = self._check_terminal_fairness_gate(agent_id)
+                            if not terminal_ok:
+                                self.agent_states[agent_id].restart_pending = True
+
+                                if attempt < max_attempts - 1:
+                                    yield (
+                                        "content",
+                                        f"❌ Retry ({attempt + 1}/{max_attempts}): {terminal_error}",
+                                    )
+
+                                    buffer_preview, buffer_chars = self._get_buffer_content(agent)
+                                    self.coordination_tracker.track_enforcement_event(
+                                        agent_id=agent_id,
+                                        reason="fairness_terminal_wait",
+                                        attempt=attempt + 1,
+                                        max_attempts=max_attempts,
+                                        tool_calls=["stop"],
+                                        error_message=terminal_error,
+                                        buffer_preview=buffer_preview,
+                                        buffer_chars=buffer_chars,
+                                    )
+
+                                    enforcement_msg = self._create_tool_error_messages(
+                                        agent,
+                                        [tool_call],
+                                        terminal_error,
+                                    )
+                                    attempt += 1
+                                    continue
+
+                                logger.info(
+                                    "[Orchestrator] Fairness gate forcing restart for %s after repeated premature stop attempts",
+                                    agent_id,
+                                )
+                                yield (
+                                    "content",
+                                    f"⏳ {terminal_error} Restarting with latest context.",
+                                )
+                                yield ("done", None)
+                                return
+
                             # Decomposition mode: agent signals subtask is complete
                             summary = tool_args.get("summary", "")
                             status = tool_args.get("status", "complete")
@@ -10602,6 +11030,7 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             state.timeout_reason = None
             state.answer_count = 0
             state.injection_count = 0
+            state.midstream_injections_this_round = 0
             state.restart_count = 0
             state.known_answer_ids = set()
             state.decomposition_answer_streak = 0
@@ -10618,6 +11047,8 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
         # Clear coordination state
         self._active_streams = {}
         self._active_tasks = {}
+        self._fairness_pause_log_reasons = {}
+        self._fairness_block_log_states = {}
 
         if self.dspy_paraphraser:
             self.dspy_paraphraser.clear_cache()

@@ -1921,6 +1921,7 @@ class DecompositionSection(SystemPromptSection):
 **CRITICAL: STAY IN YOUR LANE.** You MUST only work on YOUR assigned subtask above.
 Do NOT implement other agents' subtasks — other team members are handling those. Focus exclusively on delivering your piece.
 There may be overlap with what other agents already did near your area; you may review/refine/integrate that overlap, but do NOT take over unrelated subtasks.
+Team fairness policy is active: avoid runaway iteration loops and aim to finish rounds in roughly similar time/effort as peers.
 
 **HOW DECOMPOSITION MODE WORKS:**
 

@@ -601,6 +601,10 @@ class DockerManager:
         # Other common tools
         env_vars["GRADLE_USER_HOME"] = f"{workspace_data}/gradle"
 
+        # Playwright browsers are pre-installed in the image under /home/massgen/.cache.
+        # Keep this path fixed so runtime cache redirection does not trigger re-downloads.
+        env_vars["PLAYWRIGHT_BROWSERS_PATH"] = "/home/massgen/.cache/ms-playwright"
+
         if env_vars:
             logger.info(f"    Environment variables: {len(env_vars)} variable(s)")
 

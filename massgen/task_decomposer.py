@@ -107,6 +107,7 @@ Requirements:
 - Assign exactly one subtask to each agent ID.
 - Keep subtasks complementary and non-overlapping.
 - Make each subtask concrete and actionable.
+- Ensure subtasks are roughly equal in expected effort and completion time.
 - Return valid JSON only (no markdown/prose), using this schema:
 {{"subtasks": {{{", ".join(f'"{aid}": "subtask description"' for aid in agent_ids)}}}}}
 """
@@ -256,7 +257,13 @@ Requirements:
         return {}
 
     def _parse_subtasks_from_workspace(self, workspace_path: str, agent_ids: List[str]) -> Dict[str, str]:
-        """Parse decomposition JSON artifacts from subagent workspace."""
+        """Parse decomposition JSON artifacts from subagent workspace.
+
+        Searches three locations in order:
+        1. Direct workspace files (workspace root and agent_* dirs)
+        2. Log final/ directories - the orchestrator archives agent workspaces
+           to final/ before clearing them, so this is the reliable source.
+        """
         workspace = Path(workspace_path)
         if not workspace.exists():
             return {}
@@ -275,6 +282,19 @@ Requirements:
                 ],
             )
 
+        # Also search the subprocess log final/ directories.
+        # The orchestrator clears agent workspaces between rounds, but the
+        # final/ snapshot is always preserved in the log directory.
+        massgen_logs = workspace / ".massgen" / "massgen_logs"
+        if massgen_logs.exists():
+            for final_workspace in massgen_logs.glob("*/turn_*/attempt_*/final/*/workspace"):
+                candidate_files.extend(
+                    [
+                        final_workspace / "decomposition.json",
+                        final_workspace / "subtasks.json",
+                    ],
+                )
+
         for path in candidate_files:
             if not path.exists() or not path.is_file():
                 continue
@@ -288,6 +308,7 @@ Requirements:
                 if isinstance(subtasks_obj, dict):
                     normalized = self._normalize_subtasks(subtasks_obj, agent_ids)
                     if normalized:
+                        logger.info(f"[TaskDecomposer] Found subtasks in {path}")
                         return normalized
 
         return {}

@@ -112,6 +112,53 @@ def load_env_file():
 load_env_file()
 
 
+def _quickstart_config_uses_skills(config_path: Optional[str]) -> bool:
+    """Return True when a config enables coordination skills."""
+    if not config_path:
+        return False
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f) or {}
+    except Exception as e:
+        logger.debug(f"[Quickstart] Failed to read config for skill check ({config_path}): {e}")
+        return False
+
+    if not isinstance(config, dict):
+        return False
+
+    orchestrator = config.get("orchestrator", {})
+    if not isinstance(orchestrator, dict):
+        return False
+
+    coordination = orchestrator.get("coordination", {})
+    if not isinstance(coordination, dict):
+        return False
+
+    return bool(coordination.get("use_skills", False))
+
+
+def _ensure_quickstart_skills_ready(
+    config_path: Optional[str],
+    install_requested: bool = True,
+) -> bool:
+    """Install quickstart skill packages when generated config enables skills."""
+    if not install_requested:
+        logger.info("[Quickstart] Skipping skill package installation by user choice")
+        return True
+
+    if not _quickstart_config_uses_skills(config_path):
+        return True
+
+    try:
+        from .utils.skills_installer import install_quickstart_skills
+
+        return install_quickstart_skills()
+    except Exception as e:
+        logger.warning(f"[Quickstart] Skill setup failed: {e}")
+        return False
+
+
 def _setup_logfire_observability() -> bool:
     """Configure Logfire observability and instrument all LLM providers.
 
@@ -2393,6 +2440,12 @@ async def run_question_with_history(
     # Apply answer novelty requirement if specified
     if "answer_novelty_requirement" in orchestrator_cfg:
         orchestrator_config.answer_novelty_requirement = orchestrator_cfg["answer_novelty_requirement"]
+    if "fairness_enabled" in orchestrator_cfg:
+        orchestrator_config.fairness_enabled = orchestrator_cfg["fairness_enabled"]
+    if "fairness_lead_cap_answers" in orchestrator_cfg:
+        orchestrator_config.fairness_lead_cap_answers = orchestrator_cfg["fairness_lead_cap_answers"]
+    if "max_midstream_injections_per_round" in orchestrator_cfg:
+        orchestrator_config.max_midstream_injections_per_round = orchestrator_cfg["max_midstream_injections_per_round"]
 
     # Get context sharing parameters
     snapshot_storage = orchestrator_cfg.get("snapshot_storage")
@@ -2404,6 +2457,16 @@ async def run_question_with_history(
 
     if orchestrator_cfg.get("debug_final_answer"):
         orchestrator_config.debug_final_answer = orchestrator_cfg["debug_final_answer"]
+
+    # Apply subagent/TUI orchestrator flags
+    if orchestrator_cfg.get("skip_final_presentation", False):
+        orchestrator_config.skip_final_presentation = True
+    if orchestrator_cfg.get("skip_voting", False):
+        orchestrator_config.skip_voting = True
+    if orchestrator_cfg.get("disable_injection", False):
+        orchestrator_config.disable_injection = True
+    if "defer_voting_until_all_answered" in orchestrator_cfg:
+        orchestrator_config.defer_voting_until_all_answered = orchestrator_cfg["defer_voting_until_all_answered"]
 
     # Parse decomposition mode parameters
     if "coordination_mode" in orchestrator_cfg:
@@ -3067,6 +3130,12 @@ async def run_single_question(
         # Apply answer novelty requirement if specified
         if "answer_novelty_requirement" in orchestrator_cfg:
             orchestrator_config.answer_novelty_requirement = orchestrator_cfg["answer_novelty_requirement"]
+        if "fairness_enabled" in orchestrator_cfg:
+            orchestrator_config.fairness_enabled = orchestrator_cfg["fairness_enabled"]
+        if "fairness_lead_cap_answers" in orchestrator_cfg:
+            orchestrator_config.fairness_lead_cap_answers = orchestrator_cfg["fairness_lead_cap_answers"]
+        if "max_midstream_injections_per_round" in orchestrator_cfg:
+            orchestrator_config.max_midstream_injections_per_round = orchestrator_cfg["max_midstream_injections_per_round"]
 
         # Get context sharing parameters
         snapshot_storage = orchestrator_cfg.get("snapshot_storage")
@@ -3078,6 +3147,16 @@ async def run_single_question(
 
         if orchestrator_cfg.get("debug_final_answer"):
             orchestrator_config.debug_final_answer = orchestrator_cfg["debug_final_answer"]
+
+        # Apply subagent/TUI orchestrator flags
+        if orchestrator_cfg.get("skip_final_presentation", False):
+            orchestrator_config.skip_final_presentation = True
+        if orchestrator_cfg.get("skip_voting", False):
+            orchestrator_config.skip_voting = True
+        if orchestrator_cfg.get("disable_injection", False):
+            orchestrator_config.disable_injection = True
+        if "defer_voting_until_all_answered" in orchestrator_cfg:
+            orchestrator_config.defer_voting_until_all_answered = orchestrator_cfg["defer_voting_until_all_answered"]
 
         # Parse decomposition mode parameters
         if "coordination_mode" in orchestrator_cfg:
@@ -5450,10 +5529,26 @@ async def run_textual_interactive_mode(
                     orchestrator_config.max_new_answers_global = orchestrator_cfg["max_new_answers_global"]
                 if "answer_novelty_requirement" in orchestrator_cfg:
                     orchestrator_config.answer_novelty_requirement = orchestrator_cfg["answer_novelty_requirement"]
+                if "fairness_enabled" in orchestrator_cfg:
+                    orchestrator_config.fairness_enabled = orchestrator_cfg["fairness_enabled"]
+                if "fairness_lead_cap_answers" in orchestrator_cfg:
+                    orchestrator_config.fairness_lead_cap_answers = orchestrator_cfg["fairness_lead_cap_answers"]
+                if "max_midstream_injections_per_round" in orchestrator_cfg:
+                    orchestrator_config.max_midstream_injections_per_round = orchestrator_cfg["max_midstream_injections_per_round"]
                 if orchestrator_cfg.get("skip_coordination_rounds", False):
                     orchestrator_config.skip_coordination_rounds = True
                 if orchestrator_cfg.get("debug_final_answer"):
                     orchestrator_config.debug_final_answer = orchestrator_cfg["debug_final_answer"]
+
+                # Apply subagent/TUI orchestrator flags
+                if orchestrator_cfg.get("skip_final_presentation", False):
+                    orchestrator_config.skip_final_presentation = True
+                if orchestrator_cfg.get("skip_voting", False):
+                    orchestrator_config.skip_voting = True
+                if orchestrator_cfg.get("disable_injection", False):
+                    orchestrator_config.disable_injection = True
+                if "defer_voting_until_all_answered" in orchestrator_cfg:
+                    orchestrator_config.defer_voting_until_all_answered = orchestrator_cfg["defer_voting_until_all_answered"]
 
                 # Parse decomposition mode parameters
                 if "coordination_mode" in orchestrator_cfg:
@@ -8543,7 +8638,7 @@ Environment Variables:
     parser.add_argument(
         "--quickstart",
         action="store_true",
-        help="Quick setup: specify number of agents and models, get a full-featured config with code tools, Docker, skills",
+        help="Quick setup: specify number of agents/models, get a full-featured config with code tools and Docker, and optionally install skill packages",
     )
     parser.add_argument(
         "--generate-config",
@@ -8585,7 +8680,7 @@ Environment Variables:
     parser.add_argument(
         "--setup-skills",
         action="store_true",
-        help="Install skills (openskills CLI, Anthropic collection, Crawl4AI)",
+        help="Install skills (openskills CLI, Anthropic/OpenAI/Vercel collections, Agent Browser skill, Crawl4AI)",
     )
     parser.add_argument(
         "--setup-docker",
@@ -8853,6 +8948,10 @@ Environment Variables:
         config_path = result.get("config_path")
         question = result.get("question", "")
         launch_option = result.get("launch_option", "save_only")
+        install_skills_now = result.get("install_skills_now", True)
+
+        if config_path:
+            _ensure_quickstart_skills_ready(config_path, bool(install_skills_now))
 
         if config_path and launch_option == "web":
             try:
@@ -9182,6 +9281,10 @@ Environment Variables:
                 filepath = result[0]
                 question = result[1]
                 interface_choice = result[2] if len(result) >= 3 else "terminal"
+                install_skills_now = result[3] if len(result) >= 4 else True
+
+                if filepath:
+                    _ensure_quickstart_skills_ready(filepath, bool(install_skills_now))
 
                 if filepath and interface_choice == "web":
                     try:
@@ -9366,8 +9469,11 @@ Environment Variables:
                     filepath = result[0]
                     question = result[1]
                     interface_choice = result[2] if len(result) >= 3 else "terminal"
+                    install_skills_now = result[3] if len(result) >= 4 else True
 
                     if filepath:
+                        _ensure_quickstart_skills_ready(filepath, bool(install_skills_now))
+
                         # Set the config path
                         args.config = filepath
 

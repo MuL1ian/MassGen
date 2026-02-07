@@ -128,6 +128,10 @@ class APIParamsHandlerBase(ABC):
             "coordination_mode",
             "presenter_agent",
             "subtask",
+            # Fairness controls (handled by orchestrator, not passed to API)
+            "fairness_enabled",
+            "fairness_lead_cap_answers",
+            "max_midstream_injections_per_round",
         }
 
     def build_base_api_params(
