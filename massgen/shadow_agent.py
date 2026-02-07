@@ -22,7 +22,6 @@ Debug Mode:
 import json
 import logging
 import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -150,7 +149,6 @@ class ShadowAgentSpawner:
             shadow_history,
             shadow_id,
         )
-
         # 8. Save response to debug file if --debug flag is enabled
         if _DEBUG_MODE and debug_file_path:
             self._append_response_to_debug(debug_file_path, response)
@@ -435,6 +433,9 @@ Please provide your response:"""
         Returns:
             The generated text response
         """
+        # Import ChunkType for proper type comparison
+        from .stream_chunk import ChunkType
+
         # Use parent's backend with empty tools (text-only response)
         backend = parent_agent.backend
         accumulated_content = ""
@@ -445,10 +446,17 @@ Please provide your response:"""
                 tools=[],  # No tools - text only
                 agent_id=shadow_id,
             ):
+                # Get chunk type - handle both enum and string types
+                chunk_type = chunk.type
+                if isinstance(chunk_type, ChunkType):
+                    chunk_type_value = chunk_type.value
+                else:
+                    chunk_type_value = chunk_type
+
                 # Only collect content chunks
-                if chunk.type == "content" and chunk.content:
+                if chunk_type_value == "content" and chunk.content:
                     accumulated_content += chunk.content
-                elif chunk.type == "complete_message":
+                elif chunk_type_value == "complete_message":
                     # Some backends use complete_message for full response
                     if hasattr(chunk, "complete_message") and chunk.complete_message:
                         msg = chunk.complete_message
@@ -456,11 +464,11 @@ Please provide your response:"""
                             # If we haven't accumulated content, use complete message
                             if not accumulated_content:
                                 accumulated_content = msg["content"]
-                elif chunk.type == "error":
+                elif chunk_type_value == "error":
                     error_msg = getattr(chunk, "error", "Unknown error")
                     logger.error(f"[{shadow_id}] Backend error: {error_msg}")
                     return f"[Error generating response: {error_msg}]"
-                elif chunk.type == "done":
+                elif chunk_type_value == "done":
                     break
 
         except Exception as e:
