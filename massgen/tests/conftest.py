@@ -21,7 +21,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--run-integration",
         action="store_true",
         default=_env_flag("RUN_INTEGRATION"),
-        help="Run tests marked as integration (or set RUN_INTEGRATION=1).",
+        help="Run tests marked as integration scope (or set RUN_INTEGRATION=1).",
+    )
+    group.addoption(
+        "--run-live-api",
+        action="store_true",
+        default=_env_flag("RUN_LIVE_API"),
+        help="Run tests marked as live_api (real provider calls, may incur cost).",
     )
     group.addoption(
         "--run-docker",
@@ -59,6 +65,165 @@ class _XfailEntry:
 
 
 _expired_xfails: List[_XfailEntry] = []
+
+
+class MockLLMBackend:
+    """Deterministic backend for tests that should not call external APIs."""
+
+    def __init__(
+        self,
+        responses: Optional[List[str]] = None,
+        tool_call_responses: Optional[List[List[Dict[str, Any]]]] = None,
+        provider_name: str = "mock_provider",
+        stateful: bool = False,
+        model: str = "mock-model",
+    ):
+        self.responses = responses or ["Mock response"]
+        self.tool_call_responses = tool_call_responses or []
+        self._call_count = 0
+        self._provider_name = provider_name
+        self._stateful = stateful
+        self.config: Dict[str, Any] = {"model": model}
+        self.filesystem_manager = None
+        self._current_stage = None
+        self._planning_mode = False
+
+    def is_stateful(self) -> bool:
+        return self._stateful
+
+    async def clear_history(self) -> None:
+        return None
+
+    async def reset_state(self) -> None:
+        return None
+
+    def set_stage(self, stage: Any) -> None:
+        self._current_stage = stage
+
+    def set_planning_mode(self, enabled: bool) -> None:
+        self._planning_mode = enabled
+
+    def get_provider_name(self) -> str:
+        return self._provider_name
+
+    def extract_tool_name(self, tool_call: Dict[str, Any]) -> str:
+        if "name" in tool_call:
+            return str(tool_call.get("name", ""))
+        if isinstance(tool_call.get("function"), dict):
+            return str(tool_call["function"].get("name", ""))
+        return ""
+
+    def extract_tool_arguments(self, tool_call: Dict[str, Any]) -> Any:
+        if "arguments" in tool_call:
+            return tool_call.get("arguments", {})
+        if isinstance(tool_call.get("function"), dict):
+            return tool_call["function"].get("arguments", {})
+        return {}
+
+    def create_tool_result_message(self, tool_call: Dict[str, Any], result: str) -> Dict[str, Any]:
+        """Create a tool result message in chat-completions-compatible shape."""
+        tool_call_id = str(tool_call.get("id", "mock_tool_call"))
+        return {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": result,
+        }
+
+    async def stream_with_tools(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None, **kwargs):
+        from massgen.backend.base import StreamChunk
+
+        _ = (messages, tools, kwargs)
+        response = self.responses[self._call_count % len(self.responses)]
+        scripted_tool_calls: Optional[List[Dict[str, Any]]] = None
+        if self._call_count < len(self.tool_call_responses):
+            scripted_tool_calls = self.tool_call_responses[self._call_count]
+        self._call_count += 1
+
+        if scripted_tool_calls:
+            yield StreamChunk(type="tool_calls", tool_calls=scripted_tool_calls)
+        yield StreamChunk(type="content", content=response)
+        yield StreamChunk(
+            type="complete_message",
+            complete_message={"role": "assistant", "content": response},
+        )
+        yield StreamChunk(type="done")
+
+
+@pytest.fixture
+def mock_backend():
+    """Factory fixture for a deterministic mock backend."""
+
+    def _factory(
+        responses: Optional[List[str]] = None,
+        tool_call_responses: Optional[List[List[Dict[str, Any]]]] = None,
+        provider_name: str = "mock_provider",
+        stateful: bool = False,
+        model: str = "mock-model",
+    ) -> MockLLMBackend:
+        return MockLLMBackend(
+            responses=responses,
+            tool_call_responses=tool_call_responses,
+            provider_name=provider_name,
+            stateful=stateful,
+            model=model,
+        )
+
+    return _factory
+
+
+@pytest.fixture
+def mock_agent(mock_backend):
+    """Factory fixture for SingleAgent instances backed by MockLLMBackend."""
+    from massgen.chat_agent import SingleAgent
+
+    def _factory(
+        agent_id: str = "test_agent",
+        responses: Optional[List[str]] = None,
+        system_message: str = "Test system message",
+        backend_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        backend_kwargs = backend_kwargs or {}
+        backend = mock_backend(
+            responses=responses,
+            **backend_kwargs,
+        )
+        return SingleAgent(
+            backend=backend,
+            agent_id=agent_id,
+            system_message=system_message,
+        )
+
+    return _factory
+
+
+@pytest.fixture
+def mock_orchestrator(mock_agent):
+    """Factory fixture for Orchestrator instances with deterministic mock agents."""
+    from massgen.orchestrator import Orchestrator
+
+    def _factory(
+        num_agents: int = 2,
+        agent_responses: Optional[List[List[str]]] = None,
+        config: Optional[Any] = None,
+    ) -> Any:
+        agents: Dict[str, Any] = {}
+        for i in range(num_agents):
+            agent_id = f"agent_{chr(ord('a') + i)}"
+            responses = None
+            if agent_responses and i < len(agent_responses):
+                responses = agent_responses[i]
+            agents[agent_id] = mock_agent(
+                agent_id=agent_id,
+                responses=responses,
+                system_message=f"You are {agent_id}",
+            )
+
+        kwargs: Dict[str, Any] = {"agents": agents}
+        if config is not None:
+            kwargs["config"] = config
+        return Orchestrator(**kwargs)
+
+    return _factory
 
 
 def _parse_iso_date(d: Any) -> Optional[date]:
@@ -124,18 +289,22 @@ def _should_skip_marker(item: pytest.Item, marker: str) -> bool:
 
 def pytest_collection_modifyitems(config: pytest.Config, items: List[pytest.Item]) -> None:
     run_integration = bool(config.getoption("--run-integration"))
+    run_live_api = bool(config.getoption("--run-live-api"))
     run_docker = bool(config.getoption("--run-docker"))
     run_expensive = bool(config.getoption("--run-expensive"))
     xfail_registry_path = str(config.getoption("--xfail-registry"))
 
-    # 1) Default policy: skip integration/docker/expensive unless explicitly enabled.
+    # 1) Default policy: skip integration/live_api/docker/expensive unless explicitly enabled.
     skip_integration = pytest.mark.skip(reason="integration test (enable with --run-integration or RUN_INTEGRATION=1)")
+    skip_live_api = pytest.mark.skip(reason="live API test (enable with --run-live-api or RUN_LIVE_API=1)")
     skip_docker = pytest.mark.skip(reason="docker test (enable with --run-docker or RUN_DOCKER=1)")
     skip_expensive = pytest.mark.skip(reason="expensive test (enable with --run-expensive or RUN_EXPENSIVE=1)")
 
     for item in items:
         if (not run_integration) and _should_skip_marker(item, "integration"):
             item.add_marker(skip_integration)
+        if (not run_live_api) and _should_skip_marker(item, "live_api"):
+            item.add_marker(skip_live_api)
         if (not run_docker) and _should_skip_marker(item, "docker"):
             item.add_marker(skip_docker)
         if (not run_expensive) and _should_skip_marker(item, "expensive"):

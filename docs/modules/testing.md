@@ -11,22 +11,48 @@ Build a fully automated testing system for MassGen across:
 
 The target workflow is test-first: agree on tests with the user, implement tests, then implement code until tests pass.
 
-## Baseline (Validated on 2026-02-06)
+## Baseline (Validated on 2026-02-07)
 
-- `80` Python test files in `massgen/tests/`
-- `200` `Test*` classes in `massgen/tests/`
-- `29` xfail registry entries in `massgen/tests/xfail_registry.yml`
-- `18` of those xfails are expired as of `2026-02-06`
-- CI currently runs pre-commit checks, but does not run `pytest`
+- `102` Python test files in `massgen/tests/`
+- `198` `Test*` classes in `massgen/tests/`
+- `0` active xfail registry entries in `massgen/tests/xfail_registry.yml`
+- CI runs `pytest` on push/PR via `.github/workflows/tests.yml`
 - No first-party WebUI test files in `webui/src/`
-- No dedicated automated tests for `massgen/frontend/` TUI modules
+- Frontend unit coverage has started in `massgen/tests/frontend/`:
+  - `test_tool_batch_tracker.py`
+  - `test_content_processor.py`
+- Deterministic non-API integration coverage has started in `massgen/tests/integration/`:
+  - `test_orchestrator_voting.py`
+  - `test_orchestrator_consensus.py`
+  - `test_orchestrator_stream_enforcement.py`
+  - `test_orchestrator_timeout_selection.py`
+  - `test_orchestrator_restart_and_external_tools.py`
+  - `test_orchestrator_hooks_broadcast_subagents.py`
+  - `test_orchestrator_final_presentation_matrix.py`
+
+## Marker Model
+
+MassGen test selection now uses two separate axes:
+
+- `integration`: test scope (multi-component integration behavior).
+- `live_api`: real external provider calls (requires API keys, may incur cost).
+- `expensive`: high-cost subset of tests (typically also `live_api`).
+- `docker`: requires Docker runtime.
+
+Default policy is to skip gated categories unless explicitly enabled.
+
+- `--run-integration` or `RUN_INTEGRATION=1`
+- `--run-live-api` or `RUN_LIVE_API=1`
+- `--run-expensive` or `RUN_EXPENSIVE=1`
+- `--run-docker` or `RUN_DOCKER=1`
 
 ## Testing Strategy
+See `specs/002-testing-strategy/testing-strategy.md` for full information.
 
 ### P0: PR-Gated Fast Automation
 
 1. Add `pytest` workflow in `.github/workflows/tests.yml` for every push/PR.
-2. Keep expensive tests off by default (`RUN_EXPENSIVE=0`, `RUN_INTEGRATION=0`, `RUN_DOCKER=0`).
+2. Keep gated tests off by default (`RUN_INTEGRATION=0`, `RUN_LIVE_API=0`, `RUN_EXPENSIVE=0`, `RUN_DOCKER=0`).
 3. Add deterministic unit tests for:
    - `massgen/orchestrator.py`
    - `massgen/coordination_tracker.py`
@@ -128,7 +154,16 @@ make test-fast
 make test-all
 
 # Equivalent direct command for fast lane
-uv run pytest massgen/tests -q --tb=no
+uv run pytest massgen/tests --run-integration -m "not live_api and not docker and not expensive" -q --tb=no
+
+# Non-API push gate (includes deterministic integration, excludes live provider calls/docker/expensive)
+uv run pytest massgen/tests --run-integration -m "not live_api and not docker and not expensive" -q --tb=no
+
+# Deterministic integration tests (non-costly)
+uv run pytest massgen/tests/integration -q
+
+# Live API integration tests (costly, explicit opt-in)
+uv run pytest massgen/tests -m "integration and live_api" --run-integration --run-live-api -q
 
 # WebUI unit tests (after setup)
 cd webui && npm run test
@@ -136,3 +171,10 @@ cd webui && npm run test
 # WebUI E2E (after setup)
 cd webui && npx playwright test
 ```
+
+## Pre-Commit vs Fast Lane
+
+- `.pre-commit-config.yaml` includes a `pre-push` hook (`run-non-api-tests-on-push`) that runs the non-API lane.
+- Enable it locally with: `uv run pre-commit install --hook-type pre-push`.
+- The fast automation lane (`make test-fast` and `.github/workflows/tests.yml`) is where deterministic integration tests are expected to run.
+- Live API tests stay opt-in behind `live_api` gating to avoid accidental paid runs.

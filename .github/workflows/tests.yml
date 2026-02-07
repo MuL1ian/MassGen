@@ -30,7 +30,8 @@ jobs:
 
       - name: Run fast test lane
         env:
-          RUN_INTEGRATION: "0"
+          RUN_INTEGRATION: "1"
+          RUN_LIVE_API: "0"
           RUN_EXPENSIVE: "0"
           RUN_DOCKER: "0"
-        run: uv run pytest massgen/tests -q --tb=no
+        run: uv run pytest massgen/tests -m "not live_api and not docker and not expensive" -q --tb=no

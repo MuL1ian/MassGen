@@ -116,6 +116,13 @@ repos:
         args: [.]
   - repo: local
     hooks:
+      - id: run-non-api-tests-on-push
+        name: Run non-API test lane before push
+        entry: sh -c 'uv run pytest massgen/tests --run-integration -m "not live_api and not docker and not expensive" -q --tb=no'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
       - id: sync-agent-instructions
         name: Keep CLAUDE.md and AGENTS.md synchronized
         entry: python scripts/precommit_sync_agent_instructions.py

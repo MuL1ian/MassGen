@@ -937,11 +937,182 @@ For non-trivial feature work:
 
 | Metric | Current | Target (3 months) |
 |--------|---------|-------------------|
-| CI runs pytest | No | Yes, every PR |
+| CI runs pytest | Yes | Yes, every PR |
 | Unit test coverage | ~30% estimated | 60%+ |
 | Core modules tested | 0/5 | 5/5 |
 | TUI automated tests | 0 | 20+ |
 | WebUI automated tests | 0 | 30+ |
-| Integration tests (no API) | 0 | 15+ |
-| Expired xfails | 13 | 0 |
+| Integration tests (no API) | 17 | 15+ |
+| Expired xfails | 0 | 0 |
 | Manual testing required | High | Low (E2E for validation only) |
+
+---
+
+## Implementation Status (as of 2026-02-07)
+
+### Phase 1: Foundation
+
+- [x] 1.1 Add pytest to CI (`.github/workflows/tests.yml`)
+- [x] 1.2 Clean up expired/stale xfails (`massgen/tests/xfail_registry.yml`)
+- [x] 1.3 Add shared mock fixtures in `massgen/tests/conftest.py`
+- [x] 1.4a Add `coordination_tracker` core unit test file (`massgen/tests/unit/test_coordination_tracker.py`)
+- [x] 1.4b Add remaining core unit test files (`orchestrator`, `system_message_builder`, `mcp_tools/security`)
+  - [x] `orchestrator`: `massgen/tests/unit/test_orchestrator_unit.py`
+  - [x] `system_message_builder`: `massgen/tests/unit/test_system_message_builder.py`
+  - [x] `mcp_tools/security`: `massgen/tests/unit/test_mcp_security.py`
+- [x] 1.5 Add AGENTS/CLAUDE instruction parity hook (`sync-agent-instructions`)
+
+### Phase 2: TUI Testing
+
+- [x] Layer 1 baseline: `ToolBatchTracker` unit tests
+- [x] Layer 1 baseline: `ContentProcessor` unit tests
+- [ ] Layer 1 completion: helper-function coverage
+- [ ] Layer 2 widget tests (Textual Pilot)
+- [ ] Layer 3 snapshot tests (`pytest-textual-snapshot`)
+- [ ] Layer 4 golden transcript tests
+- [ ] Layer 5 LLM-assisted terminal evaluation
+
+### Phase 3: WebUI Testing
+
+- [ ] Vitest + RTL setup
+- [ ] Store tests (`agentStore`, `wizardStore`)
+- [ ] Playwright smoke flows
+
+### Phase 4: Non-API Integration Tests
+
+- [x] Scenario suite using deterministic mock backend
+  - [x] `massgen/tests/integration/test_orchestrator_voting.py`
+  - [x] `massgen/tests/integration/test_orchestrator_consensus.py`
+  - [x] `massgen/tests/integration/test_orchestrator_stream_enforcement.py`
+  - [x] `massgen/tests/integration/test_orchestrator_timeout_selection.py`
+  - [x] Phase 4 quality gate met: 17 deterministic non-API integration tests (`10+` required)
+
+### Phase 5: Nightly E2E
+
+- [ ] Nightly real-API workflow (`.github/workflows/nightly-e2e.yml`)
+
+---
+
+## Quality Gates and Exit Criteria
+
+Each phase is complete only when all gates below are satisfied.
+
+| Phase | Required Gates |
+|-------|----------------|
+| 1. Foundation | `tests.yml` runs on PRs, xfail cleanup complete, shared mock fixtures merged |
+| 2. TUI Testing | ToolBatchTracker + ContentProcessor tests in CI, widget tests passing, at least 5 golden transcript tests |
+| 3. WebUI Testing | Vitest in CI, store tests for `agentStore` and `wizardStore`, at least 2 Playwright smoke flows |
+| 4. Integration | 10+ non-API integration tests passing in CI with deterministic fixtures |
+| 5. Nightly E2E | Nightly workflow green for 7 consecutive runs with failure alerting enabled |
+
+Global exit criteria:
+
+1. `uv run pytest massgen/tests/ -v` must pass on every PR.
+2. No expired xfail entry may remain in `massgen/tests/xfail_registry.yml`.
+3. New core behavior changes must include at least one unit or integration test in the same PR.
+4. Any intentional snapshot/golden updates must include a short rationale in the PR description.
+
+---
+
+## 30-60-90 Day Delivery Plan
+
+### First 30 Days
+
+1. Land Phase 1 completely.
+2. Implement TUI Layer 1 tests for:
+   - `ToolBatchTracker`
+   - `ContentProcessor`
+   - `TimelineEventRecorder` pipeline behavior
+3. Add at least 5 orchestrator integration tests using `MockLLMBackend`.
+
+### Days 31-60
+
+1. Add TUI Layer 2 widget tests and initial snapshot coverage.
+2. Stand up WebUI Vitest stack and add store tests.
+3. Migrate 2 manual scripts from `scripts/` into pytest integration tests.
+
+### Days 61-90
+
+1. Enable Nightly E2E real-API workflow.
+2. Add Playwright WebUI smoke tests for setup and coordination flows.
+3. Reach target metrics:
+   - 20+ TUI tests
+   - 30+ WebUI tests
+   - 15+ no-API integration tests
+
+---
+
+## Ownership and Review Model
+
+| Area | Primary Owner | Secondary Owner | Review Requirement |
+|------|---------------|-----------------|--------------------|
+| Core backend and orchestration tests | Backend maintainers | Release maintainer | 1 backend maintainer approval |
+| TUI tests and snapshots | Frontend/TUI maintainers | Backend maintainer | 1 TUI maintainer approval |
+| WebUI tests | WebUI maintainers | Frontend/TUI maintainer | 1 WebUI maintainer approval |
+| CI workflows and flake policy | Release maintainer | Backend maintainer | 1 release maintainer approval |
+
+Pull request requirements for testing-related changes:
+
+1. Include exact command(s) used for local verification.
+2. Include test output summary (passed/failed/skipped counts).
+3. If adding an xfail, include issue link and expiry date.
+
+---
+
+## Flaky Test and Failure Policy
+
+### Classification
+
+| Class | Definition | Required Action |
+|-------|------------|-----------------|
+| Deterministic failure | Fails repeatedly in same code path | Fix before merge |
+| Intermittent/flaky | Non-deterministic pass/fail | Quarantine immediately and open tracking issue |
+| External dependency failure | API/service outage or rate limits | Retry in nightly; do not block regular PR CI |
+
+### Rules
+
+1. A flaky test may be quarantined for a maximum of 14 days.
+2. Quarantined tests must have:
+   - `@pytest.mark.flaky`
+   - Linked tracking issue
+   - Owner and expected fix date
+3. If a test flakes 3 times in 7 days, treat it as a release blocker until resolved or quarantined.
+
+---
+
+## Initial High-Value Test Backlog
+
+Implement these first for maximum defect detection:
+
+1. `massgen/tests/unit/test_coordination_tracker.py::test_consensus_detected_unanimous_vote`
+2. `massgen/tests/unit/test_coordination_tracker.py::test_tie_breaker_selects_expected_winner`
+3. `massgen/tests/unit/test_orchestrator_unit.py::test_phase_transitions_initial_to_enforcement` ✅
+4. `massgen/tests/unit/test_orchestrator_unit.py::test_presentation_fallback_uses_stored_answer` ✅
+5. `massgen/tests/unit/test_mcp_security.py::test_path_traversal_blocked` ✅
+6. `massgen/tests/unit/test_mcp_security.py::test_allowlisted_operation_permitted` ✅
+7. `massgen/tests/frontend/test_tool_batch_tracker.py::test_content_breaks_batch`
+8. `massgen/tests/frontend/test_tool_batch_tracker.py::test_third_tool_adds_to_batch`
+9. `massgen/tests/frontend/test_content_processor.py::test_status_info_level_skipped`
+10. `massgen/tests/frontend/test_content_processor.py::test_tool_start_creates_output`
+11. `massgen/tests/integration/test_orchestrator_voting.py::test_three_agent_voting_flow` ✅
+12. `massgen/tests/integration/test_orchestrator_consensus.py::test_unanimous_consensus_early_exit` ✅
+13. `webui/src/__tests__/stores/agentStore.test.ts::processWSEvent init`
+14. `webui/src/__tests__/stores/agentStore.test.ts::processWSEvent consensus_reached`
+15. `webui/src/__tests__/stores/wizardStore.test.ts::skips api key step when configured`
+
+---
+
+## Maintenance Cadence
+
+| Cadence | Activity |
+|---------|----------|
+| Per PR | Run CI tests, enforce new-test requirement for behavior changes |
+| Weekly | Review flaky/quarantined tests and expired xfails |
+| Monthly | Review coverage trend and gaps in core modules |
+| Per release | Validate nightly E2E stability and remove obsolete quarantines |
+
+Quarterly review checklist:
+
+1. Re-check phase metrics against targets.
+2. Remove stale tests that no longer validate active behavior.
+3. Reprioritize backlog based on recent production defects.

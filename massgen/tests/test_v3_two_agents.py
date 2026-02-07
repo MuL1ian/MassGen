@@ -23,6 +23,7 @@ from massgen.orchestrator import Orchestrator  # noqa: E402
 
 
 @pytest.mark.integration
+@pytest.mark.live_api
 async def test_two_agents_coordination():
     """Test two-agent coordination with different expertise areas."""
     print("🚀 MassGen - Two Agents Coordination Test")
@@ -77,17 +78,14 @@ async def test_two_agents_coordination():
         print("✅ Two-agent coordination completed successfully!")
         print(f"📄 Final response length: {len(final_response)} characters")
 
+        assert final_response
         return True
-
     except Exception as e:
-        print(f"❌ Two-agent coordination test failed: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
+        pytest.fail(f"Two-agent coordination test failed: {e}")
 
 
 @pytest.mark.integration
+@pytest.mark.live_api
 async def test_two_agents_simple():
     """Simple two-agent test without UI for basic functionality verification."""
     print("\n🧪 Simple Two-Agent Test (No UI)")
@@ -125,17 +123,15 @@ async def test_two_agents_simple():
                 response_content += chunk.content
                 print(chunk.content, end="", flush=True)
             elif chunk.type == "error":
-                print(f"\n❌ Error: {chunk.error}")
-                return False
+                pytest.fail(f"Simple two-agent coordination returned error chunk: {chunk.error}")
             elif chunk.type == "done":
                 break
 
         print(f"\n✅ Simple test completed. Response length: {len(response_content)} characters")
+        assert response_content
         return True
-
     except Exception as e:
-        print(f"❌ Simple two-agent test failed: {e}")
-        return False
+        pytest.fail(f"Simple two-agent test failed: {e}")
 
 
 async def main():

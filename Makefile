@@ -85,17 +85,17 @@ check: docs-check test
 	@echo ""
 	@echo "✅ All checks passed!"
 
-# Run fast default tests (skips integration/expensive/docker by default via conftest.py)
+# Run fast default tests (includes deterministic integration; excludes live_api/expensive/docker)
 test: test-fast
 
 test-fast:
 	@echo "🧪 Running fast test lane..."
-	@uv run pytest massgen/tests -q --tb=no
+	@uv run pytest massgen/tests --run-integration -m "not live_api and not docker and not expensive" -q --tb=no
 	@echo "✓ Fast test lane passed"
 
 test-all:
 	@echo "🧪 Running full test lane (integration + expensive + docker)..."
-	@RUN_INTEGRATION=1 RUN_EXPENSIVE=1 RUN_DOCKER=1 uv run pytest massgen/tests -v
+	@RUN_INTEGRATION=1 RUN_LIVE_API=1 RUN_EXPENSIVE=1 RUN_DOCKER=1 uv run pytest massgen/tests -v
 	@echo "✓ Full test lane passed"
 
 # Format code
