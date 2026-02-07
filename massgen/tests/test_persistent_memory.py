@@ -65,11 +65,12 @@ class TestPersistentMemoryInitialization:
     @pytest.mark.skipif(not MEM0_AVAILABLE, reason="mem0 not installed")
     def test_initialization_with_agent_name(self):
         """Test successful initialization with agent name."""
-        memory = PersistentMemory(
-            agent_name="test_agent",
-            llm_backend=create_mock_backend(),
-            embedding_backend=create_mock_backend(),
-        )
+        with patch("mem0.AsyncMemory", return_value=AsyncMock()):
+            memory = PersistentMemory(
+                agent_name="test_agent",
+                llm_backend=create_mock_backend(),
+                embedding_backend=create_mock_backend(),
+            )
         assert memory.agent_id == "test_agent"
         assert memory.user_id is None
         assert memory.session_id is None
@@ -78,13 +79,14 @@ class TestPersistentMemoryInitialization:
     @pytest.mark.skipif(not MEM0_AVAILABLE, reason="mem0 not installed")
     def test_initialization_with_all_identifiers(self):
         """Test initialization with all identifiers."""
-        memory = PersistentMemory(
-            agent_name="test_agent",
-            user_name="test_user",
-            session_name="test_session",
-            llm_backend=create_mock_backend(),
-            embedding_backend=create_mock_backend(),
-        )
+        with patch("mem0.AsyncMemory", return_value=AsyncMock()):
+            memory = PersistentMemory(
+                agent_name="test_agent",
+                user_name="test_user",
+                session_name="test_session",
+                llm_backend=create_mock_backend(),
+                embedding_backend=create_mock_backend(),
+            )
         assert memory.agent_id == "test_agent"
         assert memory.user_id == "test_user"
         assert memory.session_id == "test_session"

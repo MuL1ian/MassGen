@@ -41,6 +41,15 @@ class AzureOpenAIBackend(LLMBackend):
                 "Azure OpenAI API key is required. Set AZURE_OPENAI_API_KEY environment variable or pass api_key parameter.",
             )
 
+        # Persist normalized Azure settings for introspection/tests and sensible defaults.
+        self.azure_endpoint = kwargs.get("azure_endpoint") or kwargs.get("base_url") or os.getenv("AZURE_OPENAI_ENDPOINT")
+        if self.azure_endpoint and self.azure_endpoint.endswith("/"):
+            self.azure_endpoint = self.azure_endpoint[:-1]
+        self.api_version = kwargs.get("api_version") or os.getenv(
+            "AZURE_OPENAI_API_VERSION",
+            "2024-12-01-preview",
+        )
+
     def get_provider_name(self) -> str:
         """Get the name of this provider."""
         return "Azure OpenAI"
@@ -76,11 +85,8 @@ class AzureOpenAIBackend(LLMBackend):
             # Import Azure OpenAI client
             from openai import AsyncAzureOpenAI, AsyncOpenAI
 
-            azure_endpoint = all_params.get("azure_endpoint") or all_params.get("base_url") or os.getenv("AZURE_OPENAI_ENDPOINT")
-            api_version = all_params.get("api_version") or os.getenv(
-                "AZURE_OPENAI_API_VERSION",
-                "2024-12-01-preview",
-            )
+            azure_endpoint = all_params.get("azure_endpoint") or all_params.get("base_url") or self.azure_endpoint
+            api_version = all_params.get("api_version") or self.api_version
 
             # Validate required configuration
             if not azure_endpoint:
