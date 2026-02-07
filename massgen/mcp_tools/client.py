@@ -101,6 +101,17 @@ class _ServerClient:
             self.connection_lock = asyncio.Lock()
 
 
+# Tools that manage their own timeouts and should be exempt from MCP client timeout.
+# These tools typically run for extended periods and have internal timeout handling.
+TIMEOUT_EXEMPT_TOOLS = frozenset(
+    {
+        "spawn_subagents",  # Subagent spawning has its own timeout configuration
+        "get_subagent_status",  # May block waiting for subagent completion
+        "cancel_subagents",  # May need to wait for graceful shutdown
+    },
+)
+
+
 class MCPClient:
     """
     Unified MCP client for communicating with single or multiple MCP servers.
@@ -692,10 +703,18 @@ class MCPClient:
                 f"mcp.{server_name}.{original_tool_name}",
                 attributes=span_attributes,
             ) as span:
-                result = await asyncio.wait_for(
-                    session.call_tool(original_tool_name, validated_arguments),
-                    timeout=self.timeout_seconds,
-                )
+                # Check if tool should be exempt from timeout (e.g., subagent tools
+                # that manage their own timeouts and can run for extended periods)
+                if original_tool_name in TIMEOUT_EXEMPT_TOOLS:
+                    logger.debug(
+                        f"Tool {original_tool_name} is timeout-exempt, running without MCP client timeout",
+                    )
+                    result = await session.call_tool(original_tool_name, validated_arguments)
+                else:
+                    result = await asyncio.wait_for(
+                        session.call_tool(original_tool_name, validated_arguments),
+                        timeout=self.timeout_seconds,
+                    )
                 execution_time_ms = (asyncio.get_event_loop().time() - start_time) * 1000
                 span.set_attribute("tool.success", True)
                 span.set_attribute("tool.execution_time_ms", execution_time_ms)

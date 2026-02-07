@@ -141,7 +141,7 @@ class AzureOpenAIBackend(LLMBackend):
                 )
 
             # Check if workflow tools are present
-            workflow_tools = [t for t in tools if t.get("function", {}).get("name") in ["new_answer", "vote", "submit", "restart_orchestration"]] if tools else []
+            workflow_tools = [t for t in tools if t.get("function", {}).get("name") in ["new_answer", "vote", "stop", "submit", "restart_orchestration"]] if tools else []
             has_workflow_tools = len(workflow_tools) > 0
 
             # CRITICAL DEBUG: Log tool detection (using logger.info to ensure it appears)
@@ -427,6 +427,10 @@ class AzureOpenAIBackend(LLMBackend):
                         system_parts.append(
                             '    Usage: {"tool_name": "vote", ' '"arguments": {"agent_id": "agent1", ' '"reason": "explanation"}}',
                         )
+                elif name == "stop":
+                    system_parts.append(
+                        '    Usage: {"tool_name": "stop", "arguments": {"summary": "Brief summary of completed work", ' '"status": "complete"}}  // status: "complete" or "blocked"',
+                    )
                 elif name == "submit":
                     system_parts.append(
                         '    Usage: {"tool_name": "submit", ' '"arguments": {"confirmed": true}}',

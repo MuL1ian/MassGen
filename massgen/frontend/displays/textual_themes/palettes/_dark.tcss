@@ -198,3 +198,16 @@ $checkbox-selected-border: #56d364;
 $panel-border: #3d4550;
 $panel-border-separator: #3d444d;
 $panel-border-light: #3c3c3c;
+
+/* Mode Toggle Colors - semantic variables for theme support */
+$mode-toggle-border: #30363d;
+$mode-toggle-active-color: #58a6ff;
+$mode-toggle-inactive-color: #8b949e;
+
+/* Separator/Divider Colors - consistent with dark theme */
+$separator-border: #30363d;
+$tool-card-border: #484f58;
+
+/* Toast Notification Colors - subtle dark border in dark mode */
+$toast-bg: transparent;
+$toast-border: #21262d;

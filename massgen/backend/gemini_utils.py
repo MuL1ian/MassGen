@@ -21,6 +21,13 @@ class ActionType(enum.Enum):
     ASK_OTHERS = "ask_others"
 
 
+class DecompositionActionType(enum.Enum):
+    """Action types for decomposition mode structured output."""
+
+    STOP = "stop"
+    NEW_ANSWER = "new_answer"
+
+
 class VoteOnlyActionType(enum.Enum):
     """Action type for vote-only mode (when agent has reached answer limit)."""
 
@@ -87,6 +94,32 @@ class VoteOnlyCoordinationResponse(BaseModel):
 
     action_type: VoteOnlyActionType = Field(description="Type of action to take (must be vote)")
     vote_data: VoteOnlyVoteAction = Field(description="Vote data - REQUIRED in vote-only mode")
+
+
+class StopAction(BaseModel):
+    """Structured output for stop action (decomposition mode)."""
+
+    action: DecompositionActionType = Field(default=DecompositionActionType.STOP, description="Action type")
+    summary: str = Field(description="What you accomplished and how it connects to other agents' work")
+    status: str = Field(description="Whether your subtask is complete or blocked ('complete' or 'blocked')")
+
+
+class DecompositionNewAnswerAction(BaseModel):
+    """Structured output for new answer action in decomposition mode."""
+
+    action: DecompositionActionType = Field(default=DecompositionActionType.NEW_ANSWER, description="Action type")
+    content: str = Field(description="Your improved answer for your subtask.")
+
+
+class DecompositionCoordinationResponse(BaseModel):
+    """Structured response for decomposition mode coordination.
+
+    In decomposition mode, agents call stop (not vote) when their subtask is complete.
+    """
+
+    action_type: DecompositionActionType = Field(description="Type of action to take")
+    stop_data: Optional[StopAction] = Field(default=None, description="Stop data if action is stop")
+    answer_data: Optional[DecompositionNewAnswerAction] = Field(default=None, description="Answer data if action is new_answer")
 
 
 class SubmitAction(BaseModel):

@@ -10,6 +10,7 @@ maintainability.
 Design Document: docs/dev_notes/system_prompt_architecture_redesign.md
 """
 
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -915,7 +916,16 @@ class WorkspaceStructureSection(SystemPromptSection):
         use_two_tier_workspace: If True, include documentation for scratch/deliverable structure
     """
 
-    def __init__(self, workspace_path: str, context_paths: List[str], use_two_tier_workspace: bool = False):
+    def __init__(
+        self,
+        workspace_path: str,
+        context_paths: List[str],
+        use_two_tier_workspace: bool = False,
+        decomposition_mode: bool = False,
+        worktree_paths: Optional[Dict[str, str]] = None,
+        branch_name: Optional[str] = None,
+        other_branches: Optional[Dict[str, str]] = None,
+    ):
         super().__init__(
             title="Workspace Structure",
             priority=Priority.HIGH,
@@ -924,6 +934,10 @@ class WorkspaceStructureSection(SystemPromptSection):
         self.workspace_path = workspace_path
         self.context_paths = context_paths
         self.use_two_tier_workspace = use_two_tier_workspace
+        self.decomposition_mode = decomposition_mode
+        self.worktree_paths = worktree_paths  # {worktree_path: original_path}
+        self.branch_name = branch_name  # This agent's current branch
+        self.other_branches = other_branches  # {anon_id: branch_name}
 
     def build_content(self) -> str:
         """Build workspace structure documentation."""
@@ -935,22 +949,48 @@ class WorkspaceStructureSection(SystemPromptSection):
             "\nThis is your primary working directory where you should create " "and manage files for this task.\n",
         )
 
-        # Add two-tier workspace documentation if enabled
-        if self.use_two_tier_workspace:
+        # Worktree-based workspace (new unified model) takes precedence
+        if self.worktree_paths:
+            for wt_path in self.worktree_paths:
+                content_parts.append("### Project Checkout\n")
+                content_parts.append(f"The project is checked out at `{wt_path}`. Full read/write access.\n")
+                content_parts.append("**Scratch Space**: `.massgen_scratch/` inside the checkout")
+                content_parts.append("- For experiments, eval scripts, notes")
+                content_parts.append("- Git-excluded, invisible to reviewers")
+                content_parts.append("- Can import from project naturally (e.g., `from src.foo import bar`)\n")
+
+                content_parts.append("### Code Branches\n")
+                if self.branch_name:
+                    content_parts.append(f"Your work is on branch `{self.branch_name}`. All changes are auto-committed when your turn ends.\n")
+                else:
+                    content_parts.append("All changes are auto-committed when your turn ends.\n")
+
+                if self.other_branches:
+                    content_parts.append("**Other agents' branches:**")
+                    for label, branch in self.other_branches.items():
+                        content_parts.append(f"- {label}: `{branch}`")
+                    content_parts.append("\nUse `git diff <branch>` to compare, `git merge <branch>` to incorporate.\n")
+
+                content_parts.append("**Previous scratch files**: Check `.scratch_archive/` in your workspace for experiments from prior rounds.\n")
+
+        # Legacy two-tier workspace (deprecated, skipped when worktree_paths set)
+        elif self.use_two_tier_workspace:
             content_parts.append("### Two-Tier Workspace Structure\n")
             content_parts.append("Your workspace has two directories for organizing your work:\n")
             content_parts.append("- **`scratch/`** - Use for working files, experiments, intermediate results, evaluation scripts")
-            content_parts.append("- **`deliverable/`** - Use for final outputs you want to showcase to voters\n")
+            audience = "other agents" if self.decomposition_mode else "voters"
+            content_parts.append(f"- **`deliverable/`** - Use for final outputs you want to showcase to {audience}\n")
             content_parts.append("**IMPORTANT: Deliverables must be self-contained and complete.**")
             content_parts.append("The `deliverable/` directory should contain everything needed to use your output:")
             content_parts.append("- All required files (not just one component)")
             content_parts.append("- Any dependencies, assets, or supporting files")
             content_parts.append("- A README explaining how to run/use it")
-            content_parts.append("Think of `deliverable/` as a standalone package that voters can immediately use without needing files from `scratch/` or anywhere else.\n")
+            content_parts.append(f"Think of `deliverable/` as a standalone package that {audience} can immediately use without needing files from `scratch/` or anywhere else.\n")
             content_parts.append("To promote files from scratch to deliverable, use standard file operations:")
             content_parts.append("- Copy: Use filesystem tools to copy files")
             content_parts.append("- Move: Use command line `mv` or filesystem move\n")
-            content_parts.append("**Note**: Voters will see BOTH directories, so scratch/ helps them understand your process.\n")
+            reviewers = "Other agents" if self.decomposition_mode else "Voters"
+            content_parts.append(f"**Note**: {reviewers} will see BOTH directories, so scratch/ helps them understand your process.\n")
             content_parts.append("### Git Version Control\n")
             content_parts.append("Your workspace is version controlled with git. Changes are automatically committed:")
             content_parts.append("- `[INIT]` - When workspace is created")
@@ -961,7 +1001,7 @@ class WorkspaceStructureSection(SystemPromptSection):
             content_parts.append("- Find when specific changes were made")
             content_parts.append("- Recover previous versions if needed\n")
 
-        if self.context_paths:
+        if self.context_paths and not self.worktree_paths:
             content_parts.append("**Context paths**:")
             for path in self.context_paths:
                 content_parts.append(f"- `{path}`")
@@ -1232,8 +1272,8 @@ class FilesystemOperationsSection(SystemPromptSection):
         parts.append(
             "Your working directory is set to your workspace, so all relative paths in your file "
             "operations will be resolved from there. This ensures each agent works in isolation "
-            "while having access to shared references. Only include in your workspace files that "
-            "should be used in your answer.\n",
+            "while having access to shared references. Move intermediate files to scratch space "
+            "rather than deleting them.\n",
         )
 
         if self.main_workspace:
@@ -1382,13 +1422,14 @@ class FilesystemBestPracticesSection(SystemPromptSection):
         enable_code_based_tools: Whether code-based tools mode is enabled
     """
 
-    def __init__(self, enable_code_based_tools: bool = False):
+    def __init__(self, enable_code_based_tools: bool = False, decomposition_mode: bool = False):
         super().__init__(
             title="Filesystem Best Practices",
             priority=Priority.AUXILIARY,
             xml_tag="filesystem_best_practices",
         )
         self.enable_code_based_tools = enable_code_based_tools
+        self.decomposition_mode = decomposition_mode
 
     def build_content(self) -> str:
         parts = []
@@ -1406,28 +1447,30 @@ class FilesystemBestPracticesSection(SystemPromptSection):
             "`npm install`, `pip install`, or build commands. Copying them breaks symlinks and "
             "causes errors. Instead, include proper dependency files (`package.json`, "
             "`requirements.txt`) and let users reinstall.\n"
-            "- **Cleanup**: Remove any temporary files, intermediate artifacts, test scripts, or "
-            "unused files copied from another agent before submitting `new_answer`. Your workspace "
-            "should contain only the files that are part of your final deliverable. For example, "
-            "if you created `test_output.txt` for debugging or `old_version.py` before "
-            "refactoring, delete them.\n"
+            "- **Cleanup**: Move temporary files, intermediate artifacts, test scripts, or "
+            "unused files to scratch space (`.massgen_scratch/` or `scratch/`) before submitting "
+            "`new_answer`. Your workspace should contain only the files that are part of your "
+            "final deliverable. For example, move `test_output.txt` or `old_version.py` to scratch. "
+            "**Never delete system-managed directories**: `.worktree/`, `.git/`, symlinks to shared "
+            "tools, or any directory you did not create.\n"
             "- **Organization**: Keep files logically organized. If you're combining work from "
             "multiple agents, structure the result clearly.\n",
         )
 
         # Comparison tools (conditional on mode)
+        finalize_phrase = "before finalizing your work" if self.decomposition_mode else "before voting"
         if self.enable_code_based_tools:
             parts.append(
                 "**Comparison Tools**: Use directory and file comparison operations to understand "
                 "differences between workspaces or versions. These read-only operations help you "
                 "understand what changed, build upon existing work effectively, or verify solutions "
-                "before voting.\n",
+                f"{finalize_phrase}.\n",
             )
         else:
             parts.append(
                 "**Comparison Tools**: Use directory and file comparison tools to see differences "
                 "between workspaces or versions. These read-only tools help you understand what "
-                "changed, build upon existing work effectively, or verify solutions before voting.\n",
+                f"changed, build upon existing work effectively, or verify solutions {finalize_phrase}.\n",
             )
 
         # Evaluation guidance - emphasize outcome-based evaluation
@@ -1529,13 +1572,14 @@ class TaskPlanningSection(SystemPromptSection):
         filesystem_mode: If True, includes guidance about filesystem-based task storage
     """
 
-    def __init__(self, filesystem_mode: bool = False):
+    def __init__(self, filesystem_mode: bool = False, decomposition_mode: bool = False):
         super().__init__(
             title="Task Planning",
             priority=Priority.MEDIUM,
             xml_tag="task_planning",
         )
         self.filesystem_mode = filesystem_mode
+        self.decomposition_mode = decomposition_mode
 
     def build_content(self) -> str:
         base_guidance = """
@@ -1622,7 +1666,7 @@ Example format:
 Status: 4/4 tasks completed
 ```
 
-This helps other agents understand your approach and makes voting more specific."""
+This helps other agents understand your approach and evaluate your work."""
 
         if self.filesystem_mode:
             filesystem_guidance = """
@@ -1646,9 +1690,10 @@ class EvaluationSection(SystemPromptSection):
     vote tool, new_answer tool, and coordination mechanics.
 
     Args:
-        voting_sensitivity: Controls evaluation strictness ('lenient', 'balanced', 'strict')
+        voting_sensitivity: Controls evaluation strictness ('lenient', 'balanced', 'strict', 'roi', 'sequential', 'adversarial', 'consistency', 'diversity', 'reflective')
         answer_novelty_requirement: Controls novelty requirements ('lenient', 'balanced', 'strict')
         vote_only: If True, agent has reached max answers and can only vote (no new_answer)
+        round_number: Current round of coordination (used for sequential sensitivity)
     """
 
     def __init__(
@@ -1656,6 +1701,7 @@ class EvaluationSection(SystemPromptSection):
         voting_sensitivity: str = "lenient",
         answer_novelty_requirement: str = "lenient",
         vote_only: bool = False,
+        round_number: int = 1,
     ):
         super().__init__(
             title="MassGen Coordination",
@@ -1665,10 +1711,9 @@ class EvaluationSection(SystemPromptSection):
         self.voting_sensitivity = voting_sensitivity
         self.answer_novelty_requirement = answer_novelty_requirement
         self.vote_only = vote_only
+        self.round_number = round_number
 
     def build_content(self) -> str:
-        import time
-
         # Vote-only mode: agent has exhausted their answer limit
         if self.vote_only:
             return f"""You are evaluating existing solutions to determine the best answer.
@@ -1679,36 +1724,135 @@ Analyze the existing answers carefully, then call the `vote` tool to select the 
 
 Note: All your other tools are still available to help you evaluate answers. The only restriction is that `vote` is your only workflow tool - you cannot submit new answers.
 
-*Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d %H:%M:%S")}**."""
+*Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d")}**."""
 
-        # Determine evaluation criteria based on voting sensitivity
-        if self.voting_sensitivity == "strict":
-            evaluation_section = """**CRITICAL EVALUATION REQUIRED**
+        # Handle sequential sensitivity: reverse order (strict -> balanced -> lenient)
+        effective_sensitivity = self.voting_sensitivity
+        phase_context = ""
+        if self.voting_sensitivity == "sequential":
+            if self.round_number <= 1:
+                effective_sensitivity = "strict"
+                coordination_phase = "EXPLORATION (Round 1): High-rigor phase to ensure diverse and robust initial solutions. Avoid voting unless the answer is exceptional."
+            elif self.round_number <= 2:
+                effective_sensitivity = "balanced"
+                coordination_phase = "CONVERGENCE (Round 2): Balanced evaluation to identify gaps and begin merging the best components of existing answers."
+            else:
+                effective_sensitivity = "lenient"
+                coordination_phase = f"FINALIZATION (Round {self.round_number}): Lean evaluation to ensure timely delivery of the polished final result."
 
-Before you can vote, you MUST complete this analysis:
+            phase_context = f"\n**COORDINATION STRATEGY**: {coordination_phase}\n"
 
-**Step 1: Identify Weaknesses (REQUIRED)**
-List 2-3 specific weaknesses, gaps, or areas for improvement in the best existing answer.
+        # Determine evaluation criteria based on effective sensitivity
+        if effective_sensitivity == "strict":
+            evaluation_section = """**CRITICAL RUBRIC-BASED EVALUATION (STRICT)**
 
-**Step 2: For EACH weakness, choose ONE:**
-- "I can fix this" -> You MUST provide a `new_answer`
-- "Another answer addresses this" -> Combine answers to shore up the weakness
-- "I cannot fix this because: [specific reason]" -> Explain why (outside your capabilities, requires info you don't have, etc.)
+Before you can vote, you MUST evaluate the best answer against this rubric:
+1. **Correctness & Robustness**: Is the logic sound? Does it handle edge cases and potential errors?
+2. **Completeness & Optimization**: Does it address ALL requirements efficiently without bloat?
+3. **Clarity & Quality**: Is it production-grade with crystal clear explanations?
 
-**Step 3: Decision**
-- If you can fix OR combine to address ANY weakness -> `new_answer`
-- If you explained why you cannot fix ALL weaknesses -> `vote`
+**Scoring Guide (Internal):**
+- 3: Excellent (No room for improvement)
+- 2: Good (Minor gaps)
+- 1: Fair (Significant gaps)
+- 0: Poor (Fails criterion)
 
-You may NOT vote without first explaining why each weakness is unfixable by you."""
-        elif self.voting_sensitivity == "balanced":
-            evaluation_section = """Critically examine existing answers for flaws and opportunities.
+**Step 1: Identify Weaknesses**
+List specific gaps in the rubric above.
+
+**Step 2: Decision**
+- If you can improve ANY rubric item's score -> `new_answer`
+- If the answer already scores 3/3 on all items -> `vote`
+
+You may NOT vote if you can provide a substantively better solution."""
+        elif effective_sensitivity == "balanced":
+            evaluation_section = """**RUBRIC-BASED EVALUATION (BALANCED)**
+
+Critically examine existing answers against these criteria:
+1. **Alignment**: Does the answer directly and fully address the user's intent?
+2. **Accuracy**: Are tool calls, parameters, and logic correct?
+3. **Completeness**: Are there any missing steps or information?
 
 **Before voting:**
-1. Identify at least 1 weakness in the best answer
-2. Can you fix it or combine with another answer to address it? If not, explain why.
+1. Identify at least 1 weakness or missed opportunity.
+2. Can you fix it or combine with another answer to address it?
 
-If you CAN fix or combine to address any weakness, produce a `new_answer`.
-Only vote after explaining why identified weaknesses are unfixable by you."""
+If you CAN improve the answer's alignment, accuracy, or completeness, produce a `new_answer`."""
+        elif effective_sensitivity.startswith("roi"):
+            threshold = 15
+            if effective_sensitivity == "roi_conservative":
+                threshold = 30
+            elif effective_sensitivity == "roi_aggressive":
+                threshold = 5
+
+            evaluation_section = f"""**ROI-BASED EVALUATION (DELTA vs COST)**
+
+Evaluate the **Marginal Utility (Delta)** of providing a new answer against the **Cost (Compute/Wait Time)** of another round.
+
+**Step 1: Assess Current Quality**
+Rate the best existing answer: 0-100%
+
+**Step 2: Estimate Improvement Potential**
+How much better (% improvement) would YOUR new answer be?
+- Consider: New insights, better tools, or logic corrections.
+
+**Decision Framework:**
+- If Potential Improvement > {threshold}% OR fixes a critical failure -> `new_answer`
+- If Potential Improvement < {threshold}% (cosmetic/minor) -> `vote`
+
+Prioritize \"Good Enough\" and timely delivery over perfectionism unless the task is mission-critical."""
+        elif effective_sensitivity == "adversarial":
+            evaluation_section = """**ADVERSARIAL EVALUATION (INTERNAL RED-TEAMING)**
+
+You are a skeptic. Before voting YES, you MUST perform a 'pre-mortem' on the best answer.
+
+**The Pre-Mortem Challenge:**
+1. Imagine the current best answer has been delivered and **FAILED** completely.
+2. What is the most likely cause of that failure? (e.g., hidden edge case, missing dependency, logical flaw, security risk).
+3. If you can identify a plausible failure mode, you MUST provide a `new_answer` that hardens the solution against it.
+
+**Decision Rule:**
+- If you find a way to 'break' the solution -> `new_answer`
+- If the solution is resilient to your most aggressive attempts to find flaws -> `vote`"""
+        elif effective_sensitivity == "consistency":
+            evaluation_section = """**LOGICAL CONSISTENCY CHECK**
+
+Before voting, you MUST independently re-derive the logic of the best answer.
+
+**The Verification Process:**
+1. **Re-derive**: Without looking at the answer's steps, how would YOU solve this?
+2. **Compare**: Where does the best answer differ from your re-derivation?
+3. **Validate**: Is the difference an improvement, or a potential logical error?
+
+**Decision Rule:**
+- If you find a logical inconsistency or a more sound path -> `new_answer`
+- If the answer's logic is sound and matches your independent derivation -> `vote`"""
+        elif effective_sensitivity == "diversity":
+            evaluation_section = """**DIVERSITY-AWARE SYNTHESIS**
+
+Your goal is to ensure the final solution incorporates the best unique insights from ALL existing answers.
+
+**The Synthesis Challenge:**
+1. List the unique strengths of **at least two** different existing answers.
+2. Does the current best answer capture all of these strengths?
+3. Can you combine these insights into a single, more powerful solution?
+
+**Decision Rule:**
+- If you can synthesize a more comprehensive answer by combining insights -> `new_answer`
+- If the best answer already achieves the best possible synthesis -> `vote`"""
+        elif effective_sensitivity == "reflective":
+            evaluation_section = """**REFLECTIVE USER-INTENT EVALUATION**
+
+Before evaluating, you must explicitly restate and reflect on the user's ultimate goal.
+
+**Reflection Steps:**
+1. **Restate Intent**: "The user's core intent is..."
+2. **Success Criteria**: Define 3 specific criteria that must be met for the user to be delighted.
+3. **Gap Analysis**: Does the best answer meet all 3 criteria perfectly?
+
+**Decision Rule:**
+- If there is any gap between the answer and the user's delight criteria -> `new_answer`
+- If the answer perfectly fulfills the refined success criteria -> `vote`"""
         else:
             # Default to lenient (including explicit "lenient" or any other value)
             evaluation_section = """Does the best CURRENT ANSWER address the ORIGINAL MESSAGE well?
@@ -1733,12 +1877,79 @@ CRITICAL: New answers must be SUBSTANTIALLY different from existing answers.
 
         return f"""You are evaluating answers from multiple agents for final response to a message.
 Different agents may have different builtin tools and capabilities.
-{evaluation_section}
+{phase_context}{evaluation_section}
 Otherwise, digest existing answers, combine their strengths, and do additional work to address their weaknesses,
 then use the `new_answer` tool to record a better answer to the ORIGINAL MESSAGE.{novelty_section}
 Make sure you actually call `vote` or `new_answer` (in tool call format).
 
-*Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d %H:%M:%S")}**."""
+*Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d")}**."""
+
+
+class DecompositionSection(SystemPromptSection):
+    """
+    MassGen decomposition mode coordination mechanics.
+
+    In decomposition mode, each agent owns a specific subtask and uses `stop`
+    instead of `vote` to signal completion. Agents refine their own work and
+    integrate relevant parts of other agents' contributions.
+
+    Same priority slot as EvaluationSection (Priority 2 / CRITICAL).
+
+    Args:
+        subtask: The agent's assigned subtask description (if any)
+    """
+
+    def __init__(self, subtask: Optional[str] = None):
+        super().__init__(
+            title="MassGen Decomposition Coordination",
+            priority=2,  # Same slot as EvaluationSection
+            xml_tag="massgen_coordination",
+        )
+        self.subtask = subtask
+
+    def build_content(self) -> str:
+        subtask_section = ""
+        if self.subtask:
+            subtask_section = f"""
+**YOUR ASSIGNED SUBTASK:**
+{self.subtask}
+
+"""
+
+        return f"""You are working as part of a decomposed team. Each agent owns a specific subtask of a larger project.
+{subtask_section}
+**CRITICAL: STAY IN YOUR LANE.** You MUST only work on YOUR assigned subtask above.
+Do NOT implement other agents' subtasks — other team members are handling those. Focus exclusively on delivering your piece.
+There may be overlap with what other agents already did near your area; you may review/refine/integrate that overlap, but do NOT take over unrelated subtasks.
+
+**HOW DECOMPOSITION MODE WORKS:**
+
+1. **Self-refinement**: Continue improving your own work across iterations. Fix issues you spot, try better approaches, increase quality. Submit `new_answer` whenever you have meaningful improvements.
+
+2. **Full awareness**: When you see other agents' work, READ and UNDERSTAND all of it. Maintain awareness of the entire project state, not just your subtask.
+
+3. **Selective integration**: Integrate parts that touch your subtask — adapt interfaces, align contracts, resolve conflicts. For parts outside your area, maintain awareness but don't redo their work.
+
+4. **Dual-purpose new_answer**: Submit `new_answer` when you have meaningful improvements — from self-refinement, integration insights, or both.
+
+5. **Completion**: Call `stop` when you have reviewed the current state of work (yours and others') and are satisfied that your subtask is done. This ends your execution for this round.
+
+**CHOOSING THE RIGHT TOOL — `new_answer` vs `stop`:**
+Both are terminal actions that end your round. Choose based on whether you produced new work:
+- `new_answer`: You did work this round — wrote code, updated files, made improvements. Use this to **share your work** with other agents and the presenter.
+- `stop`: You reviewed everything and are satisfied — no further changes needed from you. This signals completion without sharing new work.
+
+**IMPORTANT:** If you improved or updated your deliverable work this round (fixed bugs, updated code, aligned interfaces), \
+use `new_answer` to share those changes. It's fine to call `stop` if you only ran tests or created scratch files \
+for verification without changing your actual output.
+
+**TOOLS:**
+- `new_answer`: Submit your work (content = summary of what you did + key deliverables)
+- `stop`: Signal you are satisfied and done (summary = what you accomplished and how it connects; status = "complete" or "blocked")
+
+Make sure you actually call `new_answer` or `stop` (in tool call format).
+
+*Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d")}**."""
 
 
 class PostEvaluationSection(SystemPromptSection):
@@ -2428,15 +2639,16 @@ class OutputFirstVerificationSection(SystemPromptSection):
     Always included regardless of tools available.
     """
 
-    def __init__(self):
+    def __init__(self, decomposition_mode: bool = False):
         super().__init__(
             title="Output-First Iteration",
             priority=Priority.HIGH,
             xml_tag="output_first_iteration",
         )
+        self.decomposition_mode = decomposition_mode
 
     def build_content(self) -> str:
-        return """## Output-First Iteration
+        base = """## Output-First Iteration
 
 **Core Principle: Experience your work exactly as a user would - through dynamic interaction, not just static observation.**
 
@@ -2487,8 +2699,14 @@ Before considering any interactive artifact complete, ask:
 - **Code**: Run with test inputs → crashes on empty array → add validation → rerun with edge cases → confirm robust
 
 ### Finalization:
-- Use `new_answer` when you produced work or iterated improvements based on **interaction testing**.
-- Use `vote` only when an existing answer already meets the bar after **testing as a user would**."""
+- Use `new_answer` when you produced work or iterated improvements based on **interaction testing**."""
+
+        if self.decomposition_mode:
+            base += "\n- Use `stop` only when you have reviewed everything and are satisfied with your deliverables as-is. If you improved your deliverable work this round, use `new_answer` instead."
+        else:
+            base += "\n- Use `vote` only when an existing answer already meets the bar after **testing as a user would**."
+
+        return base
 
 
 class MultimodalToolsSection(SystemPromptSection):

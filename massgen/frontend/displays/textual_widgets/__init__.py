@@ -7,6 +7,7 @@ This module provides reusable Textual widgets for the production TUI interface.
 
 from .agent_status_ribbon import (
     AgentStatusRibbon,
+    ContextPathsClicked,
     DropdownItem,
     RoundSelected,
     RoundSelector,
@@ -32,10 +33,12 @@ from .injection_card import InjectionSubCard
 from .mode_bar import (
     ModeBar,
     ModeChanged,
+    ModeHelpClicked,
     ModeToggle,
     OverrideRequested,
     PlanConfigChanged,
     PlanSettingsClicked,
+    SubtasksClicked,
 )
 from .multi_line_input import MultiLineInput
 from .path_suggestion import PathSuggestion, PathSuggestionDropdown
@@ -77,9 +80,11 @@ __all__ = [
     "ModeBar",
     "ModeToggle",
     "ModeChanged",
+    "ModeHelpClicked",
     "OverrideRequested",
     "PlanConfigChanged",
     "PlanSettingsClicked",
+    "SubtasksClicked",
     # Plan options popover
     "PlanOptionsPopover",
     "PlanSelected",
@@ -93,6 +98,7 @@ __all__ = [
     "SessionInfoClicked",
     # Agent status ribbon
     "AgentStatusRibbon",
+    "ContextPathsClicked",
     "DropdownItem",
     "RoundSelected",
     "RoundSelector",

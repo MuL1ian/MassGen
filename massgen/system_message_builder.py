@@ -20,6 +20,7 @@ from massgen.system_prompt_sections import (
     CodeBasedToolsSection,
     CommandExecutionSection,
     CoreBehaviorsSection,
+    DecompositionSection,
     EvaluationSection,
     EvolvingSkillsSection,
     FileSearchSection,
@@ -97,6 +98,11 @@ class SystemMessageBuilder:
         vote_only: bool = False,
         agent_mapping: Optional[Dict[str, str]] = None,
         voting_sensitivity_override: Optional[str] = None,
+        coordination_mode: str = "voting",
+        agent_subtask: Optional[str] = None,
+        worktree_paths: Optional[Dict[str, str]] = None,
+        branch_name: Optional[str] = None,
+        other_branches: Optional[Dict[str, str]] = None,
     ) -> str:
         """Build system message for coordination phase.
 
@@ -119,6 +125,11 @@ class SystemMessageBuilder:
                           global consistency with vote tool and injections.
             voting_sensitivity_override: Per-agent voting sensitivity override. If provided,
                                         takes precedence over the orchestrator-level setting.
+            coordination_mode: "voting" (default) or "decomposition"
+            agent_subtask: The agent's assigned subtask (decomposition mode)
+            worktree_paths: Dict of worktree_path -> original_path for worktree-based workspaces
+            branch_name: This agent's current git branch name (for display in system prompt)
+            other_branches: Dict mapping anonymous ID to branch name (e.g. {"agent1": "massgen/abc123"})
 
         Returns:
             Complete system prompt string with XML structure
@@ -149,19 +160,25 @@ class SystemMessageBuilder:
             logger.info(f"[SystemMessageBuilder] Added Grok file encoding guidance for {agent_id} (model: {model_name})")
 
         # PRIORITY 1 (HIGH): Output-First Verification - verify outcomes, not implementations
-        builder.add_section(OutputFirstVerificationSection())
+        is_decomposition = coordination_mode == "decomposition"
+        builder.add_section(OutputFirstVerificationSection(decomposition_mode=is_decomposition))
 
-        # PRIORITY 1 (CRITICAL): MassGen Coordination - vote/new_answer primitives
-        # Use per-agent override if provided, otherwise fall back to orchestrator default
-        voting_sensitivity = voting_sensitivity_override or self.message_templates._voting_sensitivity
-        answer_novelty_requirement = self.message_templates._answer_novelty_requirement
-        builder.add_section(
-            EvaluationSection(
-                voting_sensitivity=voting_sensitivity,
-                answer_novelty_requirement=answer_novelty_requirement,
-                vote_only=vote_only,
-            ),
-        )
+        # PRIORITY 1 (CRITICAL): MassGen Coordination - vote/new_answer or decomposition primitives
+        if coordination_mode == "decomposition":
+            builder.add_section(DecompositionSection(subtask=agent_subtask))
+        else:
+            # Use per-agent override if provided, otherwise fall back to orchestrator default
+            voting_sensitivity = voting_sensitivity_override or self.message_templates._voting_sensitivity
+            answer_novelty_requirement = self.message_templates._answer_novelty_requirement
+            round_number = len(previous_turns) + 1 if previous_turns else 1
+            builder.add_section(
+                EvaluationSection(
+                    voting_sensitivity=voting_sensitivity,
+                    answer_novelty_requirement=answer_novelty_requirement,
+                    vote_only=vote_only,
+                    round_number=round_number,
+                ),
+            )
 
         # PRIORITY 5 (HIGH): Skills - Must be visible early
         if use_skills:
@@ -231,18 +248,42 @@ class SystemMessageBuilder:
             context_paths = agent.backend.filesystem_manager.path_permission_manager.get_context_paths() if agent.backend.filesystem_manager.path_permission_manager else []
 
             # Check if two-tier workspace is enabled
+            # Note: use_two_tier_workspace is already suppressed (set to False) on the
+            # filesystem manager when write_mode is active, so no extra check needed here
             use_two_tier_workspace = False
             if hasattr(agent.backend, "filesystem_manager") and agent.backend.filesystem_manager:
                 use_two_tier_workspace = getattr(agent.backend.filesystem_manager, "use_two_tier_workspace", False)
 
             # Add project instructions section (CLAUDE.md / AGENTS.md discovery)
             # This comes BEFORE workspace structure so project context is established first
-            if context_paths:
-                logger.info(f"[SystemMessageBuilder] Checking for project instructions in {len(context_paths)} context paths")
-                builder.add_section(ProjectInstructionsSection(context_paths, workspace_root=main_workspace))
+            # When worktree_paths is set, discover from worktrees (full checkouts with CLAUDE.md)
+            # instead of original context paths (which may not be mounted in Docker)
+            discovery_paths = context_paths
+            if worktree_paths:
+                discovery_paths = [{"path": wt_path} for wt_path in worktree_paths]
+            if discovery_paths:
+                logger.info(f"[SystemMessageBuilder] Checking for project instructions in {len(discovery_paths)} {'worktree' if worktree_paths else 'context'} paths")
+                builder.add_section(ProjectInstructionsSection(discovery_paths, workspace_root=main_workspace))
 
             # Add workspace structure section (critical paths)
-            builder.add_section(WorkspaceStructureSection(main_workspace, [p.get("path", "") for p in context_paths], use_two_tier_workspace=use_two_tier_workspace))
+            context_path_strs = [p.get("path", "") for p in context_paths]
+            logger.info(
+                f"[SystemMessageBuilder] System prompt paths: "
+                f"context_paths={context_path_strs}, "
+                f"worktree_paths={list(worktree_paths.keys()) if worktree_paths else None}, "
+                f"discovery_paths={[p.get('path', '') for p in discovery_paths] if discovery_paths else None}",
+            )
+            builder.add_section(
+                WorkspaceStructureSection(
+                    main_workspace,
+                    context_path_strs,
+                    use_two_tier_workspace=use_two_tier_workspace,
+                    decomposition_mode=is_decomposition,
+                    worktree_paths=worktree_paths,
+                    branch_name=branch_name,
+                    other_branches=other_branches,
+                ),
+            )
 
             # Check command execution settings
             enable_command_execution = False
@@ -270,6 +311,7 @@ class SystemMessageBuilder:
                 enable_sudo=enable_sudo,
                 concurrent_tool_execution=concurrent_tool_execution,
                 agent_mapping=agent_mapping,
+                decomposition_mode=is_decomposition,
             )
 
             builder.add_section(fs_ops)
@@ -331,7 +373,7 @@ class SystemMessageBuilder:
                 and agent.backend.filesystem_manager
                 and agent.backend.filesystem_manager.cwd
             )
-            builder.add_section(TaskPlanningSection(filesystem_mode=filesystem_mode))
+            builder.add_section(TaskPlanningSection(filesystem_mode=filesystem_mode, decomposition_mode=is_decomposition))
 
         # PRIORITY 10 (MEDIUM): Evolving Skills (when auto-discovery AND task planning are both enabled)
         # Both gates must be true: evolving skills are structured work plans that complement task planning
@@ -594,6 +636,7 @@ This makes the work reusable for similar future tasks."""
         enable_sudo: bool = False,
         concurrent_tool_execution: bool = False,
         agent_mapping: Optional[Dict[str, str]] = None,
+        decomposition_mode: bool = False,
     ) -> Tuple[Any, Any, Optional[Any]]:  # Tuple[FilesystemOperationsSection, FilesystemBestPracticesSection, Optional[CommandExecutionSection]]
         """Build filesystem-related sections.
 
@@ -619,6 +662,15 @@ This makes the work reusable for similar future tasks."""
         main_workspace = str(agent.backend.filesystem_manager.get_current_workspace())
         temp_workspace = str(agent.backend.filesystem_manager.agent_temporary_workspace) if agent.backend.filesystem_manager.agent_temporary_workspace else None
         context_paths = agent.backend.filesystem_manager.path_permission_manager.get_context_paths() if agent.backend.filesystem_manager.path_permission_manager else []
+
+        # When write_mode is active (not legacy), worktrees replace original context paths.
+        # Don't show original paths in filesystem operations — the agent works in the worktree.
+        write_mode = getattr(agent.backend.filesystem_manager, "write_mode", None)
+        if write_mode and write_mode != "legacy":
+            logger.info(
+                f"[SystemMessageBuilder] FilesystemOps: suppressing context_paths " f"{[p.get('path', '') for p in context_paths]} (write_mode={write_mode})",
+            )
+            context_paths = []
 
         # Calculate previous turns context
         current_turn_num = len(previous_turns) + 1 if previous_turns else 1
@@ -646,7 +698,7 @@ This makes the work reusable for similar future tasks."""
         )
 
         # Build filesystem best practices section
-        fs_best = FilesystemBestPracticesSection(enable_code_based_tools=enable_code_based_tools)
+        fs_best = FilesystemBestPracticesSection(enable_code_based_tools=enable_code_based_tools, decomposition_mode=decomposition_mode)
 
         # Build command execution section if enabled
         cmd_exec = None

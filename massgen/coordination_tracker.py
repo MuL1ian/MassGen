@@ -50,6 +50,7 @@ class EventType(str, Enum):
     AGENT_CANCELLED = "agent_cancelled"
     UPDATE_INJECTED = "update_injected"
     VOTE_IGNORED = "vote_ignored"
+    AGENT_STOPPED = "agent_stopped"  # Agent stopped in decomposition mode
 
     # Broadcast/communication events
     BROADCAST_CREATED = "broadcast_created"
@@ -65,6 +66,7 @@ ACTION_TO_EVENT = {
     ActionType.CANCELLED: EventType.AGENT_CANCELLED,
     ActionType.UPDATE_INJECTED: EventType.UPDATE_INJECTED,
     ActionType.VOTE_IGNORED: EventType.VOTE_IGNORED,
+    ActionType.STOP: EventType.AGENT_STOPPED,
 }
 
 
@@ -734,6 +736,34 @@ class CoordinationTracker:
             available_answers=self.iteration_available_labels.copy(),
             agents_with_answers=agents_with_answers,
             answer_label_mapping=answer_label_mapping,
+        )
+
+    def add_agent_stop(
+        self,
+        agent_id: str,
+        stop_data: Dict[str, Any],
+    ):
+        """Record when an agent stops in decomposition mode.
+
+        This is a thin wrapper that records a stop event for logging/tracing.
+        The core state management (has_voted = True) happens in the orchestrator.
+
+        Args:
+            agent_id: ID of the stopping agent
+            stop_data: Dictionary with stop information (summary, status)
+        """
+        summary = stop_data.get("summary", "")
+        status = stop_data.get("status", "complete")
+
+        context = {
+            "summary": summary,
+            "status": status,
+        }
+        self._add_event(
+            EventType.AGENT_STOPPED,
+            agent_id,
+            f"Stopped ({status}): {summary[:100]}",
+            context,
         )
 
     def set_final_agent(

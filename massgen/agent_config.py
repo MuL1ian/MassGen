@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from .persona_generator import PersonaGeneratorConfig
+from .task_decomposer import TaskDecomposerConfig
 
 if TYPE_CHECKING:
     from .message_templates import MessageTemplates
@@ -115,12 +116,16 @@ class CoordinationConfig:
                         - injection_strategy: str (default "tool_result") - How to inject results:
                           - "tool_result": Append result to next tool call output
                           - "user_message": Inject as separate user message
-        use_two_tier_workspace: If True, agent workspaces are structured with two directories:
-                               - scratch/: Working files, experiments, intermediate results, evaluation scripts
-                               - deliverable/: Final outputs to showcase to voters
-                               When enabled, git versioning is automatically initialized in the workspace
-                               for audit trails and history tracking. Both directories are shared with
-                               other agents during voting/coordination phases.
+        use_two_tier_workspace: DEPRECATED - Use write_mode instead.
+                               If True, agent workspaces are structured with scratch/ and deliverable/
+                               directories. Superseded by write_mode which provides git worktree
+                               isolation with in-worktree scratch space.
+        write_mode: Controls how agent file writes are isolated during coordination.
+                   - "auto": Automatically detect (worktree for git repos, shadow for non-git)
+                   - "worktree": Use git worktrees for isolation (requires git repo)
+                   - "isolated": Use shadow repos for full isolation
+                   - "legacy": Use direct writes (no isolation, current behavior)
+                   - None: Disabled (default, same as "legacy")
     """
 
     enable_planning_mode: bool = False
@@ -155,6 +160,8 @@ class CoordinationConfig:
     # Async subagent execution configuration
     async_subagents: Optional[Dict[str, Any]] = None  # {enabled: bool, injection_strategy: str}
     use_two_tier_workspace: bool = False  # Enable scratch/deliverable structure + git versioning
+    task_decomposer: TaskDecomposerConfig = field(default_factory=TaskDecomposerConfig)
+    write_mode: Optional[str] = None  # "auto" | "worktree" | "isolated" | "legacy"
 
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -226,6 +233,7 @@ class AgentConfig:
         skip_coordination_rounds: Debug/test mode - skip voting rounds and go straight to final presentation (default: False)
         voting_sensitivity: Controls how critical agents are when voting ("lenient", "balanced", "strict")
         max_new_answers_per_agent: Maximum number of new answers each agent can provide (None = unlimited)
+        max_new_answers_global: Maximum number of new answers across all agents (None = unlimited)
         answer_novelty_requirement: How different new answers must be from existing ones ("lenient", "balanced", "strict")
     """
 
@@ -238,6 +246,7 @@ class AgentConfig:
     # Voting behavior configuration
     voting_sensitivity: str = "lenient"
     max_new_answers_per_agent: Optional[int] = None
+    max_new_answers_global: Optional[int] = None
     answer_novelty_requirement: str = "lenient"
 
     # Agent customization
@@ -269,6 +278,13 @@ class AgentConfig:
     # When True, voting only starts after all agents submit their answers
     # Prevents wasteful restarts when agents vote before everyone has answered
     defer_voting_until_all_answered: bool = False
+
+    # Coordination mode: "voting" (default) or "decomposition"
+    # In decomposition mode, each agent works on an assigned subtask and calls stop when done.
+    # A presenter agent synthesizes the final output.
+    coordination_mode: str = "voting"
+    # Agent ID that presents the final synthesized output (decomposition mode)
+    presenter_agent: Optional[str] = None
 
     # Debug mode for restart feature - override final answer on attempt 1 only
     debug_final_answer: Optional[str] = None
@@ -928,6 +944,7 @@ class AgentConfig:
             "custom_system_instruction": self._custom_system_instruction,
             "voting_sensitivity": self.voting_sensitivity,
             "max_new_answers_per_agent": self.max_new_answers_per_agent,
+            "max_new_answers_global": self.max_new_answers_global,
             "answer_novelty_requirement": self.answer_novelty_requirement,
             "timeout_config": {
                 "orchestrator_timeout_seconds": self.timeout_config.orchestrator_timeout_seconds,
@@ -972,6 +989,7 @@ class AgentConfig:
         custom_system_instruction = data.get("custom_system_instruction")
         voting_sensitivity = data.get("voting_sensitivity", "lenient")
         max_new_answers_per_agent = data.get("max_new_answers_per_agent")
+        max_new_answers_global = data.get("max_new_answers_global")
         answer_novelty_requirement = data.get("answer_novelty_requirement", "lenient")
 
         # Handle timeout_config
@@ -1003,6 +1021,7 @@ class AgentConfig:
             agent_id=agent_id,
             voting_sensitivity=voting_sensitivity,
             max_new_answers_per_agent=max_new_answers_per_agent,
+            max_new_answers_global=max_new_answers_global,
             answer_novelty_requirement=answer_novelty_requirement,
             timeout_config=timeout_config,
             coordination_config=coordination_config,

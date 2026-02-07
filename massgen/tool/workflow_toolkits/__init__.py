@@ -9,6 +9,7 @@ from .base import BaseToolkit, ToolType
 from .broadcast import BroadcastToolkit
 from .new_answer import NewAnswerToolkit
 from .post_evaluation import PostEvaluationToolkit
+from .stop import StopToolkit
 from .vote import VoteToolkit
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "ToolType",
     "NewAnswerToolkit",
     "VoteToolkit",
+    "StopToolkit",
     "BroadcastToolkit",
     "PostEvaluationToolkit",
     "get_workflow_tools",
@@ -32,6 +34,7 @@ def get_workflow_tools(
     broadcast_wait_by_default: bool = True,
     vote_only: bool = False,
     anon_agent_ids: Optional[List[str]] = None,
+    decomposition_mode: bool = False,
 ) -> List[Dict]:
     """
     Get workflow tool definitions with proper formatting.
@@ -49,6 +52,8 @@ def get_workflow_tools(
                        If provided, these are used directly for the vote enum.
                        Pass from coordination_tracker.get_agents_with_answers_anon() for
                        global consistency with injections and vote validation.
+        decomposition_mode: If True, use stop tool instead of vote tool.
+                           Used when coordination_mode is "decomposition".
 
     Returns:
         List of tool definitions
@@ -69,13 +74,18 @@ def get_workflow_tools(
         new_answer_toolkit = NewAnswerToolkit(template_overrides=template_overrides)
         tools.extend(new_answer_toolkit.get_tools(config))
 
-    # Get vote tool (always included)
-    vote_toolkit = VoteToolkit(
-        valid_agent_ids=valid_agent_ids,
-        template_overrides=template_overrides,
-        anon_agent_ids=anon_agent_ids,
-    )
-    tools.extend(vote_toolkit.get_tools(config))
+    if decomposition_mode:
+        # Decomposition mode: use stop tool instead of vote
+        stop_toolkit = StopToolkit(template_overrides=template_overrides)
+        tools.extend(stop_toolkit.get_tools(config))
+    else:
+        # Voting mode: use vote tool (always included)
+        vote_toolkit = VoteToolkit(
+            valid_agent_ids=valid_agent_ids,
+            template_overrides=template_overrides,
+            anon_agent_ids=anon_agent_ids,
+        )
+        tools.extend(vote_toolkit.get_tools(config))
 
     # Get broadcast tools if enabled (unless vote_only mode)
     if broadcast_mode and broadcast_mode is not False and not vote_only:

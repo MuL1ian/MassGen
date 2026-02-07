@@ -285,8 +285,35 @@ IMPORTANT: The only workflow action available to you is `vote`. You cannot submi
 
         return tool_def
 
-    def get_standard_tools(self, valid_agent_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    def get_stop_tool(self) -> Dict[str, Any]:
+        """Get stop tool definition for decomposition mode."""
+        return {
+            "type": "function",
+            "function": {
+                "name": "stop",
+                "description": "Signal that your assigned subtask is complete and well-integrated with other agents' work.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "summary": {
+                            "type": "string",
+                            "description": "What you accomplished and how it connects to other agents' work",
+                        },
+                        "status": {
+                            "type": "string",
+                            "enum": ["complete", "blocked"],
+                            "description": "Whether your subtask is complete or blocked on something",
+                        },
+                    },
+                    "required": ["summary", "status"],
+                },
+            },
+        }
+
+    def get_standard_tools(self, valid_agent_ids: Optional[List[str]] = None, decomposition_mode: bool = False) -> List[Dict[str, Any]]:
         """Get standard tools for MassGen framework."""
+        if decomposition_mode:
+            return [self.get_new_answer_tool(), self.get_stop_tool()]
         return [self.get_new_answer_tool(), self.get_vote_tool(valid_agent_ids)]
 
     def final_presentation_system_message(
@@ -522,7 +549,7 @@ When you have composed your final answer, submit it using the `new_answer` tool.
         else:
             return presentation_instructions
 
-    def format_restart_context(self, reason: str, instructions: str, previous_answer: Optional[str] = None, workspace_populated: bool = False) -> str:
+    def format_restart_context(self, reason: str, instructions: str, previous_answer: Optional[str] = None, workspace_populated: bool = False, branch_info: Optional[Dict[str, Any]] = None) -> str:
         """Format restart context for subsequent orchestration attempts.
 
         This context is added to agent messages (like multi-turn context) on restart attempts.
@@ -532,6 +559,8 @@ When you have composed your final answer, submit it using the `new_answer` tool.
             instructions: Detailed guidance for improvement
             previous_answer: The winning answer from the previous attempt (optional)
             workspace_populated: Whether the workspace still has files from previous attempt
+            branch_info: Optional dict with 'own_branch' (str) and 'other_branches' (list[str])
+                for communicating branch names from the previous attempt
         """
         if "format_restart_context" in self._template_overrides:
             override = self._template_overrides["format_restart_context"]
@@ -558,6 +587,20 @@ The previous orchestration attempt was restarted because:
 
 **Previous attempt's workspace is still available in your working directory.**
 Check your deliverable/ and scratch/ directories for files from the previous attempt."""
+
+        if branch_info:
+            own_branch = branch_info.get("own_branch")
+            other_branches = branch_info.get("other_branches", {})
+            if own_branch:
+                base_context += f"\n\n**Your previous work is on branch**: `{own_branch}`"
+                base_context += f"\nYou can build on it: `git merge {own_branch}`"
+            if other_branches:
+                if isinstance(other_branches, dict):
+                    branch_list = ", ".join(f"{label}: `{b}`" for label, b in other_branches.items())
+                else:
+                    # Legacy list format fallback
+                    branch_list = ", ".join(f"`{b}`" for b in other_branches)
+                base_context += f"\n**Other agents' branches**: {branch_list}"
 
         base_context += """
 
@@ -680,6 +723,7 @@ Please address these specific issues in your coordination and final answer.
         base_system_message: Optional[str] = None,
         paraphrase: Optional[str] = None,
         agent_mapping: Optional[Dict[str, str]] = None,
+        decomposition_mode: bool = False,
     ) -> Dict[str, Any]:
         """Build complete initial conversation for MassGen evaluation.
 
@@ -708,7 +752,7 @@ Please address these specific issues in your coordination and final answer.
         return {
             "system_message": system_message,
             "user_message": self.build_evaluation_message(task, agent_summaries, paraphrase, agent_mapping),
-            "tools": self.get_standard_tools(valid_agent_ids),
+            "tools": self.get_standard_tools(valid_agent_ids, decomposition_mode=decomposition_mode),
         }
 
     def build_conversation_with_context(
@@ -720,6 +764,7 @@ Please address these specific issues in your coordination and final answer.
         base_system_message: Optional[str] = None,
         paraphrase: Optional[str] = None,
         agent_mapping: Optional[Dict[str, str]] = None,
+        decomposition_mode: bool = False,
     ) -> Dict[str, Any]:
         """Build complete conversation with conversation history context for MassGen evaluation.
 
@@ -733,6 +778,7 @@ Please address these specific issues in your coordination and final answer.
             agent_mapping: Mapping from real agent ID to anonymous ID (e.g., agent_a -> agent1).
                           Pass from coordination_tracker.get_reverse_agent_mapping() for
                           global consistency with vote tool and injections.
+            decomposition_mode: If True, use stop tool instead of vote in logged tools
         """
         # Use agent's custom system message if provided, otherwise use default context-aware message
         if base_system_message:
@@ -749,7 +795,7 @@ Please address these specific issues in your coordination and final answer.
         return {
             "system_message": system_message,
             "user_message": self.build_coordination_context(current_task, conversation_history, agent_summaries, paraphrase, agent_mapping),
-            "tools": self.get_standard_tools(valid_agent_ids),
+            "tools": self.get_standard_tools(valid_agent_ids, decomposition_mode=decomposition_mode),
         }
 
     def build_final_presentation_message(

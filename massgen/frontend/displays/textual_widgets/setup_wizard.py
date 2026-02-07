@@ -227,14 +227,13 @@ class DockerSetupStep(StepComponent):
         color: $primary;
         text-style: bold;
         width: 100%;
-        margin-top: 0;
-        margin-bottom: 0;
+        margin: 1 0 0 0;
     }
 
     DockerSetupStep .status-group {
         width: 100%;
         padding: 0 1;
-        margin-bottom: 0;
+        margin: 0;
     }
 
     DockerSetupStep .resolution-list {
@@ -245,18 +244,29 @@ class DockerSetupStep(StepComponent):
 
     DockerSetupStep .image-select {
         width: 100%;
-        padding: 1;
-        margin-top: 1;
+        padding: 0 1;
+        margin: 0;
     }
 
     DockerSetupStep .image-checkbox {
-        margin: 0 0 1 1;
+        margin: 0 0 0 1;
+    }
+
+    DockerSetupStep .pull-button {
+        margin: 1 0 0 2;
+        min-width: 24;
+        max-width: 30;
+    }
+
+    DockerSetupStep .pull-status {
+        padding: 0 2;
+        margin: 0;
+        color: $text-muted;
     }
 
     DockerSetupStep .success-message {
         color: $success;
-        text-align: center;
-        padding: 1;
+        padding: 0 1;
     }
 
     DockerSetupStep .error-message {
@@ -291,6 +301,13 @@ class DockerSetupStep(StepComponent):
         self._diagnostics = None
         self._checkboxes: Dict[str, Checkbox] = {}
         self._selected_images: List[str] = []
+        self._pull_button: Optional[Button] = None
+        self._pull_status: Optional[Label] = None
+        self._pulling = False
+        self._spinner_timer = None
+        self._spinner_frame = 0
+        self._spinner_message = ""
+        self._SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
     def _load_diagnostics(self) -> None:
         """Load Docker diagnostics."""
@@ -378,6 +395,18 @@ class DockerSetupStep(StepComponent):
                         self._selected_images.append(img_name)
                     yield cb
 
+            self._pull_button = Button(
+                "Pull Selected Images",
+                id="pull_docker_images",
+                variant="default",
+                classes="pull-button",
+            )
+            yield self._pull_button
+
+            self._pull_status = Label("", classes="pull-status")
+            self._pull_status.display = False
+            yield self._pull_status
+
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         """Handle checkbox toggle."""
         for img_name, cb in self._checkboxes.items():
@@ -387,6 +416,114 @@ class DockerSetupStep(StepComponent):
                 elif not event.value and img_name in self._selected_images:
                     self._selected_images.remove(img_name)
                 break
+
+    def _animate_spinner(self) -> None:
+        """Tick the spinner animation on the status label."""
+        if self._pull_status and self._pulling:
+            frame = self._SPINNER_FRAMES[self._spinner_frame % len(self._SPINNER_FRAMES)]
+            self._pull_status.update(f"{frame} {self._spinner_message}")
+            self._spinner_frame += 1
+
+    def _start_spinner(self, message: str) -> None:
+        """Start the animated spinner with a message."""
+        self._spinner_message = message
+        self._spinner_frame = 0
+        if self._pull_status:
+            self._pull_status.display = True
+        if self._spinner_timer is None:
+            self._spinner_timer = self.set_interval(0.08, self._animate_spinner)
+
+    def _stop_spinner(self) -> None:
+        """Stop the spinner animation."""
+        if self._spinner_timer is not None:
+            self._spinner_timer.stop()
+            self._spinner_timer = None
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle pull button press."""
+        if event.button.id != "pull_docker_images" or self._pulling:
+            return
+
+        if not self._selected_images:
+            if self._pull_status:
+                self._pull_status.update("No images selected.")
+                self._pull_status.display = True
+            return
+
+        self._pulling = True
+        if self._pull_button:
+            self._pull_button.disabled = True
+            self._pull_button.label = "Pulling..."
+        # Disable checkboxes during pull
+        for cb in self._checkboxes.values():
+            cb.disabled = True
+
+        import asyncio
+
+        pulled = []
+        failed = []
+        for image in list(self._selected_images):
+            self._start_spinner(f"Pulling {image}")
+
+            _setup_log(f"DockerSetupStep: Pulling {image}")
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "docker",
+                    "pull",
+                    image,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                # Stream stdout line-by-line to show layer progress
+                if proc.stdout:
+                    async for raw_line in proc.stdout:
+                        line = raw_line.decode(errors="replace").strip()
+                        if line:
+                            self._spinner_message = line
+                stderr = await proc.stderr.read() if proc.stderr else b""
+                await proc.wait()
+                if proc.returncode == 0:
+                    pulled.append(image)
+                    _setup_log(f"DockerSetupStep: Successfully pulled {image}")
+                else:
+                    failed.append(image)
+                    err = stderr.decode().strip() if stderr else "unknown error"
+                    _setup_log(f"DockerSetupStep: Failed to pull {image}: {err}")
+            except Exception as e:
+                failed.append(image)
+                _setup_log(f"DockerSetupStep: Failed to pull {image}: {e}")
+
+        self._stop_spinner()
+        self._pulling = False
+
+        # Update final status
+        parts = []
+        if pulled:
+            parts.append(f"✓ Pulled {len(pulled)} image(s)")
+            self._selected_images = [img for img in self._selected_images if img not in pulled]
+        if failed:
+            parts.append(f"✗ {len(failed)} failed: {', '.join(failed)}")
+
+        if self._pull_status:
+            self._pull_status.update(" | ".join(parts) if parts else "✓ Done")
+            self._pull_status.display = True
+
+        if self._pull_button:
+            if failed:
+                self._pull_button.label = "Retry Failed"
+                self._pull_button.disabled = False
+            else:
+                self._pull_button.label = "All images pulled ✓"
+                self._pull_button.disabled = True
+
+        # Re-enable remaining checkboxes
+        for cb in self._checkboxes.values():
+            cb.disabled = False
+
+    def validate(self) -> Optional[str]:
+        if self._pulling:
+            return "Please wait for Docker image pull to finish"
+        return None
 
     def get_value(self) -> Dict[str, Any]:
         return {

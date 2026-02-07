@@ -202,6 +202,8 @@ class LLMBackend(ABC):
                     "session_storage_base": kwargs.get("session_storage_base"),
                     # Two-tier workspace (scratch/deliverable) + git versioning
                     "use_two_tier_workspace": kwargs.get("use_two_tier_workspace", False),
+                    # Write mode for worktree isolation (suppresses Docker context mounts)
+                    "write_mode": kwargs.get("write_mode"),
                 }
 
                 # Create FilesystemManager
@@ -318,6 +320,7 @@ class LLMBackend(ABC):
             # Coordination parameters (handled by orchestrator, not passed to API)
             "vote_only",  # Vote-only mode flag for coordination
             "use_two_tier_workspace",  # Two-tier workspace (scratch/deliverable) + git versioning
+            "write_mode",  # Isolated write context mode (auto/worktree/isolated/legacy)
             # Multimodal tools configuration (handled by CustomToolAndMCPBackend)
             "enable_multimodal_tools",
             "multimodal_config",
@@ -334,6 +337,10 @@ class LLMBackend(ABC):
             "debug_delay_after_n_tools",
             # Per-agent voting sensitivity (coordination config, not API param)
             "voting_sensitivity",
+            # Decomposition mode parameters (handled by orchestrator, not passed to API)
+            "coordination_mode",
+            "presenter_agent",
+            "subtask",
         }
 
     @abstractmethod
@@ -1126,6 +1133,10 @@ def build_workflow_instructions(tools: List[Dict[str, Any]]) -> str:
                 parts.append(
                     '    Usage: {"tool_name": "vote", ' '"arguments": {"agent_id": "agent1", "reason": "explanation"}}',
                 )
+        elif name == "stop":
+            parts.append(
+                '    Usage: {"tool_name": "stop", "arguments": {"summary": "Brief summary of completed work", ' '"status": "complete"}}  // status: "complete" or "blocked"',
+            )
         elif name == "submit":
             parts.append('    Usage: {"tool_name": "submit", "arguments": {"confirmed": true}}')
         elif name == "restart_orchestration":
@@ -1146,9 +1157,16 @@ def build_workflow_instructions(tools: List[Dict[str, Any]]) -> str:
     parts.append("1. Start with ```json on one line")
     parts.append("2. Include your JSON content (properly formatted)")
     parts.append("3. End with ``` on one line")
-    parts.append(
-        'Example format:\n```json\n{"tool_name": "vote", "arguments": {"agent_id": "agent1", "reason": "explanation"}}\n```',
-    )
+    # Dynamic example based on actual tools present (stop in decomposition, vote in voting)
+    tool_names_present = {t.get("function", {}).get("name") for t in workflow_tools}
+    if "stop" in tool_names_present:
+        parts.append(
+            'Example format:\n```json\n{"tool_name": "stop", "arguments": {"summary": "Brief summary of completed work", "status": "complete"}}\n```',
+        )
+    else:
+        parts.append(
+            'Example format:\n```json\n{"tool_name": "vote", "arguments": {"agent_id": "agent1", "reason": "explanation"}}\n```',
+        )
     parts.append("The JSON block should be placed at the very end of your response, after your analysis.")
     return "\n".join(parts)
 
@@ -1193,8 +1211,15 @@ def build_workflow_mcp_instructions(tools: List[Dict[str, Any]], mcp_prefix: str
     # Use prefixed names in instructions
     new_answer_name = f"`{mcp_prefix}new_answer`" if mcp_prefix else "`new_answer`"
     vote_name = f"`{mcp_prefix}vote`" if mcp_prefix else "`vote`"
+    stop_name = f"`{mcp_prefix}stop`" if mcp_prefix else "`stop`"
 
-    if "new_answer" in tool_names and "vote" in tool_names:
+    if "new_answer" in tool_names and "stop" in tool_names:
+        parts.append(
+            f"\nYou MUST call either {new_answer_name} (to submit/update your work) or {stop_name} "
+            "(to signal your subtask is complete) as an MCP tool call. "
+            "Your response is incomplete without one of these tool calls.",
+        )
+    elif "new_answer" in tool_names and "vote" in tool_names:
         parts.append(
             f"\nYou MUST call either {new_answer_name} (to submit your answer) or {vote_name} "
             "(to vote for the best existing answer) as an MCP tool call. "
@@ -1204,6 +1229,8 @@ def build_workflow_mcp_instructions(tools: List[Dict[str, Any]], mcp_prefix: str
         parts.append(f"\nYou MUST call {new_answer_name} as an MCP tool call to submit your answer.")
     elif "vote" in tool_names:
         parts.append(f"\nYou MUST call {vote_name} as an MCP tool call to vote for the best answer.")
+    elif "stop" in tool_names:
+        parts.append(f"\nYou MUST call {stop_name} as an MCP tool call to signal your subtask is complete.")
 
     return "\n".join(parts)
 

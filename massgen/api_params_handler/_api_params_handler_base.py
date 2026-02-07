@@ -103,6 +103,7 @@ class APIParamsHandlerBase(ABC):
             # Coordination parameters (handled by orchestrator, not passed to API)
             "vote_only",  # Vote-only mode flag for coordination
             "use_two_tier_workspace",  # Two-tier workspace (scratch/deliverable) + git versioning
+            "write_mode",  # Isolated write context mode (auto/worktree/isolated/legacy)
             # NLIP configuration belongs to MassGen routing, never provider APIs
             "enable_nlip",
             "nlip",
@@ -123,6 +124,10 @@ class APIParamsHandlerBase(ABC):
             "debug_delay_after_n_tools",
             # Per-agent voting sensitivity (coordination config, not API param)
             "voting_sensitivity",
+            # Decomposition mode parameters (handled by orchestrator, not passed to API)
+            "coordination_mode",
+            "presenter_agent",
+            "subtask",
         }
 
     def build_base_api_params(

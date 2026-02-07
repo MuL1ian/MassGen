@@ -9,7 +9,7 @@ try:
     from textual.app import ComposeResult
     from textual.containers import Container, Horizontal, ScrollableContainer
     from textual.widget import Widget
-    from textual.widgets import Button, Input, Label, Static, TextArea
+    from textual.widgets import Button, Input, Label, Select, Static, TextArea
 
     TEXTUAL_AVAILABLE = True
 except ImportError:
@@ -218,54 +218,221 @@ class ConversationHistoryModal(BaseModal):
 
 
 class ContextModal(BaseModal):
-    """Modal for managing context paths."""
+    """Modal for managing context paths with interactive permission toggling and removal."""
+
+    DEFAULT_CSS = """
+    ContextModal #context_container {
+        width: 80;
+        max-height: 35;
+    }
+
+    ContextModal .context-path-row {
+        height: 3;
+        width: 100%;
+    }
+
+    ContextModal .context-path-text {
+        width: 1fr;
+        height: 3;
+        content-align: left middle;
+        padding: 0 1;
+    }
+
+    ContextModal .perm-badge {
+        min-width: 10;
+        max-width: 10;
+        margin: 0 1;
+    }
+
+    ContextModal .remove-path-btn {
+        min-width: 5;
+        max-width: 5;
+    }
+
+    ContextModal #context_paths_list {
+        max-height: 15;
+        border: solid $primary-background;
+        margin: 1 0;
+        padding: 1;
+    }
+
+    ContextModal #add_path_form {
+        height: 3;
+        width: 100%;
+    }
+
+    ContextModal #new_path_input {
+        width: 1fr;
+    }
+
+    ContextModal #new_perm_select {
+        width: 14;
+        margin: 0 1;
+    }
+
+    ContextModal #context_info_hint {
+        color: $text-muted;
+        text-style: italic;
+        margin: 1 0 0 0;
+    }
+
+    ContextModal #close_context_button {
+        margin-top: 1;
+    }
+    """
 
     def __init__(self, display: "TextualTerminalDisplay", app: "TextualApp"):
         super().__init__()
         self.coordination_display = display
         self.app_ref = app
-        self.current_paths = self._get_current_paths()
 
-    def _get_current_paths(self) -> List[str]:
-        """Get current context paths from orchestrator config."""
+    def _get_current_paths(self) -> List[Dict[str, Any]]:
+        """Get current context paths from agents' PathPermissionManager."""
+        orchestrator = getattr(self.coordination_display, "orchestrator", None)
+        if not orchestrator or not hasattr(orchestrator, "agents"):
+            return []
+        # Read from first agent's PathPermissionManager
+        for _agent_id, agent in orchestrator.agents.items():
+            ppm = getattr(getattr(agent, "backend", None), "filesystem_manager", None)
+            if ppm:
+                ppm = getattr(ppm, "path_permission_manager", None)
+            if ppm:
+                return ppm.get_context_paths()
+        return []
+
+    def _get_worktree_info(self) -> Dict[str, Dict[str, str]]:
+        """Get worktree path mappings from orchestrator, keyed by agent_id.
+
+        Returns: {agent_id: {worktree_path: original_path}}
+        """
         orchestrator = getattr(self.coordination_display, "orchestrator", None)
         if not orchestrator:
-            return []
-        orchestrator_cfg = getattr(orchestrator, "config", {})
-        return orchestrator_cfg.get("context_paths", [])
+            return {}
+        return getattr(orchestrator, "_round_worktree_paths", {})
+
+    def _get_write_mode(self) -> str:
+        """Get write_mode from coordination config."""
+        orchestrator = getattr(self.coordination_display, "orchestrator", None)
+        if not orchestrator:
+            return ""
+        coord_config = getattr(getattr(orchestrator, "config", None), "coordination_config", None)
+        return getattr(coord_config, "write_mode", None) or ""
 
     def compose(self) -> ComposeResult:
         with Container(id="context_container"):
-            yield Label("📂 Context Paths", id="context_header")
-            yield Label("Current paths that agents can access:", id="context_hint")
-            yield TextArea(
-                self._format_paths(),
-                id="context_current_paths",
-                read_only=True,
-            )
+            yield Label("Context Paths", id="context_header")
+            write_mode = self._get_write_mode()
+            if write_mode and write_mode != "legacy":
+                yield Label(
+                    f"write_mode={write_mode} — agents work in worktrees, originals not mounted",
+                    id="context_hint",
+                )
+            else:
+                yield Label("Paths that agents can access:", id="context_hint")
+            with ScrollableContainer(id="context_paths_list"):
+                yield from self._build_path_rows()
             yield Label("Add new path:", id="add_path_label")
-            yield Input(placeholder="Enter path to add...", id="new_path_input")
-            with Horizontal(id="context_buttons"):
-                yield Button("Add Path", id="add_path_button")
-                yield Button("Close (ESC)", id="close_context_button")
+            with Horizontal(id="add_path_form"):
+                yield Input(placeholder="Enter path to add...", id="new_path_input")
+                yield Select(
+                    [("Read", "read"), ("Write", "write")],
+                    value="read",
+                    id="new_perm_select",
+                    allow_blank=False,
+                )
+                yield Button("Add", id="add_path_button", variant="primary")
+            yield Label("Changes take effect on the next turn.", id="context_info_hint")
+            yield Button("Close (ESC)", id="close_context_button", variant="default")
 
-    def _format_paths(self) -> str:
-        """Format current paths for display."""
-        if not self.current_paths:
-            return "No context paths configured."
-        return "\n".join(f"  • {path}" for path in self.current_paths)
+    def _build_path_rows(self) -> List[Widget]:
+        """Build interactive rows for each context path."""
+        paths = self._get_current_paths()
+        if not paths:
+            return [Static("[dim]No context paths configured.[/]", id="no_paths_msg", markup=True)]
+
+        # Build reverse mapping: original_path -> worktree_path (from any agent)
+        worktree_lookup: Dict[str, str] = {}
+        for _agent_id, wt_map in self._get_worktree_info().items():
+            for wt_path, orig_path in wt_map.items():
+                worktree_lookup[orig_path] = wt_path
+
+        rows = []
+        for i, path_info in enumerate(paths):
+            path_str = path_info.get("path", "")
+            perm = path_info.get("permission", "read")
+            perm_label = "Write" if perm == "write" else "Read"
+            perm_variant = "success" if perm == "write" else "primary"
+
+            # Show worktree path if this context path has one
+            wt_path = worktree_lookup.get(path_str)
+            if wt_path:
+                display_text = f"{path_str}\n  [dim]worktree: {wt_path}[/]"
+            else:
+                display_text = path_str
+
+            row = Horizontal(
+                Static(display_text, classes="context-path-text", markup=True),
+                Button(perm_label, id=f"toggle_perm_{i}", variant=perm_variant, classes="perm-badge"),
+                Button("X", id=f"remove_path_{i}", variant="error", classes="remove-path-btn"),
+                classes="context-path-row",
+                id=f"path_row_{i}",
+            )
+            rows.append(row)
+        return rows
+
+    def _refresh_paths_display(self) -> None:
+        """Refresh the paths list by clearing and re-mounting rows."""
+        container = self.query_one("#context_paths_list", ScrollableContainer)
+        container.remove_children()
+        for row in self._build_path_rows():
+            container.mount(row)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button presses."""
-        if event.button.id == "add_path_button":
+        """Handle button presses for toggle, remove, add, and close."""
+        button_id = event.button.id or ""
+
+        if button_id.startswith("toggle_perm_"):
+            idx = int(button_id.split("_")[-1])
+            self._toggle_permission(idx)
+        elif button_id.startswith("remove_path_"):
+            idx = int(button_id.split("_")[-1])
+            self._remove_path(idx)
+        elif button_id == "add_path_button":
             self._add_path()
-        elif event.button.id == "close_context_button":
+        elif button_id == "close_context_button":
             self.dismiss()
+
+    def _toggle_permission(self, idx: int) -> None:
+        """Toggle permission between read and write for path at index."""
+        paths = self._get_current_paths()
+        if idx < 0 or idx >= len(paths):
+            return
+        path_info = paths[idx]
+        path_str = path_info["path"]
+        current_perm = path_info.get("permission", "read")
+        new_perm = "write" if current_perm == "read" else "read"
+
+        self._propagate_permission_update(path_str, new_perm)
+        self._refresh_paths_display()
+        self.app_ref.notify(f"Permission: {path_str} -> {new_perm}", severity="information")
+
+    def _remove_path(self, idx: int) -> None:
+        """Remove the context path at the given index."""
+        paths = self._get_current_paths()
+        if idx < 0 or idx >= len(paths):
+            return
+        path_str = paths[idx]["path"]
+
+        self._propagate_remove(path_str)
+        self._refresh_paths_display()
+        self.app_ref.notify(f"Removed: {path_str}", severity="information")
 
     def _add_path(self) -> None:
         """Add a new context path."""
         input_widget = self.query_one("#new_path_input", Input)
+        select_widget = self.query_one("#new_perm_select", Select)
         new_path = input_widget.value.strip()
+        permission = str(select_widget.value) if select_widget.value != Select.BLANK else "read"
 
         if not new_path:
             self.app_ref.notify("Please enter a path", severity="warning")
@@ -276,22 +443,84 @@ class ContextModal(BaseModal):
             self.app_ref.notify(f"Path does not exist: {new_path}", severity="warning")
             return
 
-        if str(path) in self.current_paths:
-            self.app_ref.notify("Path already in context", severity="warning")
-            return
+        # Check for duplicates
+        existing = self._get_current_paths()
+        for p in existing:
+            if Path(p["path"]).resolve() == path:
+                self.app_ref.notify("Path already in context", severity="warning")
+                return
 
-        self.current_paths.append(str(path))
-        self._update_orchestrator_paths()
+        self._propagate_add(str(path), permission)
         input_widget.value = ""
+        self._refresh_paths_display()
+        self.app_ref.notify(f"Added: {path} ({permission})", severity="information")
 
-        # Refresh the display
-        paths_area = self.query_one("#context_current_paths", TextArea)
-        paths_area.load_text(self._format_paths())
-        self.app_ref.notify(f"Added: {path}", severity="information")
-
-    def _update_orchestrator_paths(self) -> None:
-        """Update the orchestrator config with new paths."""
+    def _get_orchestrator_agents(self):
+        """Get the orchestrator agents dict."""
         orchestrator = getattr(self.coordination_display, "orchestrator", None)
-        if orchestrator:
-            if hasattr(orchestrator, "config"):
-                orchestrator.config["context_paths"] = self.current_paths.copy()
+        if not orchestrator or not hasattr(orchestrator, "agents"):
+            return {}
+        return orchestrator.agents
+
+    def _propagate_permission_update(self, path_str: str, new_permission: str) -> None:
+        """Update permission on all agents' PathPermissionManager."""
+        for _agent_id, agent in self._get_orchestrator_agents().items():
+            ppm = self._get_ppm(agent)
+            if ppm:
+                ppm.update_context_path_permission(path_str, new_permission)
+            # Update backend config for subagent spawning consistency
+            self._update_agent_config_context_paths(agent, path_str, new_permission=new_permission)
+
+    def _propagate_remove(self, path_str: str) -> None:
+        """Remove a context path from all agents' PathPermissionManager."""
+        for _agent_id, agent in self._get_orchestrator_agents().items():
+            ppm = self._get_ppm(agent)
+            if ppm:
+                ppm.remove_context_path(path_str)
+            # Update backend config for subagent spawning consistency
+            self._update_agent_config_context_paths(agent, path_str, remove=True)
+
+    def _propagate_add(self, path_str: str, permission: str) -> None:
+        """Add a context path to all agents' PathPermissionManager."""
+        path_config = {"path": path_str, "permission": permission}
+        for _agent_id, agent in self._get_orchestrator_agents().items():
+            ppm = self._get_ppm(agent)
+            if ppm:
+                ppm.add_context_paths([path_config])
+            # Update backend config for subagent spawning consistency
+            self._update_agent_config_context_paths(agent, path_str, permission=permission, add=True)
+
+    def _get_ppm(self, agent):
+        """Get PathPermissionManager from an agent."""
+        fm = getattr(getattr(agent, "backend", None), "filesystem_manager", None)
+        if fm:
+            return getattr(fm, "path_permission_manager", None)
+        return None
+
+    def _update_agent_config_context_paths(
+        self,
+        agent,
+        path_str: str,
+        *,
+        new_permission: str = "",
+        remove: bool = False,
+        add: bool = False,
+        permission: str = "read",
+    ) -> None:
+        """Update agent.backend.config['context_paths'] to stay in sync."""
+        backend = getattr(agent, "backend", None)
+        if not backend or not hasattr(backend, "config"):
+            return
+        config_paths = backend.config.get("context_paths", [])
+
+        resolved = str(Path(path_str).resolve())
+
+        if remove:
+            backend.config["context_paths"] = [p for p in config_paths if str(Path(p["path"]).resolve()) != resolved]
+        elif add:
+            backend.config["context_paths"] = config_paths + [{"path": path_str, "permission": permission}]
+        elif new_permission:
+            for p in config_paths:
+                if str(Path(p["path"]).resolve()) == resolved:
+                    p["permission"] = new_permission
+                    break

@@ -8,7 +8,7 @@ Modals are organized by function:
 - status_modals: SystemStatusModal, MCPStatusModal, CostBreakdownModal, MetricsModal
 - coordination_modals: VoteResultsModal, OrchestratorEventsModal, CoordinationTableModal, AgentSelectorModal
 - content_modals: TextContentModal, TurnDetailModal, ConversationHistoryModal, ContextModal
-- input_modals: BroadcastPromptModal, StructuredBroadcastPromptModal
+- input_modals: BroadcastPromptModal, StructuredBroadcastPromptModal, DecompositionSubtasksModal
 - shortcuts_modal: KeyboardShortcutsModal
 - workspace_modals: FileInspectionModal
 - agent_output_modal: AgentOutputModal
@@ -33,7 +33,13 @@ from .coordination_modals import (
     OrchestratorEventsModal,
     VoteResultsModal,
 )
-from .input_modals import BroadcastPromptModal, StructuredBroadcastPromptModal
+from .input_modals import (
+    BroadcastPromptModal,
+    DecompositionGenerationModal,
+    DecompositionSubtasksModal,
+    StructuredBroadcastPromptModal,
+)
+from .review_modal import GitDiffReviewModal
 from .shortcuts_modal import KeyboardShortcutsModal
 from .status_modals import (
     CostBreakdownModal,
@@ -66,7 +72,11 @@ __all__ = [
     "TurnDetailModal",
     # Input modals
     "BroadcastPromptModal",
+    "DecompositionGenerationModal",
+    "DecompositionSubtasksModal",
     "StructuredBroadcastPromptModal",
+    # Review modal
+    "GitDiffReviewModal",
     # Shortcuts modal
     "KeyboardShortcutsModal",
     # Workspace modals

@@ -193,6 +193,66 @@ class PathPermissionManager:
         # Clear permission cache to force recalculation
         self._permission_cache.clear()
 
+    def remove_context_path(self, context_path: str) -> Optional["ManagedPath"]:
+        """Remove a context path from managed paths entirely.
+
+        Used during worktree isolation so the agent only sees the worktree
+        (inside workspace) and never discovers the original context path.
+
+        Args:
+            context_path: The context path to remove
+
+        Returns:
+            The removed ManagedPath (for later re-adding), or None if not found
+        """
+        resolved = Path(context_path).resolve()
+        for i, mp in enumerate(self.managed_paths):
+            if mp.path.resolve() == resolved and mp.path_type == "context":
+                removed = self.managed_paths.pop(i)
+                self._permission_cache.clear()
+                logger.info(f"[PathPermissionManager] Removed context path for isolation: {context_path}")
+                return removed
+        return None
+
+    def update_context_path_permission(self, path_str: str, new_permission: str) -> bool:
+        """Update the permission of a context path.
+
+        Args:
+            path_str: The context path to update
+            new_permission: New permission value ("read" or "write")
+
+        Returns:
+            True if the path was found and updated, False otherwise
+        """
+        resolved = Path(path_str).resolve()
+        try:
+            perm = Permission(new_permission.lower())
+        except ValueError:
+            logger.warning(f"[PathPermissionManager] Invalid permission '{new_permission}', ignoring update")
+            return False
+
+        for mp in self.managed_paths:
+            if mp.path.resolve() == resolved and mp.path_type == "context":
+                mp.permission = perm
+                mp.will_be_writable = perm == Permission.WRITE
+                self._permission_cache.clear()
+                logger.info(f"[PathPermissionManager] Updated context path permission: {path_str} -> {new_permission}")
+                return True
+        return False
+
+    def re_add_context_path(self, managed_path: "ManagedPath") -> None:
+        """Re-add a previously removed context path.
+
+        Called after review phase so ChangeApplier can copy approved files
+        from the worktree back to the original context path.
+
+        Args:
+            managed_path: The ManagedPath object previously returned by remove_context_path
+        """
+        self.managed_paths.append(managed_path)
+        self._permission_cache.clear()
+        logger.info(f"[PathPermissionManager] Re-added context path after review: {managed_path.path}")
+
     def snapshot_writable_context_paths(self) -> None:
         """
         Take a snapshot of all files in writable context paths.
