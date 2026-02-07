@@ -9,7 +9,8 @@ including recording, retrieving, and managing memories across sessions.
 Note: Some tests require mem0ai to be installed and may be skipped if unavailable.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -24,6 +25,8 @@ except ImportError:
 
 # Check if mem0 is available
 try:
+    import mem0  # noqa: F401
+
     MEM0_AVAILABLE = True
 except ImportError:
     MEM0_AVAILABLE = False
@@ -32,13 +35,26 @@ except ImportError:
 # Helper function to create mock backend
 def create_mock_backend():
     """Create a mock backend for testing."""
-    backend = MagicMock()
-    backend.chat_completion = AsyncMock(
-        return_value={
-            "choices": [{"message": {"content": "Test response"}}],
-        },
-    )
-    return backend
+
+    class _MockMassGenBackend:
+        _embedding = [0.0] * 1536
+
+        async def chat_completion(self, *args, **kwargs):
+            return {
+                "choices": [{"message": {"content": "Test response"}}],
+            }
+
+        async def stream_with_tools(self, *args, **kwargs):
+            yield SimpleNamespace(type="content", content="Test response")
+            yield SimpleNamespace(type="done", content=None)
+
+        async def __call__(self, *args, **kwargs):
+            return SimpleNamespace(embeddings=[self._embedding])
+
+        async def embed(self, *args, **kwargs):
+            return SimpleNamespace(embeddings=[self._embedding])
+
+    return _MockMassGenBackend()
 
 
 @pytest.mark.skipif(not MEMORY_AVAILABLE, reason="Memory module not available")

@@ -253,6 +253,8 @@ markers = [
 asyncio_mode = "auto"
 filterwarnings = [
     "ignore::pytest.PytestAssertRewriteWarning:_pytest.config",
+    "ignore:jsonschema.RefResolver is deprecated as of v4.18.0.*:DeprecationWarning:autogen\\.json_utils",
+    "ignore:Accessing jsonschema.__version__ is deprecated.*:DeprecationWarning:autogen\\.import_utils",
 ]
 
 # Coverage configuration

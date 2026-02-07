@@ -73,7 +73,7 @@ async def test_claude_code_backend_usage_tracking():
     backend.token_usage.reset()
 
     response_content = ""
-    async for chunk in backend.stream_with_tools(messages, [], model="claude-3-5-haiku-20241022", max_tokens=5):
+    async for chunk in backend.stream_with_tools(messages, [], model="claude-haiku-4-5-20251001", max_tokens=5):
         if chunk.type == "content":
             response_content += chunk.content
         elif chunk.type == "done":
@@ -156,7 +156,7 @@ async def test_claude_caching_e2e():
 
     # First call (no cache)
     backend.token_usage.reset()
-    async for chunk in backend.stream_with_tools(messages_with_cache, [], model="claude-3-5-haiku-20241022", max_tokens=5):
+    async for chunk in backend.stream_with_tools(messages_with_cache, [], model="claude-haiku-4-5-20251001", max_tokens=5):
         if chunk.type == "done":
             break
 
@@ -164,7 +164,7 @@ async def test_claude_caching_e2e():
 
     # Second call (should use cache)
     backend.token_usage.reset()
-    async for chunk in backend.stream_with_tools(messages_with_cache, [], model="claude-3-5-haiku-20241022", max_tokens=5):
+    async for chunk in backend.stream_with_tools(messages_with_cache, [], model="claude-haiku-4-5-20251001", max_tokens=5):
         if chunk.type == "done":
             break
 

@@ -18,8 +18,6 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
-
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
@@ -36,7 +34,7 @@ async def test_claude_basic_streaming():
     messages = [{"role": "user", "content": "Explain quantum computing in 2-3 sentences."}]
 
     content = ""
-    async for chunk in backend.stream_with_tools(messages, [], model="claude-3-5-haiku-20241022"):
+    async for chunk in backend.stream_with_tools(messages, [], model="claude-haiku-4-5-20251001"):
         if chunk.type == "content":
             content += chunk.content
             print(chunk.content, end="", flush=True)
@@ -83,7 +81,7 @@ async def test_claude_tool_calling():
     ]
 
     tool_calls_received = []
-    async for chunk in backend.stream_with_tools(messages, tools, model="claude-3-5-haiku-20241022"):
+    async for chunk in backend.stream_with_tools(messages, tools, model="claude-haiku-4-5-20251001"):
         if chunk.type == "content":
             print(chunk.content, end="", flush=True)
         elif chunk.type == "tool_calls":
@@ -139,7 +137,7 @@ async def test_claude_multi_tool_support():
     async for chunk in backend.stream_with_tools(
         messages,
         user_tools,
-        model="claude-3-5-haiku-20241022",
+        model="claude-haiku-4-5-20251001",
         enable_web_search=True,  # Server-side tool
         enable_code_execution=False,
     ):
@@ -163,20 +161,18 @@ async def test_claude_multi_tool_support():
     return search_used or len(tool_calls_received) > 0
 
 
-@pytest.mark.skip(reason="Backend API drift: convert_messages_to_claude_format method was removed from ClaudeBackend")
 async def test_claude_message_conversion():
     """Test Claude's message format conversion capabilities.
 
-    NOTE: This test is skipped because the convert_messages_to_claude_format
-    method was removed during a backend refactoring. Message conversion is now
-    handled internally by the ClaudeAPIParamsHandler.build_api_params() method.
+    Message conversion is handled internally by ClaudeAPIParamsHandler.build_api_params().
     """
     print("\n🧪 Testing Claude Message Conversion...")
 
-    backend = ClaudeBackend()
+    backend = ClaudeBackend(api_key="test-key")
 
     # Test with tool result message (Chat Completions format)
     messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": "What's 5 + 3?"},
         {
             "role": "assistant",
@@ -192,22 +188,32 @@ async def test_claude_message_conversion():
         {"role": "tool", "tool_call_id": "call_123", "content": "8"},
     ]
 
-    # Convert messages
-    converted, system_msg = backend.convert_messages_to_claude_format(messages)
+    api_params = await backend.api_params_handler.build_api_params(
+        messages=messages,
+        tools=[],
+        all_params={"model": "claude-haiku-4-5-20251001"},
+    )
+    converted = api_params["messages"]
+    system_msg = api_params.get("system", "")
 
     print(f"   Original messages: {len(messages)}")
     print(f"   Converted messages: {len(converted)}")
     print(f"   System message: {len(system_msg)} chars")
 
-    # Check tool result conversion
-    tool_result_found = False
-    for msg in converted:
-        if msg.get("role") == "user" and isinstance(msg.get("content"), list) and any(item.get("type") == "tool_result" for item in msg["content"]):
-            tool_result_found = True
-            print("   ✅ Tool result conversion successful")
-            break
+    assert system_msg == "You are a helpful assistant."
 
-    return len(converted) >= 3 and tool_result_found
+    assistant_msg = converted[1]
+    assert assistant_msg["role"] == "assistant"
+    assert isinstance(assistant_msg["content"], list)
+    assert any(item.get("type") == "tool_use" and item.get("id") == "call_123" for item in assistant_msg["content"])
+
+    tool_result_msg = converted[2]
+    assert tool_result_msg["role"] == "user"
+    assert isinstance(tool_result_msg["content"], list)
+    tool_result_block = tool_result_msg["content"][0]
+    assert tool_result_block["type"] == "tool_result"
+    assert tool_result_block["tool_use_id"] == "call_123"
+    assert tool_result_block["content"] == "8"
 
 
 async def test_claude_error_handling():
@@ -236,7 +242,7 @@ async def test_claude_token_pricing():
     backend = ClaudeBackend()
 
     # Test pricing calculation for different models
-    models_to_test = ["claude-4-opus", "claude-4-sonnet", "claude-3.5-haiku"]
+    models_to_test = ["claude-4-opus", "claude-4-sonnet", "claude-haiku-4-5-20251001"]
 
     for model in models_to_test:
         cost = backend.calculate_cost(1000, 500, model)
@@ -279,7 +285,7 @@ async def main():
     for test_name, test_func in tests:
         try:
             result = await test_func()
-            results.append((test_name, result))
+            results.append((test_name, True if result is None else bool(result)))
         except Exception as e:
             print(f"\n❌ {test_name} failed with exception: {e}")
             results.append((test_name, False))

@@ -36,6 +36,35 @@ def test_cerebras_backend():
     assert backend.config["base_url"] == "https://api.cerebras.ai/v1"
 
 
-@pytest.mark.skip(reason="Backend API drift: convert_tools_to_chat_completions_format method was removed from ChatCompletionsBackend")
-def test_tool_conversion():
-    """Tool conversion now lives in api_params_handler, not this backend class."""
+@pytest.mark.asyncio
+async def test_tool_conversion_via_api_params_handler():
+    """Response-style function tools are converted via ChatCompletionsAPIParamsHandler."""
+    backend = ChatCompletionsBackend(api_key="test-key")
+    tools = [
+        {
+            "type": "function",
+            "name": "calculate_area",
+            "description": "Calculate area of rectangle",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "width": {"type": "number"},
+                    "height": {"type": "number"},
+                },
+                "required": ["width", "height"],
+            },
+        },
+    ]
+
+    api_params = await backend.api_params_handler.build_api_params(
+        messages=[{"role": "user", "content": "Calculate area for width 5 and height 3"}],
+        tools=tools,
+        all_params={"model": "gpt-4o-mini"},
+    )
+
+    assert "tools" in api_params
+    assert len(api_params["tools"]) == 1
+    converted_tool = api_params["tools"][0]
+    assert converted_tool["type"] == "function"
+    assert converted_tool["function"]["name"] == "calculate_area"
+    assert converted_tool["function"]["description"] == "Calculate area of rectangle"
