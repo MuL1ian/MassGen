@@ -411,8 +411,11 @@ pre-commit run --all-files
 ### 4. Testing
 
 ```bash
-# Default test command (skips slow/API-dependent tests)
-uv run pytest -x -q -m "not expensive and not integration and not docker" --tb=no
+# Default fast lane (recommended)
+make test-fast
+
+# Equivalent direct command
+uv run pytest massgen/tests -q --tb=no
 
 # Run specific test file
 uv run pytest massgen/tests/test_specific.py
@@ -424,8 +427,7 @@ uv run pytest --cov=massgen massgen/tests/
 uv run pytest --run-integration
 
 # Run all tests (integration, expensive, and docker)
-# Not recommended for now
-RUN_INTEGRATION=1 RUN_EXPENSIVE=1 RUN_DOCKER=1 uv run pytest
+make test-all
 
 # Test with different configurations
 massgen --config @examples/basic/single/single_agent "Test question"
@@ -455,7 +457,7 @@ def test_recording():
 - Unit tests should NOT require API keys or external services
 - Mock external dependencies when possible
 - Use markers to separate fast unit tests from slow integration tests
-- All marked tests are skipped by default in CI
+- Integration/expensive/docker tests are skipped by default unless explicitly enabled
 
 ### 5. Commit Your Changes
 

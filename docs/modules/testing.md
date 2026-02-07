@@ -122,10 +122,13 @@ This contract applies to backend logic, TUI behavior, WebUI behavior, and integr
 
 ```bash
 # Fast local suite
-uv run pytest massgen/tests -q --tb=short
+make test-fast
 
 # Integration/expensive (manual or nightly)
-uv run pytest massgen/tests --run-integration --run-expensive -v
+make test-all
+
+# Equivalent direct command for fast lane
+uv run pytest massgen/tests -q --tb=no
 
 # WebUI unit tests (after setup)
 cd webui && npm run test

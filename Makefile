@@ -1,7 +1,7 @@
 # MassGen Makefile
 # Convenience commands for common development tasks
 
-.PHONY: help docs-check docs-build docs-serve docs-clean docs-validate docs-duplication all-checks
+.PHONY: help docs-check docs-build docs-serve docs-clean docs-validate docs-duplication all-checks test test-fast test-all
 
 # Default target - show help
 help:
@@ -17,7 +17,9 @@ help:
 	@echo ""
 	@echo "Quick Commands:"
 	@echo "  make check             Run all checks (docs + tests)"
-	@echo "  make test              Run test suite"
+	@echo "  make test              Run fast default test lane"
+	@echo "  make test-fast         Run fast unit/default lane (CI-safe)"
+	@echo "  make test-all          Run integration + expensive + docker tests"
 	@echo "  make format            Format code with black and isort"
 	@echo "  make lint              Run linting checks"
 	@echo ""
@@ -83,11 +85,18 @@ check: docs-check test
 	@echo ""
 	@echo "✅ All checks passed!"
 
-# Run tests
-test:
-	@echo "🧪 Running tests..."
-	@uv run pytest massgen/tests/
-	@echo "✓ Tests passed"
+# Run fast default tests (skips integration/expensive/docker by default via conftest.py)
+test: test-fast
+
+test-fast:
+	@echo "🧪 Running fast test lane..."
+	@uv run pytest massgen/tests -q --tb=no
+	@echo "✓ Fast test lane passed"
+
+test-all:
+	@echo "🧪 Running full test lane (integration + expensive + docker)..."
+	@RUN_INTEGRATION=1 RUN_EXPENSIVE=1 RUN_DOCKER=1 uv run pytest massgen/tests -v
+	@echo "✓ Full test lane passed"
 
 # Format code
 format:
