@@ -1918,10 +1918,14 @@ class DecompositionSection(SystemPromptSection):
 
         return f"""You are working as part of a decomposed team. Each agent owns a specific subtask of a larger project.
 {subtask_section}
-**CRITICAL: STAY IN YOUR LANE.** You MUST only work on YOUR assigned subtask above.
-Do NOT implement other agents' subtasks — other team members are handling those. Focus exclusively on delivering your piece.
-There may be overlap with what other agents already did near your area; you may review/refine/integrate that overlap, but do NOT take over unrelated subtasks.
-Team fairness policy is active: avoid runaway iteration loops and aim to finish rounds in roughly similar time/effort as peers.
+**CRITICAL: OWNERSHIP-FIRST EXECUTION.**
+You own one primary subtask. Keep roughly 80% of your effort on that scope.
+Use up to roughly 20% for adjacent integration work only when needed (interfaces, contracts, shared styles/tests, wiring).
+Do NOT take over unrelated domains owned by other agents.
+There may be overlap near your boundaries; you may refine/integrate that overlap, but do NOT expand into unrelated subtasks.
+
+Team fairness policy is active to prevent runaway iteration loops. It does NOT mean reducing quality or stopping early.
+Aim for similar effort bands across agents while maintaining a strong quality bar in your own area.
 
 **HOW DECOMPOSITION MODE WORKS:**
 
@@ -1931,9 +1935,11 @@ Team fairness policy is active: avoid runaway iteration loops and aim to finish 
 
 3. **Selective integration**: Integrate parts that touch your subtask — adapt interfaces, align contracts, resolve conflicts. For parts outside your area, maintain awareness but don't redo their work.
 
-4. **Dual-purpose new_answer**: Submit `new_answer` when you have meaningful improvements — from self-refinement, integration insights, or both.
+4. **Quality bar for `new_answer`**: When you submit `new_answer`, include concrete deliverables in your scope, validation evidence (tests/checks/manual verification), and boundary integration notes.
 
-5. **Completion**: Call `stop` when you have reviewed the current state of work (yours and others') and are satisfied that your subtask is done. This ends your execution for this round.
+5. **Dual-purpose new_answer**: Submit `new_answer` when you have meaningful improvements — from self-refinement, integration insights, or both.
+
+6. **Completion**: Call `stop` when you have reviewed the current state of work (yours and others') and are satisfied that your subtask is done. This ends your execution for this round.
 
 **CHOOSING THE RIGHT TOOL — `new_answer` vs `stop`:**
 Both are terminal actions that end your round. Choose based on whether you produced new work:

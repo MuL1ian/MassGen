@@ -21,6 +21,7 @@ from massgen.agent_config import AgentConfig, CoordinationConfig
 from massgen.config_validator import ConfigValidator
 from massgen.mcp_tools.hooks import RoundTimeoutState
 from massgen.orchestrator import AgentState, Orchestrator
+from massgen.system_prompt_sections import DecompositionSection
 from massgen.task_decomposer import TaskDecomposerConfig
 from massgen.tool.workflow_toolkits import get_workflow_tools
 from massgen.tool.workflow_toolkits.stop import StopToolkit
@@ -741,6 +742,146 @@ class TestFairnessControls:
 
         block_logs = [line for line in captured_logs if "Fairness gate blocked new_answer for fast" in line]
         assert len(block_logs) == 2
+
+
+class _HookBackend(_StubBackend):
+    def set_general_hook_manager(self, _manager):
+        return None
+
+
+class _NativeHookBackend(_StubBackend):
+    def supports_native_hooks(self):
+        return True
+
+
+class _NativeHookAgent:
+    def __init__(self):
+        self.backend = _NativeHookBackend()
+        self._orchestrator = None
+
+
+class TestNoHookMidstreamFallback:
+    def test_backend_support_detection_for_midstream_hooks(self):
+        config = AgentConfig()
+        orchestrator = Orchestrator(
+            agents={
+                "no_hook": _StubAgent(),
+                "general_hook": _StubAgent(),
+                "native_hook": _NativeHookAgent(),
+            },
+            config=config,
+        )
+        orchestrator.agents["general_hook"].backend = _HookBackend()
+
+        assert (
+            orchestrator._backend_supports_midstream_hook_injection(
+                orchestrator.agents["no_hook"],
+            )
+            is False
+        )
+        assert (
+            orchestrator._backend_supports_midstream_hook_injection(
+                orchestrator.agents["general_hook"],
+            )
+            is True
+        )
+        assert (
+            orchestrator._backend_supports_midstream_hook_injection(
+                orchestrator.agents["native_hook"],
+            )
+            is True
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_hook_midstream_enforcement_delivers_updates(self, monkeypatch):
+        config = AgentConfig()
+        config.fairness_enabled = False
+        orchestrator = Orchestrator(
+            agents={"frontend": _StubAgent(), "backend": _StubAgent()},
+            config=config,
+        )
+
+        frontend_state = orchestrator.agent_states["frontend"]
+        frontend_state.restart_pending = True
+        frontend_state.seen_answer_counts = {"frontend": 0, "backend": 0}
+
+        # Backend has one unseen answer revision.
+        answer = type("Answer", (), {"timestamp": 42.0, "label": "backend.1", "content": "backend update"})()
+        orchestrator.coordination_tracker.answers_by_agent["backend"] = [answer]
+        orchestrator.agent_states["backend"].answer = "backend update"
+
+        copied = {"called": False}
+
+        async def _fake_copy(_agent_id):
+            copied["called"] = True
+            return None
+
+        monkeypatch.setattr(orchestrator, "_copy_all_snapshots_to_temp_workspace", _fake_copy)
+        monkeypatch.setattr(
+            orchestrator,
+            "_build_tool_result_injection",
+            lambda _aid, selected, existing_answers=None: f"injected::{','.join(sorted(selected.keys()))}",
+        )
+
+        answers_seen_at_start = {}
+        injected = await orchestrator._prepare_no_hook_midstream_enforcement(
+            "frontend",
+            answers_seen_at_start,
+        )
+
+        assert copied["called"] is True
+        assert injected == "injected::backend"
+        assert answers_seen_at_start == {"backend": "backend update"}
+        assert frontend_state.injection_count == 1
+        assert frontend_state.midstream_injections_this_round == 1
+        assert "backend" in frontend_state.known_answer_ids
+        assert frontend_state.restart_pending is False
+
+    @pytest.mark.asyncio
+    async def test_no_hook_midstream_enforcement_keeps_pending_when_capped(self):
+        config = AgentConfig()
+        config.fairness_enabled = True
+        config.max_midstream_injections_per_round = 1
+        orchestrator = Orchestrator(
+            agents={"frontend": _StubAgent(), "backend": _StubAgent()},
+            config=config,
+        )
+
+        frontend_state = orchestrator.agent_states["frontend"]
+        frontend_state.restart_pending = True
+        frontend_state.midstream_injections_this_round = 1
+        frontend_state.seen_answer_counts = {"frontend": 0, "backend": 0}
+
+        answer = type("Answer", (), {"timestamp": 42.0, "label": "backend.1", "content": "backend update"})()
+        orchestrator.coordination_tracker.answers_by_agent["backend"] = [answer]
+        orchestrator.agent_states["backend"].answer = "backend update"
+
+        injected = await orchestrator._prepare_no_hook_midstream_enforcement(
+            "frontend",
+            {},
+        )
+
+        assert injected is None
+        assert frontend_state.restart_pending is True
+        assert frontend_state.injection_count == 0
+
+
+class TestDecompositionPromptGuidance:
+    def test_decomposition_section_includes_ownership_first_model(self):
+        section = DecompositionSection(subtask="Build the timeline section")
+        content = section.build_content()
+
+        assert "OWNERSHIP-FIRST EXECUTION" in content
+        assert "Keep roughly 80% of your effort on that scope." in content
+        assert "Use up to roughly 20% for adjacent integration work only when needed" in content
+
+    def test_decomposition_section_preserves_quality_under_fairness(self):
+        section = DecompositionSection(subtask="Build the timeline section")
+        content = section.build_content()
+
+        assert "Team fairness policy is active to prevent runaway iteration loops." in content
+        assert "It does NOT mean reducing quality or stopping early." in content
+        assert "Quality bar for `new_answer`" in content
 
 
 # =============================================================================

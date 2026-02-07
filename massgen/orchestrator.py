@@ -4592,10 +4592,11 @@ Your answer:"""
                 "=" * 60,
                 "",
                 "1. Read and understand their full work — maintain awareness of the entire project state",
-                "2. Actively integrate parts that touch your subtask (interfaces, contracts, dependencies)",
-                "3. Continue refining your own work — fix issues, improve quality, incorporate insights",
-                "4. Submit `new_answer` if you made any changes or improvements (this shares your work)",
-                "5. Call `stop` only when you've reviewed everything and are satisfied — no new work to share",
+                "2. Keep ownership-first: spend most effort on your subtask; touch other areas only for adjacent integration",
+                "3. Integrate boundary dependencies (interfaces/contracts/shared assets) without taking over unrelated scopes",
+                "4. Continue refining your own work — fix issues, improve quality, incorporate insights",
+                "5. If you submit `new_answer`, include concrete deliverables + validation evidence + integration notes",
+                "6. Call `stop` only when you've reviewed everything and are satisfied — no new work to share",
                 "",
                 "=" * 60,
             ]
@@ -4953,6 +4954,97 @@ Your answer:"""
         logger.debug(
             f"[Orchestrator] Set up hook manager for {agent_id} with mid-stream and reminder hooks",
         )
+
+    def _backend_supports_midstream_hook_injection(self, agent: ChatAgent) -> bool:
+        """Return whether backend supports orchestrator-managed mid-stream hook delivery."""
+        backend = getattr(agent, "backend", None)
+        if backend is None:
+            return False
+
+        if hasattr(backend, "supports_native_hooks") and backend.supports_native_hooks():
+            return True
+
+        return hasattr(backend, "set_general_hook_manager")
+
+    async def _prepare_no_hook_midstream_enforcement(
+        self,
+        agent_id: str,
+        answers: Dict[str, str],
+    ) -> Optional[str]:
+        """Prepare enforcement-style update delivery for backends without hook support.
+
+        This is the no-hook fallback path for mid-stream updates. It mirrors hook-based
+        injection behavior, but delivers update content as an enforcement message so
+        `reset_chat=False` preserves in-flight chat/session buffers.
+        """
+        # Gather latest submitted answers and select unseen updates for this agent.
+        current_answers = self._get_current_answers_snapshot()
+        selected_answers, had_unseen_updates = self._select_midstream_answer_updates(
+            agent_id,
+            current_answers,
+        )
+
+        if not selected_answers:
+            if had_unseen_updates:
+                # Keep restart pending so orchestrator can retry delivery/restart.
+                self.agent_states[agent_id].restart_pending = True
+                cap = getattr(self.config, "max_midstream_injections_per_round", 2)
+                logger.info(
+                    "[Orchestrator] No-hook mid-stream fallback skipped for %s: per-round cap reached (%s)",
+                    agent_id,
+                    cap,
+                )
+            else:
+                # Stale restart signal: no unseen updates remain.
+                self.agent_states[agent_id].restart_pending = False
+            return None
+
+        logger.info(
+            f"[Orchestrator] Delivering no-hook mid-stream update via enforcement message for {agent_id}",
+        )
+
+        # Ensure source files referenced in injected updates are accessible.
+        await self._copy_all_snapshots_to_temp_workspace(agent_id)
+
+        injection = self._build_tool_result_injection(
+            agent_id,
+            selected_answers,
+            existing_answers=answers,
+        )
+
+        # Track update delivery.
+        self.agent_states[agent_id].injection_count += 1
+        self.agent_states[agent_id].midstream_injections_this_round += len(selected_answers)
+
+        # Mutate captured `answers` so subsequent checks don't re-send same updates.
+        answers.update(selected_answers)
+
+        # Mark the selected source revisions as seen by this agent.
+        self.agent_states[agent_id].known_answer_ids.update(selected_answers.keys())
+        self._register_injected_answer_updates(agent_id, list(selected_answers.keys()))
+
+        # Keep pending only if additional unseen revisions still exist.
+        self.agent_states[agent_id].restart_pending = self._has_unseen_answer_updates(agent_id)
+
+        _inj_emitter = get_event_emitter()
+        if _inj_emitter:
+            _inj_emitter.emit_injection_received(
+                agent_id=agent_id,
+                source_agents=list(selected_answers.keys()),
+                injection_type="mid_stream",
+            )
+
+        self.coordination_tracker.track_agent_action(
+            agent_id,
+            ActionType.UPDATE_INJECTED,
+            f"Mid-stream (no-hook fallback): {len(selected_answers)} answer(s)",
+        )
+        self.coordination_tracker.update_agent_context_with_new_answers(
+            agent_id,
+            list(selected_answers.keys()),
+        )
+
+        return injection
 
     def _share_human_input_hook_with_display(self) -> None:
         """Share the human input hook reference with the TUI display.
@@ -6897,7 +6989,9 @@ Your answer:"""
                     original_msg = conversation_messages[1]["content"]
                     conversation_messages[1]["content"] = (
                         f"[YOUR ASSIGNED SUBTASK: {subtask}]\n"
-                        f"You MUST focus ONLY on your subtask. "
+                        f"Use ownership-first execution: keep most effort on your assigned subtask, "
+                        f"and only do adjacent cross-scope work for integration boundaries "
+                        f"(interfaces/contracts/shared styles/tests). "
                         f"There may be overlap with other agents' existing work in your area; "
                         f"you may refine/integrate that overlap, but do NOT implement unrelated parts.\n\n"
                         f"{original_msg}"
@@ -6950,26 +7044,61 @@ Your answer:"""
                         yield ("done", None)
                         return
 
-                    # Check if this is the first time agent sees a new answer
-                    if self.agent_states[agent_id].injection_count == 0:
-                        # First time seeing a new answer - restart normally
-                        # The mid-stream callback will handle subsequent answers via tool results
-                        logger.info(
-                            f"[Orchestrator] Agent {agent_id} restarting normally (first new answer)",
-                        )
-                        self.agent_states[agent_id].restart_pending = False
-                        self.agent_states[agent_id].injection_count += 1
-                        # Signal completion so coordination loop restarts agent with updated context
-                        # Note: agent_restart notification is yielded at the top of _stream_agent_execution
-                        yield ("done", None)
-                        return
-                    else:
-                        # injection_count >= 1, mid-stream callback will handle via tool results
-                        # Do NOT clear restart_pending here - the callback checks this flag
-                        # and will clear it after injecting content (see get_injection_content)
-                        # Only suppress the round banner once streaming has already started.
+                    has_hook_delivery = self._backend_supports_midstream_hook_injection(agent)
+
+                    if not has_hook_delivery:
+                        # No hook callback path (e.g., Codex): if a stream is already in progress
+                        # for this execution, convert the update into an enforcement message so
+                        # reset_chat=False preserves buffer/session state.
                         if not is_first_real_attempt:
-                            _mid_stream_injection = True
+                            fallback_injection = await self._prepare_no_hook_midstream_enforcement(
+                                agent_id,
+                                answers,
+                            )
+                            if fallback_injection:
+                                enforcement_msg = fallback_injection
+                                _mid_stream_injection = True
+                            elif self._check_restart_pending(agent_id):
+                                # Could not deliver mid-stream (e.g., fairness cap reached) - force
+                                # a clean restart so the next round can continue making progress.
+                                logger.info(
+                                    "[Orchestrator] Forcing restart for %s (no-hook backend, pending unseen updates)",
+                                    agent_id,
+                                )
+                                self.agent_states[agent_id].restart_pending = False
+                                self.agent_states[agent_id].injection_count += 1
+                                yield ("done", None)
+                                return
+                        else:
+                            # No in-flight buffer yet; normal restart is equivalent and simpler.
+                            logger.info(
+                                f"[Orchestrator] Agent {agent_id} backend has no hooks - restarting to apply new context",
+                            )
+                            self.agent_states[agent_id].restart_pending = False
+                            self.agent_states[agent_id].injection_count += 1
+                            yield ("done", None)
+                            return
+                    else:
+                        # Check if this is the first time agent sees a new answer
+                        if self.agent_states[agent_id].injection_count == 0:
+                            # First time seeing a new answer - restart normally
+                            # The mid-stream callback will handle subsequent answers via tool results
+                            logger.info(
+                                f"[Orchestrator] Agent {agent_id} restarting normally (first new answer)",
+                            )
+                            self.agent_states[agent_id].restart_pending = False
+                            self.agent_states[agent_id].injection_count += 1
+                            # Signal completion so coordination loop restarts agent with updated context
+                            # Note: agent_restart notification is yielded at the top of _stream_agent_execution
+                            yield ("done", None)
+                            return
+                        else:
+                            # injection_count >= 1, mid-stream callback will handle via tool results
+                            # Do NOT clear restart_pending here - the callback checks this flag
+                            # and will clear it after injecting content (see get_injection_content)
+                            # Only suppress the round banner once streaming has already started.
+                            if not is_first_real_attempt:
+                                _mid_stream_injection = True
 
                 # Track restarts for TUI round display - only when agent is about to do real work
                 # (not if it's exiting immediately due to restart_pending)
