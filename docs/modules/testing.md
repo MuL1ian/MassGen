@@ -21,6 +21,9 @@ The target workflow is test-first: agree on tests with the user, implement tests
 - Frontend unit coverage has started in `massgen/tests/frontend/`:
   - `test_tool_batch_tracker.py`
   - `test_content_processor.py`
+  - `test_content_handlers_helpers.py`
+  - `test_timeline_event_recorder.py`
+  - `test_timeline_section_widget.py`
 - Deterministic non-API integration coverage has started in `massgen/tests/integration/`:
   - `test_orchestrator_voting.py`
   - `test_orchestrator_consensus.py`

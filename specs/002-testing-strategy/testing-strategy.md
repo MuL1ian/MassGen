@@ -942,7 +942,7 @@ For non-trivial feature work:
 | Core modules tested | 0/5 | 5/5 |
 | TUI automated tests | 0 | 20+ |
 | WebUI automated tests | 0 | 30+ |
-| Integration tests (no API) | 17 | 15+ |
+| Integration tests (no API) | 32 | 15+ |
 | Expired xfails | 0 | 0 |
 | Manual testing required | High | Low (E2E for validation only) |
 
@@ -966,8 +966,12 @@ For non-trivial feature work:
 
 - [x] Layer 1 baseline: `ToolBatchTracker` unit tests
 - [x] Layer 1 baseline: `ContentProcessor` unit tests
-- [ ] Layer 1 completion: helper-function coverage
+- [x] Layer 1 completion: helper-function coverage
+  - [x] `massgen/tests/frontend/test_content_handlers_helpers.py`
+  - [x] `massgen/tests/frontend/test_timeline_event_recorder.py`
 - [ ] Layer 2 widget tests (Textual Pilot)
+  - [x] Initial timeline widget coverage
+  - [x] `massgen/tests/frontend/test_timeline_section_widget.py`
 - [ ] Layer 3 snapshot tests (`pytest-textual-snapshot`)
 - [ ] Layer 4 golden transcript tests
 - [ ] Layer 5 LLM-assisted terminal evaluation
@@ -985,7 +989,7 @@ For non-trivial feature work:
   - [x] `massgen/tests/integration/test_orchestrator_consensus.py`
   - [x] `massgen/tests/integration/test_orchestrator_stream_enforcement.py`
   - [x] `massgen/tests/integration/test_orchestrator_timeout_selection.py`
-  - [x] Phase 4 quality gate met: 17 deterministic non-API integration tests (`10+` required)
+  - [x] Phase 4 quality gate met: 32 deterministic non-API integration tests (`10+` required)
 
 ### Phase 5: Nightly E2E
 

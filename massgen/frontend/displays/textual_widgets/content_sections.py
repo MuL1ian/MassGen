@@ -1586,6 +1586,11 @@ class TimelineSection(ScrollableContainer):
 
             if label.startswith("Round "):
                 self._pending_round_separators.discard(round_number)
+
+            # Treat FINAL PRESENTATION as the round banner for that round.
+            # This prevents _ensure_round_banner() from inserting an extra
+            # default "Round N" banner before the final answer section.
+            if label.startswith("Round ") or is_final:
                 self._shown_round_banners.add(round_number)
                 self._last_round_shown = max(self._last_round_shown, round_number)
                 if round_number == 1:
