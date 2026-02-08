@@ -337,6 +337,7 @@ class LLMBackend(ABC):
             "debug_delay_after_n_tools",
             # Per-agent voting sensitivity (coordination config, not API param)
             "voting_sensitivity",
+            "voting_threshold",
             # Decomposition mode parameters (handled by orchestrator, not passed to API)
             "coordination_mode",
             "presenter_agent",

@@ -248,6 +248,7 @@ class AgentConfig:
 
     # Voting behavior configuration
     voting_sensitivity: str = "lenient"
+    voting_threshold: Optional[int] = None  # Numeric threshold for ROI-style voting (e.g., 15 = 15% improvement required)
     max_new_answers_per_agent: Optional[int] = None
     max_new_answers_global: Optional[int] = None
     answer_novelty_requirement: str = "lenient"
@@ -949,6 +950,7 @@ class AgentConfig:
             # Access private attribute to avoid deprecation warning
             "custom_system_instruction": self._custom_system_instruction,
             "voting_sensitivity": self.voting_sensitivity,
+            "voting_threshold": self.voting_threshold,
             "max_new_answers_per_agent": self.max_new_answers_per_agent,
             "max_new_answers_global": self.max_new_answers_global,
             "answer_novelty_requirement": self.answer_novelty_requirement,
@@ -997,6 +999,7 @@ class AgentConfig:
         agent_id = data.get("agent_id")
         custom_system_instruction = data.get("custom_system_instruction")
         voting_sensitivity = data.get("voting_sensitivity", "lenient")
+        voting_threshold = data.get("voting_threshold")
         max_new_answers_per_agent = data.get("max_new_answers_per_agent")
         max_new_answers_global = data.get("max_new_answers_global")
         answer_novelty_requirement = data.get("answer_novelty_requirement", "lenient")
@@ -1032,6 +1035,7 @@ class AgentConfig:
             message_templates=message_templates,
             agent_id=agent_id,
             voting_sensitivity=voting_sensitivity,
+            voting_threshold=voting_threshold,
             max_new_answers_per_agent=max_new_answers_per_agent,
             max_new_answers_global=max_new_answers_global,
             answer_novelty_requirement=answer_novelty_requirement,

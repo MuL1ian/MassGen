@@ -49,6 +49,7 @@ from __future__ import annotations
 import atexit
 import json
 import os
+import shutil
 import sys
 import time
 import warnings
@@ -104,6 +105,8 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
     - Prevent unauthorized access to other agents' workspaces
     - Support permission-aware tool execution (Read, Write, Bash, etc.)
     """
+
+    supports_sdk_mcp = True
 
     def __init__(self, api_key: Optional[str] = None, **kwargs):
         """Initialize ClaudeCodeBackend.
@@ -367,7 +370,6 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             "Bash(chown*)",
             # Not useful in MassGen context
             "Task",  # we have our own version of subagents
-            "Skill",  # we have our own version of skills
             "TodoWrite",
             "ExitPlanMode",
             "mcp__ide__getDiagnostics",
@@ -651,6 +653,68 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         cost = self.calculate_cost(input_tokens, output_tokens, model, result_message=None)
         self.token_usage.estimated_cost += cost
 
+    def _resolve_skill_source(self) -> Optional[Path]:
+        """Resolve the best available skills source directory, if any."""
+        fm = self.filesystem_manager
+        if fm is not None:
+            docker_manager = getattr(fm, "docker_manager", None)
+            agent_id = getattr(self, "_current_agent_id", None) or getattr(fm, "agent_id", None)
+            temp_skills_dirs = getattr(docker_manager, "temp_skills_dirs", None) if docker_manager else None
+            if isinstance(temp_skills_dirs, dict) and agent_id in temp_skills_dirs:
+                source = Path(temp_skills_dirs[agent_id])
+                if source.exists():
+                    return source
+
+            local_skills_directory = getattr(fm, "local_skills_directory", None)
+            if local_skills_directory:
+                source = Path(local_skills_directory)
+                if source.exists():
+                    return source
+
+        project_skills = Path(self._cwd) / ".agent" / "skills"
+        if project_skills.exists():
+            return project_skills
+
+        home_skills = Path.home() / ".agent" / "skills"
+        if home_skills.exists():
+            return home_skills
+
+        return None
+
+    def _sync_skills_into_claude_home(self, workspace_path: Path) -> None:
+        """Copy discovered skills into workspace/.claude/skills for SDK discovery."""
+        source = self._resolve_skill_source()
+        if source is None:
+            return
+
+        claude_home = workspace_path / ".claude"
+        dest = claude_home / "skills"
+        dest.mkdir(parents=True, exist_ok=True)
+
+        try:
+            if source.resolve() == dest.resolve():
+                return
+        except OSError:
+            # Continue best-effort copy if either path cannot be resolved.
+            pass
+
+        copied_entries = 0
+        try:
+            for entry in source.iterdir():
+                target = dest / entry.name
+                if entry.is_dir():
+                    shutil.copytree(entry, target, dirs_exist_ok=True)
+                    copied_entries += 1
+                elif entry.is_file():
+                    shutil.copy2(entry, target)
+                    copied_entries += 1
+        except OSError as e:
+            logger.warning(f"Claude Code skills sync failed from {source} to {dest}: {e}")
+            return
+
+        if copied_entries:
+            logger.info(f"[ClaudeCodeBackend] Skills sync copied {copied_entries} entries from {source} to {dest}")
+
     def get_supported_builtin_tools(self, enable_web_search: bool = False) -> List[str]:
         """Get list of builtin tools supported by Claude Code.
 
@@ -666,7 +730,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             List of tool names that should be enabled for Claude Code.
         """
         tools = [
-            "Task",  # Subagent spawning - unique to Claude Code
+            "Skill",
         ]
 
         if enable_web_search:
@@ -1261,6 +1325,12 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         permission_mode = options_kwargs.get("permission_mode", "acceptEdits")
         enable_web_search = options_kwargs.get("enable_web_search", False)
         allowed_tools = options_kwargs.get("allowed_tools", self.get_supported_builtin_tools(enable_web_search))
+        disallowed_tools = options_kwargs.get("disallowed_tools", [])
+
+        # Skill tool requires filesystem-backed settings discovery in the SDK.
+        skill_enabled = isinstance(allowed_tools, list) and "Skill" in allowed_tools
+        if isinstance(disallowed_tools, list) and "Skill" in disallowed_tools:
+            skill_enabled = False
 
         # Filter out parameters handled separately or not for ClaudeAgentOptions
         excluded_params = self.get_base_excluded_config_params() | {
@@ -1297,6 +1367,15 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         # Get cwd from filesystem manager (always available since we require it in __init__)
         cwd_option = Path(str(self.filesystem_manager.get_current_workspace())).resolve()
         self._cwd = str(cwd_option)
+
+        # Keep settings isolated by default; load filesystem settings only when Skill is enabled.
+        setting_sources = options_kwargs.get("setting_sources")
+        if skill_enabled:
+            self._sync_skills_into_claude_home(cwd_option)
+            if setting_sources is None:
+                setting_sources = ["user", "project"]
+        elif setting_sources is None:
+            setting_sources = []
 
         # Get hooks configuration from filesystem manager (permission hooks)
         permission_hooks = self.filesystem_manager.get_claude_code_hooks_config()
@@ -1365,8 +1444,7 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
             "allowed_tools": allowed_tools,
             "add_dirs": add_dirs if add_dirs else [],
             "sandbox": sandbox_settings,
-            # Disable loading filesystem-based settings to ensure our programmatic config takes precedence
-            "setting_sources": [],
+            "setting_sources": setting_sources,
             **{k: v for k, v in options_kwargs.items() if k not in excluded_params},
         }
 
@@ -1493,8 +1571,9 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
 
             if "disallowed_tools" not in all_params:
                 all_params["disallowed_tools"] = self.get_disallowed_tools(all_params)
+                default_allowed_tools = all_params.get("allowed_tools", self.get_supported_builtin_tools(enable_web_search))
                 logger.info(
-                    f"[ClaudeCodeBackend] Using minimal tool set: Task" f"{', WebSearch, WebFetch' if enable_web_search else ''}",
+                    f"[ClaudeCodeBackend] Using builtin tool allowlist: {default_allowed_tools}",
                 )
 
             # Additional disabling when MCP command_line is enabled
@@ -1794,6 +1873,32 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
                                 {"name": block.name, "input": block.input},
                                 agent_id,
                             )
+
+                            # Capture workflow tools called as MCP (agent confusion fallback).
+                            # When workflow tools are text-based (not MCP), the agent may
+                            # still try to call them as MCP tools after using submit_checklist.
+                            # Extract the bare tool name and capture as a workflow call.
+                            if not self._has_workflow_mcp:
+                                from ..tool.workflow_toolkits.base import (
+                                    WORKFLOW_TOOL_NAMES as _WF_NAMES,
+                                )
+
+                                _bare = block.name.rsplit("__", 1)[-1] if "__" in block.name else block.name
+                                if _bare in _WF_NAMES:
+                                    _wf_args = block.input if isinstance(block.input, dict) else {}
+                                    workflow_tool_calls_from_mcp.append(
+                                        {
+                                            "id": f"call_{block.id}",
+                                            "type": "function",
+                                            "function": {
+                                                "name": _bare,
+                                                "arguments": json.dumps(_wf_args),
+                                            },
+                                        },
+                                    )
+                                    logger.info(
+                                        f"ClaudeCode: captured workflow tool from MCP-style call: " f"{block.name} -> {_bare}",
+                                    )
 
                             # Track tool_id -> tool_name for ToolResultBlock matching
                             self._tool_id_to_name[block.id] = block.name

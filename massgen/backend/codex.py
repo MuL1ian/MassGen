@@ -12,7 +12,8 @@ Key Features:
 - Session persistence and resumption
 - JSON event stream parsing for real-time streaming
 - MCP tool support via project-scoped .codex/config.toml in workspace
-- System prompt injection via AGENTS.md in workspace root
+- System prompt injection via .codex/AGENTS.md + model_instructions_file
+- Skills mirroring into .codex/skills for CODEX_HOME-scoped discovery
 - Full conversation context maintained across turns
 - Uses CODEX_HOME env var to isolate config from user's global ~/.codex/
 
@@ -373,6 +374,8 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         so it reads this config instead of ~/.codex/config.toml.
         """
         config: Dict[str, Any] = {}
+        config_dir = Path(self.cwd) / ".codex"
+        config_dir.mkdir(parents=True, exist_ok=True)
 
         # Model settings
         if self.model:
@@ -387,7 +390,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                 write_tool_specs,
             )
 
-            specs_path = Path(self.cwd) / ".codex" / "custom_tool_specs.json"
+            specs_path = config_dir / "custom_tool_specs.json"
             write_tool_specs(self._custom_tools_config, specs_path)
             self._custom_tools_specs_path = specs_path
             # Update the MCP server config to point to current workspace
@@ -403,6 +406,26 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                     )
                     break
 
+        # Write checklist specs file and add stdio MCP config if checklist is active.
+        # The orchestrator stores _checklist_state/_checklist_items on the backend;
+        # we write the specs here because the workspace path is now resolved.
+        if hasattr(self, "_checklist_state") and hasattr(self, "_checklist_items"):
+            from ..mcp_tools.checklist_tools_server import (
+                build_server_config as build_checklist_config,
+            )
+            from ..mcp_tools.checklist_tools_server import write_checklist_specs
+
+            specs_path = config_dir / "checklist_specs.json"
+            write_checklist_specs(
+                items=self._checklist_items,
+                state=self._checklist_state,
+                output_path=specs_path,
+            )
+            checklist_mcp = build_checklist_config(specs_path)
+            # Replace any previous checklist entry
+            self.mcp_servers = [s for s in self.mcp_servers if not (isinstance(s, dict) and s.get("name") == "massgen_checklist")]
+            self.mcp_servers.append(checklist_mcp)
+
         # Convert MassGen mcp_servers list to Codex config.toml format
         # Merge orchestrator-injected servers (self.config) with init-time servers (self.mcp_servers)
         # which may include custom_tools MCP added by _setup_custom_tools_mcp()
@@ -414,7 +437,7 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         if config_mcp is not None:
             if isinstance(config_mcp, dict):
                 for name, srv_config in config_mcp.items():
-                    if isinstance(srv_config, dict):
+                    if isinstance(srv_config, dict) and srv_config.get("type") != "sdk":
                         srv_config["name"] = name
                         mcp_servers.append(srv_config)
             elif isinstance(config_mcp, list):
@@ -435,8 +458,15 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
                     name = server.get("name", "")
                     if not name:
                         continue
-                    entry: Dict[str, Any] = {}
                     server_type = server.get("type", "stdio")
+
+                    # Skip SDK MCP servers — they are in-process Python objects
+                    # that cannot be serialized to config.toml.
+                    if server_type == "sdk":
+                        logger.info(f"Codex: skipping SDK server '{name}' (not serializable to config.toml)")
+                        continue
+
+                    entry: Dict[str, Any] = {}
 
                     if server_type == "stdio":
                         if server.get("command"):
@@ -468,15 +498,20 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             if mcp_section:
                 config["mcp_servers"] = mcp_section
 
-        # Inject system prompt + workflow instructions via AGENTS.md in workspace root.
-        # Codex automatically reads AGENTS.md from the working directory.
+        # Mirror skills into CODEX_HOME/skills so Codex skill discovery can find
+        # project/merged skills under the same scoped home directory.
+        self._sync_skills_into_codex_home(config_dir)
+
+        # Inject system prompt + workflow instructions via .codex/AGENTS.md and
+        # point Codex at it explicitly via model_instructions_file.
         full_prompt = self.system_prompt or ""
         pending = getattr(self, "_pending_workflow_instructions", "")
         if pending:
             full_prompt = (full_prompt + "\n" + pending) if full_prompt else pending
         if full_prompt:
-            agents_md_path = Path(self.cwd) / "AGENTS.md"
+            agents_md_path = config_dir / "AGENTS.md"
             agents_md_path.write_text(full_prompt)
+            config["model_instructions_file"] = str(agents_md_path)
             logger.info(f"Wrote Codex AGENTS.md: {agents_md_path} ({len(full_prompt)} chars)")
 
         # Configure sandbox for local (non-Docker) workspace-write mode.
@@ -519,8 +554,6 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             return
 
         # Write config
-        config_dir = Path(self.cwd) / ".codex"
-        config_dir.mkdir(parents=True, exist_ok=True)
         config_path = config_dir / "config.toml"
 
         if tomli_w:
@@ -613,14 +646,14 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         config_dir = Path(self.cwd) / ".codex"
         try:
             # Remove individual files we created
-            for filename in ("config.toml", "custom_tool_specs.json", "workflow_tool_specs.json"):
+            for filename in ("config.toml", "custom_tool_specs.json", "workflow_tool_specs.json", "checklist_specs.json", "AGENTS.md"):
                 filepath = config_dir / filename
                 if filepath.exists():
                     filepath.unlink()
             # Remove dir if empty
             if config_dir.exists() and not any(config_dir.iterdir()):
                 config_dir.rmdir()
-            # Also remove AGENTS.md we wrote in workspace root
+            # Cleanup legacy workspace-root AGENTS.md (older backend behavior).
             agents_md = Path(self.cwd) / "AGENTS.md"
             if agents_md.exists():
                 agents_md.unlink()
@@ -646,6 +679,68 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
         if agent_id and dm.get_container(agent_id):
             return True
         return False
+
+    def _resolve_codex_skills_source(self) -> Optional[Path]:
+        """Resolve the best available skills source directory, if any."""
+        fm = self.filesystem_manager
+        if fm is not None:
+            if self._is_docker_mode:
+                dm = getattr(fm, "docker_manager", None)
+                agent_id = self.agent_id or getattr(fm, "agent_id", None)
+                temp_skills_dirs = getattr(dm, "temp_skills_dirs", None) if dm else None
+                if isinstance(temp_skills_dirs, dict) and agent_id in temp_skills_dirs:
+                    source = Path(temp_skills_dirs[agent_id])
+                    if source.exists():
+                        return source
+
+            local_skills_directory = getattr(fm, "local_skills_directory", None)
+            if local_skills_directory:
+                source = Path(local_skills_directory)
+                if source.exists():
+                    return source
+
+        project_skills = Path(self.cwd) / ".agent" / "skills"
+        if project_skills.exists():
+            return project_skills
+
+        home_skills = Path.home() / ".agent" / "skills"
+        if home_skills.exists():
+            return home_skills
+
+        return None
+
+    def _sync_skills_into_codex_home(self, codex_home: Path) -> None:
+        """Copy discovered skills into CODEX_HOME/skills for Codex discovery."""
+        source = self._resolve_codex_skills_source()
+        if source is None:
+            return
+
+        dest = codex_home / "skills"
+        dest.mkdir(parents=True, exist_ok=True)
+
+        try:
+            if source.resolve() == dest.resolve():
+                return
+        except OSError:
+            # Continue best-effort copy if either path cannot be resolved.
+            pass
+
+        copied_entries = 0
+        try:
+            for entry in source.iterdir():
+                target = dest / entry.name
+                if entry.is_dir():
+                    shutil.copytree(entry, target, dirs_exist_ok=True)
+                    copied_entries += 1
+                elif entry.is_file():
+                    shutil.copy2(entry, target)
+                    copied_entries += 1
+        except OSError as e:
+            logger.warning(f"Codex skills sync failed from {source} to {dest}: {e}")
+            return
+
+        if copied_entries:
+            logger.info(f"Codex skills sync: copied {copied_entries} entries from {source} to {dest}")
 
     def _get_docker_container(self):
         """Get the Docker container for this agent.

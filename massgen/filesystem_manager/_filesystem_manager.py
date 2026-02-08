@@ -2037,22 +2037,18 @@ class FilesystemManager:
         try:
             logger.info(f"[FilesystemManager] Clearing temp workspace parent at orchestration startup: {self.agent_temporary_workspace_parent}")
 
-            items_to_clear = list(self.agent_temporary_workspace_parent.iterdir())
-            for item in items_to_clear:
-                logger.info(f" - Removing temp workspace item: {item}")
-                if item.is_symlink():
-                    logger.debug(f"[FilesystemManager] Skipping symlink during temp clear: {item}")
-                    continue
-                if item.is_file():
-                    item.unlink()
-                elif item.is_dir():
-                    shutil.rmtree(item)
+            shutil.rmtree(self.agent_temporary_workspace_parent)
+            self.agent_temporary_workspace_parent.mkdir(parents=True, exist_ok=True)
 
             logger.info("[FilesystemManager] Temp workspace parent cleared successfully")
 
         except Exception as e:
             logger.error(f"[FilesystemManager] Failed to clear temp workspace parent: {e}")
-            # Don't raise - orchestration can continue without clean temp workspace
+            # Last resort: try to recreate it fresh even if rmtree partially failed
+            try:
+                self.agent_temporary_workspace_parent.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
 
     async def copy_snapshots_to_temp_workspace(self, all_snapshots: Dict[str, Path], agent_mapping: Dict[str, str]) -> Optional[Path]:
         """

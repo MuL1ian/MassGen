@@ -553,13 +553,240 @@ class Orchestrator(ChatAgent):
         # Initialize broadcast tools (independent of NLIP)
         self._init_broadcast_tools()
 
-    def ensure_workspace_symlinks(self) -> None:
-        """Ensure per-agent workspace symlinks exist in the current log directory."""
-        try:
-            from massgen.logger_config import get_log_session_dir_base
+        # Initialize checklist MCP tool if using tool-gated mode
+        self._init_checklist_tool()
 
-            log_dirs = {get_log_session_dir(), get_log_session_dir_base()}
-            for log_dir in log_dirs:
+    def _init_checklist_tool(self) -> None:
+        """Register submit_checklist MCP tool if voting_sensitivity is checklist_gated.
+
+        SDK-capable backends (ClaudeCode) get an in-process SDK MCP server.
+        CLI-based backends (Codex) get state stored on the backend; the backend
+        writes a stdio MCP server config at execution time when the workspace
+        path is known.
+        """
+        sensitivity = getattr(self.config, "voting_sensitivity", "")
+        if sensitivity != "checklist_gated":
+            return
+
+        from massgen.system_prompt_sections import (
+            _CHECKLIST_ITEMS,
+            _checklist_confidence_cutoff,
+            _checklist_effective_threshold,
+            _checklist_required_true,
+        )
+
+        for agent_id, agent in self.agents.items():
+            backend = agent.backend
+
+            # Create mutable state dict — orchestrator updates before each round
+            threshold = getattr(self.config, "voting_threshold", 5) or 5
+            total = self.config.max_new_answers_per_agent or 5
+            remaining = total
+            effective_t = _checklist_effective_threshold(threshold, remaining, total)
+            checklist_state = {
+                "threshold": threshold,
+                "remaining": remaining,
+                "total": total,
+                "terminate_action": "stop" if self._is_decomposition_mode() else "vote",
+                "iterate_action": "new_answer",
+                "has_existing_answers": False,  # True once any answer exists for this agent
+                # Pre-computed so stdio server doesn't need massgen imports
+                "required": _checklist_required_true(effective_t),
+                "cutoff": _checklist_confidence_cutoff(effective_t),
+            }
+            backend._checklist_state = checklist_state
+            backend._checklist_items = list(_CHECKLIST_ITEMS)
+
+            if getattr(backend, "supports_sdk_mcp", False):
+                # SDK path: in-process MCP server (ClaudeCode)
+                self._init_checklist_tool_sdk(
+                    agent_id,
+                    backend,
+                    checklist_state,
+                    _CHECKLIST_ITEMS,
+                    _checklist_effective_threshold,
+                    _checklist_required_true,
+                    _checklist_confidence_cutoff,
+                )
+            else:
+                # Stdio path: backend writes specs file at execution time.
+                # Just storing _checklist_state and _checklist_items is enough;
+                # the backend's config-writing step picks them up.
+                logger.info(
+                    f"[Orchestrator] Checklist tool for agent {agent_id}: " f"stdio mode (specs written at execution time)",
+                )
+
+    def _init_checklist_tool_sdk(
+        self,
+        agent_id,
+        backend,
+        checklist_state,
+        checklist_items,
+        effective_threshold_fn,
+        required_true_fn,
+        confidence_cutoff_fn,
+    ) -> None:
+        """Register checklist tool as an in-process SDK MCP server."""
+        try:
+            from claude_agent_sdk import create_sdk_mcp_server, tool
+        except ImportError:
+            logger.warning("claude-agent-sdk not available, checklist tool will not be registered")
+            return
+
+        # Define tool schema
+        input_schema = {
+            "type": "object",
+            "properties": {
+                "scores": {
+                    "type": "object",
+                    "description": ("Your confidence scores for each checklist item. " "Keys are item IDs (T1-T5), values are 0-100 integers."),
+                    "properties": {f"T{i+1}": {"type": "integer", "minimum": 0, "maximum": 100} for i in range(len(checklist_items))},
+                    "required": [f"T{i+1}" for i in range(len(checklist_items))],
+                },
+            },
+            "required": ["scores"],
+        }
+
+        # Create tool function with closure over mutable state
+        state = checklist_state
+        items = checklist_items
+
+        @tool(
+            name="submit_checklist",
+            description=("Submit your checklist confidence scores for evaluation. " "The system will apply thresholds and return a verdict."),
+            input_schema=input_schema,
+        )
+        async def submit_checklist_handler(args, _state=state):
+            import json as _json
+
+            scores = args.get("scores", {})
+            threshold = _state["threshold"]
+            remaining = _state["remaining"]
+            total = _state["total"]
+            terminate = _state["terminate_action"]
+            iterate = _state["iterate_action"]
+
+            effective_t = effective_threshold_fn(threshold, remaining, total)
+            required = required_true_fn(effective_t)
+            cutoff = confidence_cutoff_fn(effective_t)
+
+            items_detail = []
+            true_count = 0
+            for i, item_text in enumerate(items):
+                key = f"T{i+1}"
+                score = scores.get(key, 0)
+                passed = score >= cutoff
+                if passed:
+                    true_count += 1
+                items_detail.append({"id": key, "score": score, "passed": passed})
+
+            # Force iterate when no answers exist yet (can't vote/stop for nothing)
+            has_answers = _state.get("has_existing_answers", False)
+            if not has_answers:
+                verdict = iterate
+                explanation = f"First answer — no existing answers to evaluate. " f"Verdict: {verdict}."
+            else:
+                verdict = terminate if true_count >= required else iterate
+                explanation = f"{true_count} of {len(items)} items passed " f"(required: {required}). " f"Verdict: {verdict}."
+
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": _json.dumps(
+                            {
+                                "verdict": verdict,
+                                "explanation": explanation,
+                                "true_count": true_count,
+                                "required": required,
+                                "items": items_detail,
+                            },
+                        ),
+                    },
+                ],
+            }
+
+        # Create SDK MCP server with this one tool
+        sdk_server = create_sdk_mcp_server(
+            name="massgen_checklist",
+            version="1.0.0",
+            tools=[submit_checklist_handler],
+        )
+
+        # Inject into backend's MCP servers
+        if not hasattr(backend, "config") or not isinstance(backend.config, dict):
+            logger.warning(
+                f"Agent {agent_id} backend has no dict config, skipping checklist tool",
+            )
+            return
+
+        if "mcp_servers" not in backend.config:
+            backend.config["mcp_servers"] = {}
+
+        if isinstance(backend.config["mcp_servers"], dict):
+            backend.config["mcp_servers"]["massgen_checklist"] = sdk_server
+        elif isinstance(backend.config["mcp_servers"], list):
+            backend.config["mcp_servers"].append(
+                {
+                    "name": "massgen_checklist",
+                    "__sdk_server__": sdk_server,
+                },
+            )
+
+        logger.info(
+            f"[Orchestrator] Registered submit_checklist SDK MCP tool for agent {agent_id}",
+        )
+
+    def _refresh_checklist_state_for_agent(self, agent_id: str) -> None:
+        """Refresh the checklist tool's mutable state dict for an agent.
+
+        Called after mid-stream injection so the submit_checklist tool sees
+        up-to-date budget (remaining slots may change when decomposition
+        streak is reset) and has_existing_answers.
+        """
+        agent = self.agents.get(agent_id)
+        if not agent or not hasattr(agent.backend, "_checklist_state"):
+            return
+
+        from massgen.system_prompt_sections import (
+            _checklist_confidence_cutoff,
+            _checklist_effective_threshold,
+            _checklist_required_true,
+        )
+
+        _cl_remaining = max(
+            0,
+            (self.config.max_new_answers_per_agent or 5) - self._get_agent_answer_count_for_limit(agent_id),
+        )
+        _has_answers = bool(
+            self.coordination_tracker.answers_by_agent.get(agent_id),
+        )
+        state = agent.backend._checklist_state
+        effective_t = _checklist_effective_threshold(
+            state.get("threshold", 5),
+            _cl_remaining,
+            state.get("total", 5),
+        )
+        agent.backend._checklist_state.update(
+            {
+                "remaining": _cl_remaining,
+                "has_existing_answers": _has_answers,
+                "required": _checklist_required_true(effective_t),
+                "cutoff": _checklist_confidence_cutoff(effective_t),
+            },
+        )
+        logger.debug(
+            "[Orchestrator] Refreshed checklist state for %s: remaining=%d, has_answers=%s",
+            agent_id,
+            _cl_remaining,
+            _has_answers,
+        )
+
+    def ensure_workspace_symlinks(self) -> None:
+        """Ensure per-agent workspace symlinks exist in the current attempt log directory."""
+        try:
+            log_dir = get_log_session_dir()
+            if log_dir:
                 for agent_id, agent in self.agents.items():
                     if not agent.backend.filesystem_manager or not agent.backend.filesystem_manager.cwd:
                         continue
@@ -4872,6 +5099,9 @@ Your answer:"""
             self.agent_states[agent_id].known_answer_ids.update(selected_answers.keys())
             self._register_injected_answer_updates(agent_id, list(selected_answers.keys()))
 
+            # Refresh checklist tool state after injection (streak may have reset)
+            self._refresh_checklist_state_for_agent(agent_id)
+
             # Keep restart pending if additional unseen revisions still remain.
             self.agent_states[agent_id].restart_pending = self._has_unseen_answer_updates(agent_id)
 
@@ -5265,6 +5495,9 @@ Your answer:"""
             # Update known_answer_ids so vote validation knows this agent has seen these
             self.agent_states[agent_id].known_answer_ids.update(selected_answers.keys())
             self._register_injected_answer_updates(agent_id, list(selected_answers.keys()))
+
+            # Refresh checklist tool state after injection (streak may have reset)
+            self._refresh_checklist_state_for_agent(agent_id)
 
             # Keep restart pending if additional unseen revisions still remain.
             self.agent_states[agent_id].restart_pending = self._has_unseen_answer_updates(agent_id)
@@ -6812,12 +7045,25 @@ Your answer:"""
                 vote_only=vote_only_for_system_message,
                 agent_mapping=self.coordination_tracker.get_reverse_agent_mapping(),
                 voting_sensitivity_override=getattr(agent, "voting_sensitivity", None),
+                voting_threshold=getattr(self.config, "voting_threshold", None),
+                answers_used=self._get_agent_answer_count_for_limit(agent_id),
+                answer_cap=self.config.max_new_answers_per_agent,
                 coordination_mode=getattr(self.config, "coordination_mode", "voting"),
                 agent_subtask=self._agent_subtasks.get(agent_id),
                 worktree_paths=round_worktree_paths,
                 branch_name=agent_branch,
                 other_branches=other_agent_branches if other_agent_branches else None,
             )
+
+            # Update checklist tool state if registered (mutable dict — tool closure reads this)
+            if hasattr(agent.backend, "_checklist_state"):
+                agent.backend._checklist_state.update(
+                    {
+                        "threshold": getattr(self.config, "voting_threshold", 5) or 5,
+                        "total": self.config.max_new_answers_per_agent or 5,
+                    },
+                )
+                self._refresh_checklist_state_for_agent(agent_id)
 
             # Inject phase-appropriate persona if enabled
             has_seen_answers = bool(normalized_answers)

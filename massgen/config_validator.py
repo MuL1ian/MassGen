@@ -152,6 +152,9 @@ class ConfigValidator:
         "consistency",
         "diversity",
         "reflective",
+        "checklist",
+        "checklist_scored",
+        "checklist_gated",
     }
 
     # Valid answer novelty requirements

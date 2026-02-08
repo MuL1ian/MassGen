@@ -2430,6 +2430,8 @@ async def run_question_with_history(
     # Apply voting sensitivity if specified
     if "voting_sensitivity" in orchestrator_cfg:
         orchestrator_config.voting_sensitivity = orchestrator_cfg["voting_sensitivity"]
+    if "voting_threshold" in orchestrator_cfg:
+        orchestrator_config.voting_threshold = orchestrator_cfg["voting_threshold"]
 
     # Apply answer count limit if specified
     if "max_new_answers_per_agent" in orchestrator_cfg:
@@ -3120,6 +3122,8 @@ async def run_single_question(
         # Apply voting sensitivity if specified
         if "voting_sensitivity" in orchestrator_cfg:
             orchestrator_config.voting_sensitivity = orchestrator_cfg["voting_sensitivity"]
+        if "voting_threshold" in orchestrator_cfg:
+            orchestrator_config.voting_threshold = orchestrator_cfg["voting_threshold"]
 
         # Apply answer count limit if specified
         if "max_new_answers_per_agent" in orchestrator_cfg:
@@ -5523,6 +5527,8 @@ async def run_textual_interactive_mode(
             if orchestrator_cfg:
                 if "voting_sensitivity" in orchestrator_cfg:
                     orchestrator_config.voting_sensitivity = orchestrator_cfg["voting_sensitivity"]
+                if "voting_threshold" in orchestrator_cfg:
+                    orchestrator_config.voting_threshold = orchestrator_cfg["voting_threshold"]
                 if "max_new_answers_per_agent" in orchestrator_cfg:
                     orchestrator_config.max_new_answers_per_agent = orchestrator_cfg["max_new_answers_per_agent"]
                 if "max_new_answers_global" in orchestrator_cfg:
