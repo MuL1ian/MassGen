@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -443,6 +444,7 @@ class TimelineSection(ScrollableContainer):
         self._final_lock_active = False
         # Debug scroll logging is opt-in only (MASSGEN_TUI_DEBUG + MASSGEN_TUI_SCROLL_DEBUG)
         self._debug_scroll = tui_debug_enabled() and _env_flag("MASSGEN_TUI_SCROLL_DEBUG")
+        self._timing_debug = tui_debug_enabled() and _env_flag("MASSGEN_TUI_TIMING_DEBUG")
         # Performance: Time-based scroll debouncing (QUICK-002)
         self._last_scroll_time: float = 0.0
         # Performance: Cancel previous timer before creating new one (QUICK-004)
@@ -853,6 +855,7 @@ class TimelineSection(ScrollableContainer):
         """
         from massgen.frontend.displays.shared.tui_debug import tui_log
 
+        started = time.perf_counter()
         tui_log(f"[LOCK] lock_to_final_answer called: card_id={card_id}, already_locked={self._answer_lock_mode}")
 
         if self._answer_lock_mode:
@@ -862,29 +865,40 @@ class TimelineSection(ScrollableContainer):
         self._locked_card_id = card_id
         self.enter_final_lock()
 
-        # Add lock mode class to timeline
-        self.add_class("answer-locked")
-
-        # Hide all children except the final card
+        # Hide all non-final widgets in one UI batch to reduce relayout churn.
         children = list(self.children)
         tui_log(f"[LOCK] Found {len(children)} children, timeline height={self.size.height}")
         card_found = False
-        for child in children:
-            child_id = getattr(child, "id", None)
-            if child_id != card_id:
-                child.add_class("answer-lock-hidden")
-            else:
-                card_found = True
-                # Check if terminal is too small for full presentation
-                if self.size.height < 15:
-                    tui_log(f"[LOCK] Using compact mode (height={self.size.height})")
-                    child.add_class("final-card-compact")
+        app = getattr(self, "app", None)
+        if app is not None and hasattr(app, "set_hover_updates_suppressed"):
+            try:
+                app.set_hover_updates_suppressed(True, reason="answer_locked")
+            except Exception as e:
+                tui_log(f"[ContentSections] {e}")
+        update_context = app.batch_update() if app is not None else nullcontext()
+        with update_context:
+            # Add lock mode class to timeline
+            self.add_class("answer-locked")
+            for child in children:
+                child_id = getattr(child, "id", None)
+                if child_id != card_id:
+                    child.add_class("answer-lock-hidden")
                 else:
-                    tui_log(f"[LOCK] Using locked mode (height={self.size.height})")
-                    child.add_class("final-card-locked")
+                    card_found = True
+                    # Check if terminal is too small for full presentation
+                    if self.size.height < 15:
+                        tui_log(f"[LOCK] Using compact mode (height={self.size.height})")
+                        child.add_class("final-card-compact")
+                    else:
+                        tui_log(f"[LOCK] Using locked mode (height={self.size.height})")
+                        child.add_class("final-card-locked")
 
         if not card_found:
             tui_log(f"[LOCK] WARNING: Card with id={card_id} not found among children!")
+        if self._timing_debug:
+            tui_log(
+                "[TIMING] TimelineSection.lock_to_final_answer " f"{(time.perf_counter() - started) * 1000.0:.1f}ms " f"children={len(children)} card_found={card_found}",
+            )
 
     def unlock_final_answer(self) -> None:
         """Unlock timeline to show all content.
@@ -893,6 +907,7 @@ class TimelineSection(ScrollableContainer):
         """
         from massgen.frontend.displays.shared.tui_debug import tui_log
 
+        started = time.perf_counter()
         if not self._answer_lock_mode:
             return  # Already unlocked
 
@@ -902,14 +917,23 @@ class TimelineSection(ScrollableContainer):
         card_id = self._locked_card_id
         self.exit_final_lock()
 
-        # Remove lock mode class from timeline
-        self.remove_class("answer-locked")
+        # Restore hidden widgets in one UI batch to reduce relayout churn.
+        app = getattr(self, "app", None)
+        if app is not None and hasattr(app, "set_hover_updates_suppressed"):
+            try:
+                app.set_hover_updates_suppressed(False, reason="answer_unlocked")
+            except Exception as e:
+                tui_log(f"[ContentSections] {e}")
+        update_context = app.batch_update() if app is not None else nullcontext()
+        with update_context:
+            # Remove lock mode class from timeline
+            self.remove_class("answer-locked")
 
-        # Show all children again
-        for child in self.children:
-            child.remove_class("answer-lock-hidden")
-            child.remove_class("final-card-locked")
-            child.remove_class("final-card-compact")
+            # Show all children again
+            for child in self.children:
+                child.remove_class("answer-lock-hidden")
+                child.remove_class("final-card-locked")
+                child.remove_class("final-card-compact")
 
         self._locked_card_id = None
 
@@ -917,13 +941,18 @@ class TimelineSection(ScrollableContainer):
         if card_id:
             try:
                 card = self.query_one(f"#{card_id}")
-                card.scroll_visible(animate=True, top=True)
+                # Keep unlock responsive: jump immediately instead of animating a long scroll.
+                card.scroll_visible(animate=False, top=True)
                 tui_log(f"[LOCK] Scrolled to card {card_id}")
             except Exception as e:
                 tui_log(f"[LOCK] Could not scroll to card: {e}")
                 self._scroll_to_end(animate=False, force=True)
         else:
             self._scroll_to_end(animate=False, force=True)
+        if self._timing_debug:
+            tui_log(
+                "[TIMING] TimelineSection.unlock_final_answer " f"{(time.perf_counter() - started) * 1000.0:.1f}ms " f"children={len(list(self.children))}",
+            )
 
     def on_resize(self, event) -> None:
         """Handle resize events to switch between compact and full modes."""
@@ -2578,6 +2607,9 @@ class FinalPresentationCard(Vertical):
     _UPDATE_DEBOUNCE_MS = 50
     # Cap context-path rows in the inline section to keep final-card mount fast.
     _MAX_CONTEXT_PATH_ROWS = 30
+    _DEFAULT_MARKDOWN_RENDER_MAX_CHARS = 1200
+    _MAX_INFERRED_ANSWER_PATHS = 10
+    _ANSWER_PATH_PATTERN = re.compile(r"(?:\./)?(?:[A-Za-z0-9._-]+/)+[A-Za-z0-9._-]+")
 
     def __init__(
         self,
@@ -2611,10 +2643,27 @@ class FinalPresentationCard(Vertical):
         self._cached_full_text: Optional[str] = None  # Cache to avoid repeated joins
         self._answer_content: Optional[str] = None
         self._pending_finalize = False
+        self._workspace_open_cooldown_s = 0.75
+        self._last_workspace_open_at = 0.0
+        self._markdown_render_max_chars = self._DEFAULT_MARKDOWN_RENDER_MAX_CHARS
+        raw_markdown_limit = os.environ.get("MASSGEN_TUI_FINAL_MARKDOWN_MAX_CHARS")
+        if raw_markdown_limit:
+            try:
+                self._markdown_render_max_chars = max(0, int(raw_markdown_limit))
+            except ValueError:
+                pass
+        self._timing_debug = tui_debug_enabled() and _env_flag("MASSGEN_TUI_TIMING_DEBUG")
         if completion_only:
             self.add_class("completion-only")
         else:
             self.add_class("streaming")
+
+    def _timing(self, label: str, elapsed_ms: float, extra: str = "") -> None:
+        """Emit timing diagnostics to the TUI debug log when enabled."""
+        if not self._timing_debug:
+            return
+        suffix = f" {extra}" if extra else ""
+        tui_log(f"[TIMING] FinalPresentationCard.{label} {elapsed_ms:.1f}ms{suffix}")
 
     def compose(self) -> ComposeResult:
         from textual.containers import Horizontal, ScrollableContainer
@@ -2801,14 +2850,40 @@ class FinalPresentationCard(Vertical):
             return True
         return False
 
-    def _finalize_markdown(self) -> bool:
-        """Render the final Markdown once streaming completes."""
-        if not self._final_content:
-            return True
+    def _render_static_content(self, full_text: str) -> bool:
+        """Render final answer as a single static widget for fast hover/click response."""
+        updated = False
+        if self._stream_widget is not None:
+            try:
+                self._stream_widget.update(full_text)
+                self._stream_widget.remove_class("hidden")
+                updated = True
+            except Exception as e:
+                tui_log(f"[ContentSections] {e}")
+        if not updated:
+            try:
+                from textual.widgets import Static as _Static
 
-        full_text = self._get_full_text()
-        self._answer_content = full_text
+                stream_widget = self.query_one("#final_card_stream", _Static)
+                stream_widget.update(full_text)
+                stream_widget.remove_class("hidden")
+                updated = True
+            except Exception as e:
+                tui_log(f"[ContentSections] {e}")
+        try:
+            if self._markdown_widget is not None:
+                self._markdown_widget.add_class("hidden")
+            else:
+                from textual.widgets import Markdown as _Markdown
 
+                text_widget = self.query_one("#final_card_text", _Markdown)
+                text_widget.add_class("hidden")
+        except Exception as e:
+            tui_log(f"[ContentSections] {e}")
+        return updated
+
+    def _render_markdown_content(self, full_text: str) -> bool:
+        """Render final answer with Markdown when size and mode permit."""
         if self._markdown_widget is not None:
             try:
                 self._markdown_widget.update(full_text)
@@ -2831,6 +2906,54 @@ class FinalPresentationCard(Vertical):
             return True
         except Exception as e:
             tui_log(f"[ContentSections] {e}")
+        return False
+
+    def _sync_locked_render_mode(self) -> None:
+        """Apply render mode matching current lock state after completion."""
+        if self._is_streaming:
+            return
+        full_text = self.get_content()
+        if not full_text:
+            return
+        if self.has_class("locked-mode") or len(full_text) > self._markdown_render_max_chars:
+            self._render_static_content(full_text)
+            return
+        self._render_markdown_content(full_text)
+
+    def _finalize_markdown(self) -> bool:
+        """Render the final Markdown once streaming completes."""
+        started = time.perf_counter()
+        if not self._final_content:
+            return True
+
+        full_text = self._get_full_text()
+        self._answer_content = full_text
+
+        # Large Markdown trees create expensive hover/style recomputation in Textual.
+        # Keep locked-mode and large final answers as a single Static widget.
+        # This avoids expensive hover/style recomputation on large Markdown trees.
+        force_static = self.has_class("locked-mode")
+        if force_static or len(full_text) > self._markdown_render_max_chars:
+            updated = self._render_static_content(full_text)
+            self._timing(
+                "_finalize_markdown",
+                (time.perf_counter() - started) * 1000.0,
+                f"chars={len(full_text)} mode={'locked-static' if force_static else 'static'}",
+            )
+            return updated
+
+        if self._render_markdown_content(full_text):
+            self._timing(
+                "_finalize_markdown",
+                (time.perf_counter() - started) * 1000.0,
+                f"chars={len(full_text)}",
+            )
+            return True
+        self._timing(
+            "_finalize_markdown",
+            (time.perf_counter() - started) * 1000.0,
+            "result=failed",
+        )
 
         return False
 
@@ -2857,7 +2980,8 @@ class FinalPresentationCard(Vertical):
         # Show file explorer if set_locked_mode was called before mount
         if getattr(self, "_pending_file_explorer", False):
             self._pending_file_explorer = False
-            self._show_file_explorer(True)
+            # Keep lock transition responsive: avoid synchronous workspace scans on mount.
+            self._show_file_explorer(True, allow_workspace_scan=False, allow_auto_preview=False)
 
     def _on_compose(self) -> None:
         """Called after compose() completes - use this to flush content."""
@@ -2872,6 +2996,7 @@ class FinalPresentationCard(Vertical):
         """Mark the presentation as complete and show action buttons."""
         from textual.widgets import Label
 
+        started = time.perf_counter()
         self._is_streaming = False
 
         # Flush any pending debounced updates immediately
@@ -2903,6 +3028,7 @@ class FinalPresentationCard(Vertical):
             footer.remove_class("hidden")
         except Exception as e:
             tui_log(f"[ContentSections] {e}")
+        self._timing("complete", (time.perf_counter() - started) * 1000.0, f"chunks={len(self._final_content)}")
 
     def get_content(self) -> str:
         """Get the full content for copy operation."""
@@ -3005,7 +3131,9 @@ class FinalPresentationCard(Vertical):
                 timeline.lock_to_final_answer(self.id or "final_presentation_card")
                 self.add_class("locked-mode")
                 link.update("↩ Previous Work")
-                self._show_file_explorer(True)
+                # Avoid blocking the UI thread on large workspace scans during lock transitions.
+                self._show_file_explorer(True, allow_workspace_scan=False, allow_auto_preview=False)
+            self._sync_locked_render_mode()
         except Exception as e:
             tui_log(f"[ContentSections] {e}")
 
@@ -3017,6 +3145,7 @@ class FinalPresentationCard(Vertical):
         Args:
             locked: Whether to enable locked mode
         """
+        started = time.perf_counter()
         if locked:
             self.add_class("locked-mode")
             try:
@@ -3025,8 +3154,9 @@ class FinalPresentationCard(Vertical):
                 link.update("↩ Previous Work")
             except Exception as e:
                 tui_log(f"[ContentSections] {e}")
-            # Show file explorer directly (called after 0.1s timer, card should be mounted)
-            self._show_file_explorer(True)
+            # Show file explorer directly when paths are already available, but skip
+            # expensive fallback scans to keep lock transition responsive.
+            self._show_file_explorer(True, allow_workspace_scan=False, allow_auto_preview=False)
             # Also set flag for on_mount fallback in case we're not mounted yet
             self._pending_file_explorer = True
         else:
@@ -3038,9 +3168,57 @@ class FinalPresentationCard(Vertical):
             except Exception as e:
                 tui_log(f"[ContentSections] {e}")
             self._show_file_explorer(False)
+        self._sync_locked_render_mode()
+        self._timing("set_locked_mode", (time.perf_counter() - started) * 1000.0, f"locked={locked}")
 
-    def _show_file_explorer(self, show: bool) -> None:
-        """Show or hide the file explorer side panel."""
+    def _infer_answer_paths(self, panel) -> int:
+        """Populate file explorer entries from file paths mentioned in final answer text."""
+        workspace_path = getattr(panel, "workspace_path", None)
+        if not workspace_path:
+            return 0
+        ws = Path(workspace_path)
+        if not ws.exists() or not ws.is_dir():
+            return 0
+
+        answer_text = self.get_content()
+        if not answer_text:
+            return 0
+
+        added = 0
+        seen: set[str] = set()
+        for candidate in self._ANSWER_PATH_PATTERN.findall(answer_text):
+            rel = candidate.strip("`\"'()[]{}<>,:;")
+            rel = rel.lstrip("./")
+            if not rel or rel in seen:
+                continue
+            rel_path = Path(rel)
+            if rel_path.is_absolute() or ".." in rel_path.parts:
+                continue
+            abs_path = ws / rel_path
+            if abs_path.exists() and abs_path.is_file():
+                panel._add_path(rel, "workspace", absolute_path=str(abs_path))
+                seen.add(rel)
+                added += 1
+                if added >= self._MAX_INFERRED_ANSWER_PATHS:
+                    break
+        return added
+
+    def _show_file_explorer(
+        self,
+        show: bool,
+        allow_workspace_scan: bool = True,
+        allow_auto_preview: bool = True,
+    ) -> None:
+        """Show or hide the file explorer side panel.
+
+        Args:
+            show: Whether the explorer should be visible.
+            allow_workspace_scan: Whether to perform fallback filesystem scanning
+                when no explicit context paths are available.
+            allow_auto_preview: Whether to eagerly open a preview for inferred/scanned files.
+                Disable this during initial final-card lock to avoid startup input lag.
+        """
+        started = time.perf_counter()
         try:
             from massgen.frontend.displays.textual_widgets.file_explorer_panel import (
                 FileExplorerPanel,
@@ -3050,11 +3228,35 @@ class FinalPresentationCard(Vertical):
 
             if not show:
                 panel.remove_class("visible")
+                self._timing("_show_file_explorer", (time.perf_counter() - started) * 1000.0, "show=False")
+                return
+
+            if not panel.has_files():
+                self._resolve_workspace_path(panel)
+
+            if not panel.has_files() and not allow_workspace_scan:
+                inferred = self._infer_answer_paths(panel)
+                if inferred > 0:
+                    panel.rebuild_tree()
+                    panel.add_class("visible")
+                    if allow_auto_preview:
+                        panel.auto_preview(self.get_content())
+                    self._timing(
+                        "_show_file_explorer",
+                        (time.perf_counter() - started) * 1000.0,
+                        f"inferred_paths={inferred} allow_workspace_scan=False",
+                    )
+                    return
+                panel.remove_class("visible")
+                self._timing(
+                    "_show_file_explorer",
+                    (time.perf_counter() - started) * 1000.0,
+                    "visible=False allow_workspace_scan=False",
+                )
                 return
 
             # Lazy-resolve workspace path from log directory
             if not panel.has_files():
-                self._resolve_workspace_path(panel)
                 if panel.workspace_path and Path(panel.workspace_path).exists():
                     panel._scan_workspace()
                     if panel.has_files():
@@ -3064,12 +3266,18 @@ class FinalPresentationCard(Vertical):
                                 p = self.query_one("#file_explorer_panel", FileExplorerPanel)
                                 p.rebuild_tree()
                                 p.add_class("visible")
-                                p.auto_preview(self.get_content())
+                                if allow_auto_preview:
+                                    p.auto_preview(self.get_content())
                                 p.refresh(layout=True)
                             except Exception as e:
                                 tui_log(f"[ContentSections] {e}")
 
                         self.call_later(_apply)
+                        self._timing(
+                            "_show_file_explorer",
+                            (time.perf_counter() - started) * 1000.0,
+                            "scheduled_scan_apply",
+                        )
                         return
 
             if panel.has_files():
@@ -3078,11 +3286,17 @@ class FinalPresentationCard(Vertical):
                     self.query_one("#final_card_context_paths").add_class("hidden")
                 except Exception as e:
                     tui_log(f"[ContentSections] {e}")
+                self._timing("_show_file_explorer", (time.perf_counter() - started) * 1000.0, "visible=True")
+            else:
+                panel.remove_class("visible")
+                self._timing("_show_file_explorer", (time.perf_counter() - started) * 1000.0, "visible=False")
         except Exception as e:
             tui_log(f"[ContentSections] {e}")
+            self._timing("_show_file_explorer", (time.perf_counter() - started) * 1000.0, "result=error")
 
     def _resolve_workspace_path(self, panel) -> None:
         """Resolve the workspace path from the log session directory."""
+        started = time.perf_counter()
         try:
             from massgen.logger_config import get_log_session_dir
 
@@ -3105,6 +3319,12 @@ class FinalPresentationCard(Vertical):
                 panel.workspace_path = str(candidate)
         except Exception as e:
             tui_log(f"[ContentSections] {e}")
+        finally:
+            self._timing(
+                "_resolve_workspace_path",
+                (time.perf_counter() - started) * 1000.0,
+                f"resolved={bool(getattr(panel, 'workspace_path', None))}",
+            )
 
     @staticmethod
     def _find_final_workspace(base_dir: Path, agent_id: str) -> Optional[Path]:
@@ -3156,9 +3376,28 @@ class FinalPresentationCard(Vertical):
     def _open_workspace(self) -> None:
         """Open workspace browser for the winning agent."""
         try:
+            now = time.monotonic()
+            if now - self._last_workspace_open_at < self._workspace_open_cooldown_s:
+                return
+            self._last_workspace_open_at = now
+
             app = self.app
+            workspace_hint = None
+            try:
+                from massgen.frontend.displays.textual_widgets.file_explorer_panel import (
+                    FileExplorerPanel,
+                )
+
+                panel = self.query_one("#file_explorer_panel", FileExplorerPanel)
+                workspace_hint = getattr(panel, "workspace_path", None)
+            except Exception:
+                workspace_hint = None
+
             if hasattr(app, "_show_workspace_browser_for_agent"):
-                app._show_workspace_browser_for_agent(self.agent_id)
+                app._show_workspace_browser_for_agent(
+                    self.agent_id,
+                    preferred_final_workspace=workspace_hint,
+                )
             else:
                 self.app.notify("Workspace browser not available", severity="warning")
         except Exception as e:

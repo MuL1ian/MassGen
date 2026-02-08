@@ -7,8 +7,10 @@ Textual Terminal Display for MassGen Coordination
 import functools
 import os
 import re
+import sys
 import threading
 import time
+import traceback
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -108,7 +110,7 @@ except ImportError:
     TEXTUAL_AVAILABLE = False
 
 # TUI Debug logger - use shared implementation
-from .shared.tui_debug import tui_log  # noqa: E402
+from .shared.tui_debug import tui_debug_enabled, tui_log  # noqa: E402
 
 
 def _process_line_buffer(
@@ -2657,6 +2659,21 @@ if TEXTUAL_AVAILABLE:
             self._buffer_lock = buffer_lock
             self.buffer_flush_interval = buffer_flush_interval
             self._keyboard_interactive_mode = display._keyboard_interactive_mode
+            self._timing_debug = tui_debug_enabled() and os.environ.get("MASSGEN_TUI_TIMING_DEBUG", "").lower() in (
+                "1",
+                "true",
+                "yes",
+                "on",
+            )
+            self._heartbeat_timer = None
+            self._last_heartbeat_at: Optional[float] = None
+            self._stall_watchdog_thread: Optional[threading.Thread] = None
+            self._stall_watchdog_stop = threading.Event()
+            self._last_stall_dump_at: float = 0.0
+            try:
+                self._stall_watchdog_threshold_s = float(os.environ.get("MASSGEN_TUI_STALL_THRESHOLD_S", "0.8"))
+            except ValueError:
+                self._stall_watchdog_threshold_s = 0.8
 
             self.agent_widgets = {}
             self.header_widget = None
@@ -2740,6 +2757,13 @@ if TEXTUAL_AVAILABLE:
             self._decomposition_runtime_subagent_data: Optional[Any] = None
             self._decomposition_runtime_status_callback: Optional[Callable[[str], Optional[Any]]] = None
             self._decomposition_runtime_auto_opened: bool = False
+            # Workspace browser open-guard to prevent duplicate modal pushes from
+            # repeated click/key events while the UI is busy.
+            self._workspace_browser_open_pending: bool = False
+            self._workspace_browser_last_request_at: float = 0.0
+            # Performance guard: suppress expensive hover style updates while the
+            # timeline is answer-locked (buttons remain clickable).
+            self._hover_updates_suppressed: bool = False
 
             if not self._keyboard_interactive_mode:
                 self.BINDINGS = []
@@ -2989,6 +3013,10 @@ if TEXTUAL_AVAILABLE:
             self.coordination_display._app_ready.set()
             self._register_event_listener()
             self.set_interval(self.buffer_flush_interval, self._flush_buffers)
+            if self._timing_debug:
+                self._last_heartbeat_at = time.monotonic()
+                self._heartbeat_timer = self.set_interval(0.05, self._heartbeat_tick)
+                self._start_stall_watchdog()
             if self.coordination_display.restart_reason and self.header_widget:
                 self.header_widget.show_restart_context(
                     self.coordination_display.restart_reason,
@@ -3074,6 +3102,102 @@ if TEXTUAL_AVAILABLE:
                     json.dump(debug_info, f, indent=2, default=str)
                 self.log("DEBUG: Widget info written to /tmp/textual_debug.json")
                 tui_log("TUI mounted - debug info written to /tmp/textual_debug.json")
+
+        def on_unmount(self) -> None:
+            """Clean up debug timers/threads when app exits."""
+            try:
+                if self._heartbeat_timer is not None:
+                    self._heartbeat_timer.stop()
+            except Exception:
+                pass
+            self._heartbeat_timer = None
+            self._stop_stall_watchdog()
+
+        def set_hover_updates_suppressed(self, suppressed: bool, reason: str = "") -> None:
+            """Enable/disable hover-style recalculation for responsiveness."""
+            if self._hover_updates_suppressed == suppressed:
+                return
+            self._hover_updates_suppressed = suppressed
+            if self._timing_debug:
+                reason_suffix = f" reason={reason}" if reason else ""
+                tui_log(f"[TIMING] TextualApp.hover_updates_suppressed {suppressed}{reason_suffix}")
+
+        def _set_mouse_over(self, widget: Optional[Widget], hover_widget: Optional[Widget]) -> None:
+            """Skip hover style churn when suppression is enabled."""
+            if self._hover_updates_suppressed:
+                return
+            super()._set_mouse_over(widget, hover_widget)
+
+        def _start_stall_watchdog(self) -> None:
+            """Start a background watchdog to capture main-thread stack on stalls."""
+            if not self._timing_debug:
+                return
+            if self._stall_watchdog_thread and self._stall_watchdog_thread.is_alive():
+                return
+
+            self._stall_watchdog_stop.clear()
+            self._stall_watchdog_thread = threading.Thread(
+                target=self._stall_watchdog_loop,
+                name="massgen-tui-stall-watchdog",
+                daemon=True,
+            )
+            self._stall_watchdog_thread.start()
+
+        def _stop_stall_watchdog(self) -> None:
+            """Stop stall watchdog thread."""
+            self._stall_watchdog_stop.set()
+            thread = self._stall_watchdog_thread
+            if thread and thread.is_alive():
+                try:
+                    thread.join(timeout=0.2)
+                except Exception:
+                    pass
+            self._stall_watchdog_thread = None
+
+        def _stall_watchdog_loop(self) -> None:
+            """Capture Python stack traces when main loop appears blocked."""
+            while not self._stall_watchdog_stop.wait(0.1):
+                last = self._last_heartbeat_at
+                if not self._timing_debug or last is None:
+                    continue
+                now = time.monotonic()
+                delta = now - last
+                if delta < self._stall_watchdog_threshold_s:
+                    continue
+                # Avoid spamming stack dumps while blocked.
+                if now - self._last_stall_dump_at < 1.5:
+                    continue
+                self._last_stall_dump_at = now
+
+                thread_id = self._thread_id
+                if thread_id is None:
+                    continue
+                frame = sys._current_frames().get(thread_id)
+                if frame is None:
+                    continue
+                stack = "".join(traceback.format_stack(frame, limit=40))
+                tui_log(
+                    "[TIMING] TextualApp.main_loop_stall_stack " f"{delta * 1000.0:.1f}ms thread_id={thread_id}\n{stack}",
+                )
+
+        def _heartbeat_tick(self) -> None:
+            """Log event-loop stalls when timing debug is enabled."""
+            now = time.monotonic()
+            last = self._last_heartbeat_at
+            self._last_heartbeat_at = now
+            if not self._timing_debug or last is None:
+                return
+
+            delta = now - last
+            # 250ms+ main-loop gaps are typically perceived as input lag.
+            if delta >= 0.25:
+                try:
+                    batch_len = len(self._event_batch)
+                except Exception:
+                    batch_len = -1
+                tui_log(
+                    "[TIMING] TextualApp.main_loop_stall " f"{delta * 1000.0:.1f}ms event_batch={batch_len} pending_flush={self._pending_flush}",
+                )
 
         def _dump_widget_sizes(self) -> None:
             """Dump full widget tree with sizes for debugging layout issues."""
@@ -5096,9 +5220,9 @@ Type your question and press Enter to ask the agents.
                     # Still need to do the lock and complete
                     if answer and not getattr(card, "_final_content", []):
                         card.append_chunk(answer)
-                    card.complete()
                     timeline.lock_to_final_answer("final_presentation_card")
                     card.set_locked_mode(True)
+                    card.complete()
                     return
 
                 tui_log("[TextualDisplay] Creating new final presentation card")
@@ -5135,6 +5259,9 @@ Type your question and press Enter to ask the agents.
                     # Only add content if card is empty (streaming may have already populated it)
                     if answer and not getattr(card, "_final_content", []):
                         card.append_chunk(answer)
+                    # Auto-lock timeline to show only final answer
+                    timeline.lock_to_final_answer("final_presentation_card")
+                    card.set_locked_mode(True)
                     card.complete()
                     try:
                         logger.info(
@@ -5142,9 +5269,6 @@ Type your question and press Enter to ask the agents.
                         )
                     except Exception as e:
                         tui_log(f"[TextualDisplay] {e}")
-                    # Auto-lock timeline to show only final answer
-                    timeline.lock_to_final_answer("final_presentation_card")
-                    card.set_locked_mode(True)
                     # Auto-collapse task plan when final presentation shows
                     if hasattr(panel, "_task_plan_host"):
                         panel._task_plan_host.collapse()
@@ -5250,9 +5374,6 @@ Type your question and press Enter to ask the agents.
                 if self._final_presentation_card._post_eval_status in ("none", "evaluating"):
                     self._final_presentation_card.set_post_eval_status("verified")
 
-                # Mark the card as complete (shows footer with buttons)
-                self._final_presentation_card.complete()
-
                 # Auto-lock timeline to show only final answer
                 if agent_id in self.agent_widgets:
                     panel = self.agent_widgets[agent_id]
@@ -5268,6 +5389,9 @@ Type your question and press Enter to ask the agents.
                             self.question_input.placeholder = "Type your follow-up question..."
                     except Exception as e:
                         tui_log(f"[TextualDisplay] {e}")
+
+                # Mark the card as complete (shows footer with buttons)
+                self._final_presentation_card.complete()
 
                 # Phase 12.4: Store final answer for view-based navigation
                 if agent_id in self.agent_widgets:
@@ -7174,7 +7298,7 @@ Type your question and press Enter to ask the agents.
                 self.notify("No answers yet - workspaces available after agents submit", severity="warning", timeout=3)
                 return
 
-            self._show_modal_async(
+            self._present_workspace_browser_modal(
                 WorkspaceBrowserModal(
                     answers=self._answers,
                     agent_ids=self.coordination_display.agent_ids,
@@ -7183,20 +7307,37 @@ Type your question and press Enter to ask the agents.
                 ),
             )
 
-        def _show_workspace_browser_for_agent(self, agent_id: str):
+        def _show_workspace_browser_for_agent(
+            self,
+            agent_id: str,
+            preferred_final_workspace: Optional[str] = None,
+        ):
             """Open workspace browser focused on the winning agent's final workspace.
 
             Args:
                 agent_id: The agent ID to show workspace for (typically the winner)
+                preferred_final_workspace: Optional already-resolved final workspace path
+                    for the agent. When provided, avoids rescanning log directories.
             """
             from pathlib import Path
 
+            started_total = time.perf_counter()
             # Get current workspace paths for ALL agents
             agent_workspace_paths: Dict[str, str] = {}
             final_workspace_paths: Dict[str, str] = {}
             orchestrator = getattr(self.coordination_display, "orchestrator", None)
 
+            if preferred_final_workspace:
+                preferred_path = Path(preferred_final_workspace)
+                if preferred_path.exists():
+                    final_workspace_paths[agent_id] = str(preferred_path)
+                    if self._timing_debug:
+                        tui_log(
+                            "[TIMING] WorkspaceBrowser.reuse_preferred_final_workspace " f"0.0ms agent={agent_id}",
+                        )
+
             if orchestrator:
+                started_collect = time.perf_counter()
                 # Get current workspaces
                 for aid, agent in getattr(orchestrator, "agents", {}).items():
                     fm = getattr(getattr(agent, "backend", None), "filesystem_manager", None)
@@ -7204,10 +7345,16 @@ Type your question and press Enter to ask the agents.
                         workspace = getattr(fm, "get_current_workspace", lambda: None)()
                         if workspace:
                             agent_workspace_paths[aid] = str(workspace)
+                if self._timing_debug:
+                    tui_log(
+                        "[TIMING] WorkspaceBrowser.collect_current_workspaces " f"{(time.perf_counter() - started_collect) * 1000.0:.1f}ms " f"count={len(agent_workspace_paths)}",
+                    )
 
-                # Scan for final workspaces in log directory
+                # Scan for final workspaces in log directory (unless we already
+                # received a resolved path from the final-answer card).
                 log_dir = getattr(orchestrator, "log_session_dir", None)
-                if log_dir:
+                if log_dir and not final_workspace_paths:
+                    started_scan = time.perf_counter()
                     log_path = Path(log_dir)
 
                     def scan_for_final(base_dir: Path) -> Dict[str, str]:
@@ -7233,6 +7380,10 @@ Type your question and press Enter to ask the agents.
                                     break
                             if final_workspace_paths:
                                 break
+                    if self._timing_debug:
+                        tui_log(
+                            "[TIMING] WorkspaceBrowser.scan_final_workspaces " f"{(time.perf_counter() - started_scan) * 1000.0:.1f}ms " f"count={len(final_workspace_paths)}",
+                        )
 
             # Merge final workspaces into agent_workspace_paths with special key
             # The modal will detect keys ending with "-final" as final workspaces
@@ -7242,9 +7393,13 @@ Type your question and press Enter to ask the agents.
 
             if not self._answers and not agent_workspace_paths and not agent_final_paths:
                 self.notify("No workspace available yet", severity="warning", timeout=3)
+                if self._timing_debug:
+                    tui_log(
+                        "[TIMING] WorkspaceBrowser.open " f"{(time.perf_counter() - started_total) * 1000.0:.1f}ms result=no_workspace",
+                    )
                 return
 
-            self._show_modal_async(
+            self._present_workspace_browser_modal(
                 WorkspaceBrowserModal(
                     answers=self._answers,
                     agent_ids=self.coordination_display.agent_ids,
@@ -7254,6 +7409,47 @@ Type your question and press Enter to ask the agents.
                     default_to_final=True,
                 ),
             )
+            if self._timing_debug:
+                tui_log(
+                    "[TIMING] WorkspaceBrowser.open "
+                    f"{(time.perf_counter() - started_total) * 1000.0:.1f}ms "
+                    f"answers={len(self._answers)} current={len(agent_workspace_paths)} final={len(agent_final_paths)}",
+                )
+
+        def _present_workspace_browser_modal(self, modal: WorkspaceBrowserModal) -> bool:
+            """Open workspace browser once, suppressing duplicate open bursts."""
+            now = time.monotonic()
+            # Ignore rapid repeated requests before the first modal appears.
+            if now - self._workspace_browser_last_request_at < 0.4:
+                if self._timing_debug:
+                    tui_log("[TIMING] WorkspaceBrowser.open suppressed=throttled")
+                return False
+            if self._workspace_browser_open_pending:
+                if self._timing_debug:
+                    tui_log("[TIMING] WorkspaceBrowser.open suppressed=pending")
+                return False
+
+            # If a workspace modal is already on stack, don't push another.
+            try:
+                if any(isinstance(screen, WorkspaceBrowserModal) for screen in self.screen_stack):
+                    if self._timing_debug:
+                        tui_log("[TIMING] WorkspaceBrowser.open suppressed=already_open")
+                    return False
+            except Exception:
+                pass
+
+            self._workspace_browser_open_pending = True
+            self._workspace_browser_last_request_at = now
+
+            def _on_dismiss(_result: Any = None) -> None:
+                self._workspace_browser_open_pending = False
+
+            try:
+                self.push_screen(modal, _on_dismiss)
+                return True
+            except Exception:
+                self._workspace_browser_open_pending = False
+                raise
 
         def action_open_unified_browser(self):
             """Open unified browser modal with tabs for Answers, Votes, Workspace, Timeline."""

@@ -25,6 +25,7 @@ except ImportError:
 
 from massgen.filesystem_manager._constants import SKIP_DIRS_FOR_LOGGING
 
+from ....shared.tui_debug import tui_debug_enabled, tui_log
 from ..modal_base import BaseModal
 
 # Additional patterns to skip in workspace view
@@ -841,6 +842,8 @@ class WorkspaceBrowserModal(BaseModal):
     # Special indices for workspace types
     CURRENT_WORKSPACE_IDX = -100
     FINAL_WORKSPACE_IDX = -200  # Final workspace (after consensus)
+    _MAX_SCAN_FILES = 400
+    _MAX_SCAN_DEPTH = 6
 
     def __init__(
         self,
@@ -882,6 +885,12 @@ class WorkspaceBrowserModal(BaseModal):
         self._dir_file_counts: Dict[str, int] = {}  # Track file counts per directory
         # Default to specified agent or first agent
         self._current_agent_filter: Optional[str] = selected_agent  # None = all agents
+        self._timing_debug = tui_debug_enabled() and os.environ.get("MASSGEN_TUI_TIMING_DEBUG", "").lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
 
     def compose(self) -> ComposeResult:
         with Container(id="workspace_browser_container"):
@@ -977,6 +986,7 @@ class WorkspaceBrowserModal(BaseModal):
 
     def _load_workspace_files(self, answer_idx: int) -> None:
         """Load files from the workspace path of the selected answer, current, or final workspace."""
+        started = time.perf_counter()
         file_list = self.query_one("#workspace_file_list", VerticalScroll)
         file_list.remove_children()
         self._current_files = []
@@ -1009,31 +1019,10 @@ class WorkspaceBrowserModal(BaseModal):
             file_list.mount(Static(f"[dim]No workspace available[/]\n[dim]{workspace_path or 'N/A'}[/]", markup=True))
             return
 
-        # List files in workspace
+        # List files in workspace (bounded for responsiveness)
         try:
-            files = []
-            for root, dirs, filenames in os.walk(workspace_path):
-                # Skip hidden directories and filtered patterns (subagent dirs, gitignored, etc.)
-                dirs[:] = [d for d in dirs if not d.startswith(".") and not _should_skip_dir(d)]
-                for fname in filenames:
-                    if not fname.startswith("."):
-                        full_path = os.path.join(root, fname)
-                        rel_path = os.path.relpath(full_path, workspace_path)
-                        try:
-                            stat = os.stat(full_path)
-                            files.append(
-                                {
-                                    "name": fname,
-                                    "rel_path": rel_path,
-                                    "full_path": full_path,
-                                    "size": stat.st_size,
-                                    "mtime": stat.st_mtime,
-                                },
-                            )
-                        except OSError:
-                            pass
-
-            self._current_files = sorted(files, key=lambda f: f["rel_path"])
+            files, truncated = self._scan_workspace_files(workspace_path)
+            self._current_files = files
 
             if not self._current_files:
                 file_list.mount(Static("[dim]Workspace is empty[/]", markup=True))
@@ -1053,12 +1042,60 @@ class WorkspaceBrowserModal(BaseModal):
                     ),
                 )
 
-            # Auto-select first file
-            if self._current_files:
-                self._preview_file(0)
+            if truncated:
+                file_list.mount(
+                    Static(
+                        f"[dim]... showing first {self._MAX_SCAN_FILES} files[/]",
+                        markup=True,
+                    ),
+                )
+            else:
+                file_list.mount(Static("[dim]Select a file to preview[/]", markup=True))
 
         except Exception as e:
             file_list.mount(Static(f"[red]Error: {e}[/]", markup=True))
+        finally:
+            if self._timing_debug:
+                tui_log(
+                    "[TIMING] WorkspaceBrowserModal._load_workspace_files " f"{(time.perf_counter() - started) * 1000.0:.1f}ms " f"files={len(self._current_files)} workspace={workspace_path}",
+                )
+
+    def _scan_workspace_files(self, workspace_path: str) -> tuple[List[Dict[str, Any]], bool]:
+        """Return a bounded, filtered file listing for a workspace."""
+        files: List[Dict[str, Any]] = []
+        truncated = False
+        for root, dirs, filenames in os.walk(workspace_path, topdown=True):
+            # Skip hidden/ignored directories and enforce a max traversal depth.
+            rel_root = os.path.relpath(root, workspace_path)
+            depth = 0 if rel_root == "." else len(rel_root.split(os.sep))
+            dirs[:] = [d for d in dirs if not d.startswith(".") and not _should_skip_dir(d) and depth < self._MAX_SCAN_DEPTH]
+            if depth >= self._MAX_SCAN_DEPTH:
+                filenames = []
+
+            for fname in filenames:
+                if fname.startswith("."):
+                    continue
+                if len(files) >= self._MAX_SCAN_FILES:
+                    truncated = True
+                    break
+                full_path = os.path.join(root, fname)
+                rel_path = os.path.relpath(full_path, workspace_path)
+                try:
+                    stat = os.stat(full_path)
+                    files.append(
+                        {
+                            "name": fname,
+                            "rel_path": rel_path,
+                            "full_path": full_path,
+                            "size": stat.st_size,
+                            "mtime": stat.st_mtime,
+                        },
+                    )
+                except OSError:
+                    pass
+            if truncated:
+                break
+        return sorted(files, key=lambda f: f["rel_path"]), truncated
 
     def _format_size(self, size: int) -> str:
         """Format file size in human-readable format."""
