@@ -125,10 +125,10 @@ A good first draft is rarely perfect. Look for what can be *better*, not just wh
 
 _CHECKLIST_ITEMS = [
     "The best answer comprehensively addresses all important aspects of the question.",
-    "No meaningful unique content would be gained from further iteration — either from other answers or from a fresh approach.",
-    "A new answer would NOT be materially better than the current best.",
-    "The best answer meets acceptable quality for the question asked.",
-    "All substantive value has been captured — any remaining differences or gaps are minor or stylistic.",
+    "The best answer achieves a high level of quality, depth, and polish — not just adequacy.",
+    "I cannot identify specific, concrete improvements that would make the answer meaningfully better.",
+    "The best answer would genuinely impress the person who asked — they would not wish it were better.",
+    "Any remaining ideas for improvement are truly minor or cosmetic, not substantive.",
 ]
 
 
@@ -181,8 +181,9 @@ def _build_checklist_analysis() -> str:
     """Build analysis section for checklist modes.
 
     The analysis prompt handles both N=1 and N>1 in a single template.
-    Per-Answer Assessment naturally works for 1+ answers. Unique Content Audit
-    and Synthesis Potential sections include a note about what to do when N=1.
+    Per-Answer Assessment naturally works for 1+ answers. The Ideal Version
+    and Gap Analysis sections force agents to establish an excellence
+    reference point before scoring.
     """
     return """## Comparative Analysis
 
@@ -212,31 +213,33 @@ If no answer has meaningful unique content beyond the best, say so explicitly.
 *If there is only one answer, evaluate it on its own merits — consider whether a
 different approach or additional depth would meaningfully improve it.*
 
-### Unrealized Potential
+### The Ideal Version
 
-Step back from the existing answers entirely. Given the original question:
-- What features, content, or capabilities would an **ideal** answer include that
-  **no existing answer has attempted**?
-- Are there dimensions of quality (interactivity, accessibility, edge-case handling,
-  depth of content, visual polish, etc.) that all current answers under-deliver on?
-- What would a user *wish* the answer included that isn't there?
+Before evaluating whether the current answer is "good enough," first establish what
+**excellent** looks like. Step back from the existing answers entirely.
 
-Be concrete. If existing answers already cover the space well, say so.
+Given the original question, describe in concrete bullet points what the **best
+possible answer** would include. Be ambitious — think about:
+- What features, content, depth, or capabilities would make a user genuinely impressed?
+- What dimensions of quality (interactivity, visual polish, accessibility, edge-case
+  handling, depth) would distinguish an outstanding answer from a merely adequate one?
+- What would a user *wish* the answer included?
 
-### Synthesis Potential
+Do not limit yourself to what the existing answers have attempted. Describe the ideal
+as if designing a spec for it.
 
-If you were to produce a `new_answer` combining the best elements **and** addressing
-unrealized potential:
-- What specifically would it incorporate beyond the current best?
-- What new features or improvements (from your Unrealized Potential analysis) would
-  you add?
-- Is there risk that combining approaches would introduce contradictions, muddled
-  framing, or reduced coherence? Note any synthesis risks.
+### Gap Analysis
 
-If "nothing meaningful to add" — state that clearly.
+Now compare the current best answer against your ideal:
+- What specific elements from your ideal are missing or under-delivered?
+- How large is the gap between current and ideal — minor polish, or meaningful substance?
+- If you were to produce a `new_answer`, what specifically would it add or improve?
 
-*If there is only one answer, consider whether revising it or taking a fundamentally
-different approach would produce a materially better result.*"""
+*If there is only one answer, the gap analysis is especially important — the first
+attempt is rarely the best possible version.*
+
+If the current best genuinely matches your ideal with only cosmetic gaps remaining,
+say so — but be rigorous. "Good enough" is not the same as "excellent.\""""
 
 
 def _build_checklist_decision(
@@ -430,7 +433,7 @@ tells you to iterate, you are expected to implement what you identified.
       "T4": {{"score": <0-100>, "reasoning": "<why>"}},
       "T5": {{"score": <0-100>, "reasoning": "<why>"}}
     }},
-    improvements="<substantial features/content that would make the answer obviously better — not minor tweaks>"
+    improvements="<specific gaps from your Ideal Version / Gap Analysis that would make the answer substantially better>"
   )
 
 The tool will evaluate your scores and return a verdict telling you whether
@@ -3288,7 +3291,13 @@ When evaluating your own or others' work, use prompts that look for **flaws**:
 - Audio: mp3, wav, m4a, ogg, flac, aac
 - Video: mp4, mov, avi, mkv, webm
 
-A beautiful screenshot means nothing if buttons don't work. Test functionality, then verify visuals with a critical eye."""
+A beautiful screenshot means nothing if buttons don't work. Test functionality, then verify visuals with a critical eye.
+
+### Image Sourcing Fallback
+If you encounter legal restrictions when trying to use or reference existing photographs
+(e.g., celebrity photos, copyrighted images), **generate original images** using
+`generate_media` instead of leaving the content without visuals. A custom-generated
+image is always better than a placeholder or missing visual."""
 
 
 class TaskContextSection(SystemPromptSection):

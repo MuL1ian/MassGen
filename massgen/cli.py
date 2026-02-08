@@ -5592,6 +5592,22 @@ async def run_textual_interactive_mode(
                         if hasattr(orchestrator_config, key):
                             setattr(orchestrator_config, key, value)
 
+                # Apply persona-generation toggle for parallel mode.
+                # This is intentionally OFF by default in Textual mode unless the
+                # mode-bar toggle is enabled.
+                persona_enabled = mode_state.parallel_personas_enabled and mode_state.coordination_mode == "parallel"
+                if orchestrator_config.coordination_config is None:
+                    from .agent_config import CoordinationConfig
+
+                    orchestrator_config.coordination_config = CoordinationConfig()
+                persona_cfg = getattr(orchestrator_config.coordination_config, "persona_generator", None)
+                if persona_cfg is not None:
+                    persona_cfg.enabled = persona_enabled
+                    logger.info(
+                        f"[Textual] Parallel persona generation: {'enabled' if persona_enabled else 'disabled'} "
+                        f"(toggle={mode_state.parallel_personas_enabled}, coordination={mode_state.coordination_mode})",
+                    )
+
                 # Apply plan mode coordination overrides
                 coord_overrides = mode_state.get_coordination_overrides()
                 if coord_overrides:

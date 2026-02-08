@@ -1255,6 +1255,15 @@ class TextualTerminalDisplay(TerminalDisplay):
         if self._app:
             self._call_app_method("set_agent_subtasks", subtasks)
 
+    def set_agent_personas(self, personas: Dict[str, str]) -> None:
+        """Pass agent persona assignments to the TUI for display in the tab bar.
+
+        Args:
+            personas: Mapping of agent_id to persona summary/description.
+        """
+        if self._app:
+            self._call_app_method("set_agent_personas", personas)
+
     def begin_restart(
         self,
         attempt: int,
@@ -2734,12 +2743,18 @@ if TEXTUAL_AVAILABLE:
             # Runtime decomposition generation UI state
             self._decomposition_generation_modal: Optional[DecompositionGenerationModal] = None
             self._runtime_decomposition_subtasks: Dict[str, str] = {}
+            self._runtime_parallel_personas: Dict[str, str] = {}
             self._decomposition_completion_source: str = "subagent"
             self._decomposition_runtime_subagent_call_id: Optional[str] = None
             self._decomposition_runtime_subagent_agent_id: Optional[str] = None
             self._decomposition_runtime_subagent_data: Optional[Any] = None
             self._decomposition_runtime_status_callback: Optional[Callable[[str], Optional[Any]]] = None
             self._decomposition_runtime_auto_opened: bool = False
+            self._persona_runtime_subagent_call_id: Optional[str] = None
+            self._persona_runtime_subagent_agent_id: Optional[str] = None
+            self._persona_runtime_subagent_data: Optional[Any] = None
+            self._persona_runtime_status_callback: Optional[Callable[[str], Optional[Any]]] = None
+            self._persona_runtime_auto_opened: bool = False
 
             if not self._keyboard_interactive_mode:
                 self.BINDINGS = []
@@ -2800,12 +2815,24 @@ if TEXTUAL_AVAILABLE:
 
             # Decomposition generation modal/runtime state
             self._runtime_decomposition_subtasks = {}
+            self._runtime_parallel_personas = {}
             self._dismiss_decomposition_generation_modal()
             self._decomposition_runtime_subagent_call_id = None
             self._decomposition_runtime_subagent_agent_id = None
             self._decomposition_runtime_subagent_data = None
             self._decomposition_runtime_status_callback = None
             self._decomposition_runtime_auto_opened = False
+            self._persona_runtime_subagent_call_id = None
+            self._persona_runtime_subagent_agent_id = None
+            self._persona_runtime_subagent_data = None
+            self._persona_runtime_status_callback = None
+            self._persona_runtime_auto_opened = False
+
+            if self._tab_bar and self._mode_state.coordination_mode == "parallel":
+                if self._mode_state.parallel_personas_enabled:
+                    self._tab_bar.set_agent_personas({})
+                else:
+                    self._tab_bar.set_agent_subtasks({})
 
         def compose(self) -> ComposeResult:
             """Compose the UI layout with adaptive agent arrangement."""
@@ -2998,6 +3025,7 @@ if TEXTUAL_AVAILABLE:
             self._update_theme_indicator()
             if self._mode_bar:
                 self._mode_bar.set_coordination_mode(self._mode_state.coordination_mode)
+                self._mode_bar.set_parallel_personas_enabled(self._mode_state.parallel_personas_enabled)
             # Auto-focus input field on startup
             if self.question_input:
                 self.question_input.focus()
@@ -4056,6 +4084,7 @@ MODE BAR:
   Plan            - Normal → Planning → Execute
   Agents          - Multi-agent or single-agent runs
   Coordination    - Parallel (vote) or decomposition (independent subtasks)
+  Personas        - Toggle parallel persona generation + convergence prep view
   Subtasks        - Define per-agent subtasks (decomposition mode)
   Refine          - Keep iterative refinement/voting on or off
   ⋮               - Plan settings (depth, broadcast, plan selector)
@@ -4572,6 +4601,162 @@ Type your question and press Enter to ask the agents.
                 lambda: self._auto_open_decomposition_runtime_subagent_screen(attempt + 1),
             )
 
+        def _get_persona_runtime_subagent(
+            self,
+            subagent_id: str = "persona_generation",
+        ) -> Optional[Any]:
+            """Return latest runtime persona-generation subagent data."""
+            current = self._persona_runtime_subagent_data
+            callback = self._persona_runtime_status_callback
+
+            if callback:
+                try:
+                    refreshed = callback(subagent_id)
+                    if refreshed is not None:
+                        self._persona_runtime_subagent_data = refreshed
+                        current = refreshed
+                except Exception:
+                    pass
+
+            if current is not None and getattr(current, "id", None) == subagent_id:
+                return current
+            return None
+
+        def _open_persona_runtime_subagent_screen(
+            self,
+            auto_return_on_completion: bool = False,
+        ) -> bool:
+            """Open the runtime persona-generation subagent screen."""
+            subagent = self._get_persona_runtime_subagent()
+            if not subagent:
+                return False
+
+            screen = SubagentScreen(
+                subagent=subagent,
+                all_subagents=[subagent],
+                status_callback=self._get_persona_runtime_subagent,
+                auto_return_on_completion=auto_return_on_completion,
+            )
+            self.push_screen(screen)
+            return True
+
+        def _persona_subagent_events_ready(self) -> bool:
+            """Return True when persona-generation subagent has enough event data."""
+            subagent = self._get_persona_runtime_subagent()
+            if not subagent:
+                return False
+
+            log_path_raw = getattr(subagent, "log_path", None)
+            if not log_path_raw:
+                return False
+
+            try:
+                from massgen.subagent.models import SubagentResult
+
+                log_path = Path(log_path_raw)
+                if not log_path.is_absolute():
+                    log_path = (Path.cwd() / log_path).resolve()
+
+                events_path: Optional[Path] = None
+                if log_path.is_file():
+                    events_path = log_path
+                elif log_path.is_dir():
+                    resolved = SubagentResult.resolve_events_path(log_path)
+                    if resolved:
+                        events_path = Path(resolved)
+
+                if not events_path or not events_path.exists():
+                    return False
+                if events_path.stat().st_size <= 0:
+                    return False
+
+                metadata_candidates = [events_path.parent / "execution_metadata.yaml"]
+                if log_path.is_dir():
+                    metadata_candidates.extend(
+                        [
+                            log_path / "full_logs" / "execution_metadata.yaml",
+                            log_path / "execution_metadata.yaml",
+                        ],
+                    )
+                else:
+                    metadata_candidates.append(log_path.parent / "execution_metadata.yaml")
+
+                for candidate in metadata_candidates:
+                    if not candidate.exists():
+                        continue
+                    try:
+                        import yaml
+
+                        with open(candidate, encoding="utf-8") as f:
+                            metadata = yaml.safe_load(f) or {}
+                        agents_cfg = (metadata.get("config") or {}).get("agents") or []
+                        if isinstance(agents_cfg, list):
+                            agent_ids = [a.get("id") for a in agents_cfg if isinstance(a, dict) and isinstance(a.get("id"), str) and a.get("id")]
+                            if agent_ids:
+                                return True
+                    except Exception:
+                        continue
+
+                # Fallback: scan recent event lines for inner-agent sources.
+                def _is_agent_source(source: Optional[str]) -> bool:
+                    if not source:
+                        return False
+                    lowered = source.lower()
+                    if lowered.startswith("mcp_") or lowered.startswith("mcp__") or "mcp__" in lowered:
+                        return False
+                    if lowered in ("mcp_setup", "mcp_session", "orchestrator", "system", "persona_generation"):
+                        return False
+                    return True
+
+                try:
+                    import json
+
+                    tail_lines = events_path.read_text(encoding="utf-8", errors="ignore").splitlines()[-400:]
+                    seen_agents: set[str] = set()
+                    for raw in tail_lines:
+                        if not raw.strip():
+                            continue
+                        try:
+                            event = json.loads(raw)
+                        except Exception:
+                            continue
+
+                        agent_id = event.get("agent_id")
+                        if isinstance(agent_id, str) and _is_agent_source(agent_id):
+                            seen_agents.add(agent_id)
+
+                        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+                        source = data.get("source") if isinstance(data, dict) else None
+                        if not source and isinstance(data, dict):
+                            chunk = data.get("chunk")
+                            if isinstance(chunk, dict):
+                                source = chunk.get("source")
+                        if isinstance(source, str) and _is_agent_source(source):
+                            seen_agents.add(source)
+
+                    if seen_agents:
+                        return True
+                except Exception:
+                    return False
+
+                return False
+            except Exception:
+                return False
+
+        def _auto_open_persona_runtime_subagent_screen(self, attempt: int = 0) -> None:
+            """Auto-open persona-generation subagent screen once event data is available."""
+            if self._persona_subagent_events_ready():
+                self._open_persona_runtime_subagent_screen(auto_return_on_completion=True)
+                return
+
+            if attempt >= 120:
+                return
+
+            self.set_timer(
+                0.1,
+                lambda: self._auto_open_persona_runtime_subagent_screen(attempt + 1),
+            )
+
         def show_runtime_subagent_card(
             self,
             agent_id: str,
@@ -4624,6 +4809,45 @@ Type your question and press Enter to ask the agents.
                 if not self._decomposition_runtime_auto_opened:
                     self._decomposition_runtime_auto_opened = True
                     self.set_timer(0.05, self._auto_open_decomposition_runtime_subagent_screen)
+                return
+
+            # Persona generation prep should also stay out of the main timeline and
+            # open directly in the dedicated subagent screen.
+            if subagent_id == "persona_generation":
+                trimmed_task = (task or "").strip()
+                if len(trimmed_task) > 300:
+                    trimmed_task = trimmed_task[:297] + "..."
+
+                resolved_log_path = log_path
+                if not resolved_log_path:
+                    try:
+                        log_dir = get_log_session_dir()
+                        if log_dir:
+                            resolved_log_path = str(log_dir / "subagents" / subagent_id)
+                    except Exception:
+                        resolved_log_path = None
+
+                self._persona_runtime_subagent_call_id = call_id
+                self._persona_runtime_subagent_agent_id = agent_id
+                self._persona_runtime_status_callback = status_callback
+                self._persona_runtime_subagent_data = SubagentDisplayData(
+                    id=subagent_id,
+                    task=trimmed_task,
+                    status="running",
+                    progress_percent=0,
+                    elapsed_seconds=0.0,
+                    timeout_seconds=float(timeout_seconds or 300),
+                    workspace_path="",
+                    workspace_file_count=0,
+                    last_log_line="Starting...",
+                    error=None,
+                    answer_preview=None,
+                    log_path=resolved_log_path,
+                )
+
+                if not self._persona_runtime_auto_opened:
+                    self._persona_runtime_auto_opened = True
+                    self.set_timer(0.05, self._auto_open_persona_runtime_subagent_screen)
                 return
 
             target_agent = agent_id if agent_id in self.agent_widgets else None
@@ -4791,6 +5015,40 @@ Type your question and press Enter to ask the agents.
                     self._decomposition_runtime_subagent_agent_id = None
                 return
 
+            if subagent_id == "persona_generation":
+                existing = self._get_persona_runtime_subagent(subagent_id) or self._persona_runtime_subagent_data
+
+                status_map = {
+                    "running": "running",
+                    "pending": "pending",
+                    "completed": "completed",
+                    "timeout": "timeout",
+                    "failed": "failed",
+                    "error": "error",
+                }
+                normalized_status = status_map.get((status or "").lower(), "failed")
+
+                if existing is not None:
+                    self._persona_runtime_subagent_data = SubagentDisplayData(
+                        id=existing.id,
+                        task=existing.task,
+                        status=normalized_status,
+                        progress_percent=100 if normalized_status in ("completed", "timeout", "failed", "error") else existing.progress_percent,
+                        elapsed_seconds=existing.elapsed_seconds,
+                        timeout_seconds=existing.timeout_seconds,
+                        workspace_path=existing.workspace_path,
+                        workspace_file_count=existing.workspace_file_count,
+                        last_log_line=existing.last_log_line,
+                        error=error or existing.error,
+                        answer_preview=answer_preview or existing.answer_preview,
+                        log_path=existing.log_path,
+                    )
+
+                if call_id == self._persona_runtime_subagent_call_id and normalized_status in ("completed", "timeout", "failed", "error"):
+                    self._persona_runtime_subagent_call_id = None
+                    self._persona_runtime_subagent_agent_id = None
+                return
+
             status_map = {
                 "running": "running",
                 "pending": "pending",
@@ -4804,6 +5062,8 @@ Type your question and press Enter to ask the agents.
             target_agent = agent_id
             if call_id == self._decomposition_runtime_subagent_call_id and self._decomposition_runtime_subagent_agent_id:
                 target_agent = self._decomposition_runtime_subagent_agent_id
+            elif call_id == self._persona_runtime_subagent_call_id and self._persona_runtime_subagent_agent_id:
+                target_agent = self._persona_runtime_subagent_agent_id
 
             panel = self.agent_widgets.get(target_agent)
             if not panel:
@@ -4849,6 +5109,9 @@ Type your question and press Enter to ask the agents.
             if call_id == self._decomposition_runtime_subagent_call_id and normalized_status in ("completed", "timeout", "failed", "error"):
                 self._decomposition_runtime_subagent_call_id = None
                 self._decomposition_runtime_subagent_agent_id = None
+            elif call_id == self._persona_runtime_subagent_call_id and normalized_status in ("completed", "timeout", "failed", "error"):
+                self._persona_runtime_subagent_call_id = None
+                self._persona_runtime_subagent_agent_id = None
 
         def show_subagent_card_from_spawn(
             self,
@@ -5878,6 +6141,12 @@ Type your question and press Enter to ask the agents.
                 )
                 self.set_timer(2.5, self._dismiss_decomposition_generation_modal)
 
+        def set_agent_personas(self, personas: Dict[str, str]) -> None:
+            """Pass agent persona assignments to the tab bar for display."""
+            self._runtime_parallel_personas = dict(personas or {})
+            if self._tab_bar and self._mode_state.coordination_mode == "parallel" and self._mode_state.parallel_personas_enabled:
+                self._tab_bar.set_agent_personas(self._runtime_parallel_personas)
+
         def set_input_enabled(self, enabled: bool):
             """Enable or disable mode controls during execution.
 
@@ -6089,8 +6358,10 @@ Type your question and press Enter to ask the agents.
                 except Exception:
                     continue
 
-            # Fallback: runtime decomposition subagent (hidden from timeline by design)
+            # Fallback: runtime preparation subagents (hidden from timeline by design)
             if self._open_decomposition_runtime_subagent_screen():
+                return
+            if self._open_persona_runtime_subagent_screen():
                 return
 
             self.notify("No active subagents", severity="information", timeout=2)
@@ -6219,10 +6490,11 @@ Type your question and press Enter to ask the agents.
         def on_session_info_clicked(self, event: SessionInfoClicked) -> None:
             """Handle click on session info to show full prompt."""
             tui_log(f"on_session_info_clicked: turn={event.turn}")
-            # Build content with optional subtask
+            # Build content with optional per-agent assignment (subtask/persona)
             content = ""
             if event.subtask:
-                content += f"Subtask: {event.subtask}\n\n"
+                label = getattr(event, "assignment_kind", "Subtask")
+                content += f"{label}: {event.subtask}\n\n"
             content += event.question or "(No prompt)"
             # Show the full prompt in a text modal
             self.push_screen(
@@ -6242,11 +6514,15 @@ Type your question and press Enter to ask the agents.
             self._mode_state.coordination_mode = mode
             if self._mode_bar:
                 self._mode_bar.set_coordination_mode(mode)
+                self._mode_bar.set_parallel_personas_enabled(self._mode_state.parallel_personas_enabled)
             if self._tab_bar:
                 if mode == "decomposition":
                     self._tab_bar.set_agent_subtasks(self._mode_state.decomposition_subtasks)
                 else:
-                    self._tab_bar.set_agent_subtasks({})
+                    if self._mode_state.parallel_personas_enabled:
+                        self._tab_bar.set_agent_personas(self._runtime_parallel_personas)
+                    else:
+                        self._tab_bar.set_agent_subtasks({})
 
         # ============================================================
         # Mode Change Handlers
@@ -6273,6 +6549,8 @@ Type your question and press Enter to ask the agents.
                     self._mode_bar.set_coordination_mode(self._mode_state.coordination_mode)
                 elif event.mode_type == "refinement" and self._mode_bar:
                     self._mode_bar.set_refinement_mode(self._mode_state.refinement_enabled)
+                elif event.mode_type == "personas" and self._mode_bar:
+                    self._mode_bar.set_parallel_personas_enabled(self._mode_state.parallel_personas_enabled)
                 event.stop()
                 return
 
@@ -6284,6 +6562,8 @@ Type your question and press Enter to ask the agents.
                 self._handle_coordination_mode_change(event.value)
             elif event.mode_type == "refinement":
                 self._handle_refinement_mode_change(event.value == "on")
+            elif event.mode_type == "personas":
+                self._handle_parallel_persona_mode_change(event.value == "on")
 
             event.stop()
 
@@ -6706,11 +6986,45 @@ Type your question and press Enter to ask the agents.
                 )
             else:
                 if self._tab_bar:
-                    self._tab_bar.set_agent_subtasks({})
+                    if self._mode_state.parallel_personas_enabled:
+                        self._tab_bar.set_agent_personas(self._runtime_parallel_personas)
+                    else:
+                        self._tab_bar.set_agent_subtasks({})
                 self.notify(
                     "Coordination: Parallel (agents solve the same task and vote)",
                     severity="information",
                     timeout=3,
+                )
+
+        def _handle_parallel_persona_mode_change(self, enabled: bool) -> None:
+            """Handle parallel persona generation toggle."""
+            tui_log(f"_handle_parallel_persona_mode_change: {enabled}")
+            self._mode_state.parallel_personas_enabled = enabled
+
+            if self._tab_bar and self._mode_state.coordination_mode == "parallel":
+                if enabled:
+                    self._tab_bar.set_agent_personas(self._runtime_parallel_personas)
+                else:
+                    self._tab_bar.set_agent_subtasks({})
+
+            if enabled:
+                if self._mode_state.coordination_mode == "parallel":
+                    self.notify(
+                        "Parallel Personas: ON (generate + display per-agent personas before coordination)",
+                        severity="information",
+                        timeout=3,
+                    )
+                else:
+                    self.notify(
+                        "Parallel Personas: ON (will apply when coordination mode is Parallel)",
+                        severity="information",
+                        timeout=3,
+                    )
+            else:
+                self.notify(
+                    "Parallel Personas: OFF",
+                    severity="warning",
+                    timeout=2,
                 )
 
         def _update_agent_panels_in_use_state(self, selected_agent: Optional[str]) -> None:

@@ -1722,6 +1722,9 @@ class Orchestrator(ChatAgent):
 
         try:
             pg_config = self.config.coordination_config.persona_generator
+            display = getattr(self.coordination_ui, "display", None) if self.coordination_ui else None
+            persona_anchor_agent = next(iter(self.agents.keys()), None)
+            persona_call_id = "persona_generation_persona_generation"
 
             # Initialize generator
             generator = PersonaGenerator(
@@ -1775,6 +1778,27 @@ class Orchestrator(ChatAgent):
             except Exception:
                 pass
 
+            def _on_persona_subagent_started(
+                subagent_id: str,
+                subagent_task: str,
+                timeout_seconds: int,
+                status_callback: Any,
+                log_path: Optional[str],
+            ) -> None:
+                if display and persona_anchor_agent and hasattr(display, "notify_runtime_subagent_started"):
+                    try:
+                        display.notify_runtime_subagent_started(
+                            agent_id=persona_anchor_agent,
+                            subagent_id=subagent_id,
+                            task=subagent_task,
+                            timeout_seconds=timeout_seconds,
+                            call_id=persona_call_id,
+                            status_callback=status_callback,
+                            log_path=log_path,
+                        )
+                    except Exception:
+                        pass
+
             # Generate personas via subagent
             personas = await generator.generate_personas_via_subagent(
                 agent_ids=list(self.agents.keys()),
@@ -1784,7 +1808,41 @@ class Orchestrator(ChatAgent):
                 parent_workspace=parent_workspace,
                 orchestrator_id=self.orchestrator_id,
                 log_directory=log_directory,
+                on_subagent_started=_on_persona_subagent_started,
             )
+
+            source = getattr(generator, "last_generation_source", "unknown")
+            if display and persona_anchor_agent and hasattr(display, "notify_runtime_subagent_completed"):
+                try:
+                    if source == "subagent":
+                        preview_entries: List[str] = []
+                        for aid, persona in personas.items():
+                            summary = persona.attributes.get(
+                                "approach_summary",
+                                persona.attributes.get("thinking_style", ""),
+                            )
+                            if summary:
+                                preview_entries.append(f"{aid}: {summary}")
+                            if len(preview_entries) >= 2:
+                                break
+                        preview = " | ".join(preview_entries)[:400]
+                        display.notify_runtime_subagent_completed(
+                            agent_id=persona_anchor_agent,
+                            subagent_id="persona_generation",
+                            call_id=persona_call_id,
+                            status="completed",
+                            answer_preview=preview or "Personas generated successfully.",
+                        )
+                    else:
+                        display.notify_runtime_subagent_completed(
+                            agent_id=persona_anchor_agent,
+                            subagent_id="persona_generation",
+                            call_id=persona_call_id,
+                            status="failed",
+                            error="Used fallback personas.",
+                        )
+                except Exception:
+                    pass
 
             # Store personas and original system messages for phase-based injection
             # We don't inject into agents here - we do it dynamically per execution
@@ -1812,18 +1870,41 @@ class Orchestrator(ChatAgent):
         except Exception as e:
             logger.error(f"[Orchestrator] Failed to generate personas: {e}")
             logger.warning("[Orchestrator] Continuing without persona generation")
+            try:
+                display = getattr(self.coordination_ui, "display", None) if self.coordination_ui else None
+                persona_anchor_agent = next(iter(self.agents.keys()), None)
+                if display and persona_anchor_agent and hasattr(display, "notify_runtime_subagent_completed"):
+                    display.notify_runtime_subagent_completed(
+                        agent_id=persona_anchor_agent,
+                        subagent_id="persona_generation",
+                        call_id="persona_generation_persona_generation",
+                        status="failed",
+                        error=str(e),
+                    )
+            except Exception:
+                pass
             self._personas_generated = True  # Don't retry on failure
+
+    @staticmethod
+    def _has_peer_answers(
+        agent_id: str,
+        answers: Optional[Dict[str, Any]],
+    ) -> bool:
+        """Return True when at least one answer exists from another agent."""
+        if not answers:
+            return False
+        return any(other_agent_id != agent_id for other_agent_id in answers.keys())
 
     def _get_persona_for_agent(
         self,
         agent_id: str,
-        has_seen_answers: bool,
+        has_peer_answers: bool,
     ) -> Optional[str]:
         """Get the appropriate persona text for an agent based on phase.
 
         Args:
             agent_id: The agent ID
-            has_seen_answers: True if agent has seen other agents' answers (convergence phase)
+            has_peer_answers: True if agent has seen answers from other agents (eased phase)
 
         Returns:
             The persona text to prepend, or None if no persona exists
@@ -1835,8 +1916,8 @@ class Orchestrator(ChatAgent):
         if not persona:
             return None
 
-        if has_seen_answers:
-            # Convergence phase - use softened perspective
+        if has_peer_answers:
+            # Eased phase - use softened perspective
             return persona.get_softened_text()
         else:
             # Exploration phase - use strong perspective
@@ -3277,6 +3358,28 @@ Your answer:"""
                 detail="Creating unique agent identities",
             )
         await self._generate_and_inject_personas()
+
+        # Notify TUI of persona assignments for parallel mode.
+        if (
+            getattr(self.config, "coordination_mode", "voting") != "decomposition"
+            and hasattr(self.config, "coordination_config")
+            and hasattr(self.config.coordination_config, "persona_generator")
+            and self.config.coordination_config.persona_generator.enabled
+            and self._generated_personas
+        ):
+            try:
+                display = getattr(self.coordination_ui, "display", None) if self.coordination_ui else None
+                if display and hasattr(display, "set_agent_personas"):
+                    persona_map: Dict[str, str] = {}
+                    for aid, persona in self._generated_personas.items():
+                        summary = persona.attributes.get(
+                            "approach_summary",
+                            persona.attributes.get("thinking_style"),
+                        )
+                        persona_map[aid] = summary.strip() if isinstance(summary, str) and summary.strip() else persona.persona_text
+                    display.set_agent_personas(persona_map)
+            except Exception:
+                pass  # TUI notification is non-critical
 
         # Auto-decompose task if in decomposition mode with no explicit subtasks
         if (
@@ -7116,13 +7219,19 @@ Your answer:"""
                 )
                 self._refresh_checklist_state_for_agent(agent_id)
 
-            # Inject phase-appropriate persona if enabled
-            has_seen_answers = bool(normalized_answers)
-            persona_text = self._get_persona_for_agent(agent_id, has_seen_answers)
-            if persona_text:
-                phase = "convergence" if has_seen_answers else "exploration"
-                logger.info(f"[Orchestrator] Injecting {phase} persona for {agent_id}")
-                system_message = f"{persona_text}\n\n{system_message}"
+            # Inject phase-appropriate persona if enabled.
+            # Use peer-only visibility (exclude the agent's own prior answer) so
+            # persona easing starts only after true cross-agent exposure.
+            persona_enabled = (
+                hasattr(self.config, "coordination_config") and hasattr(self.config.coordination_config, "persona_generator") and self.config.coordination_config.persona_generator.enabled
+            )
+            if persona_enabled:
+                has_peer_answers = self._has_peer_answers(agent_id, normalized_answers)
+                persona_text = self._get_persona_for_agent(agent_id, has_peer_answers)
+                if persona_text:
+                    phase = "eased" if has_peer_answers else "exploration"
+                    logger.info(f"[Orchestrator] Injecting {phase} persona for {agent_id}")
+                    system_message = f"{persona_text}\n\n{system_message}"
 
             logger.info(
                 f"[Orchestrator] Structured system message built for {agent_id} (length: {len(system_message)} chars)",
