@@ -212,10 +212,24 @@ If no answer has meaningful unique content beyond the best, say so explicitly.
 *If there is only one answer, evaluate it on its own merits — consider whether a
 different approach or additional depth would meaningfully improve it.*
 
+### Unrealized Potential
+
+Step back from the existing answers entirely. Given the original question:
+- What features, content, or capabilities would an **ideal** answer include that
+  **no existing answer has attempted**?
+- Are there dimensions of quality (interactivity, accessibility, edge-case handling,
+  depth of content, visual polish, etc.) that all current answers under-deliver on?
+- What would a user *wish* the answer included that isn't there?
+
+Be concrete. If existing answers already cover the space well, say so.
+
 ### Synthesis Potential
 
-If you were to produce a `new_answer` combining the best elements:
+If you were to produce a `new_answer` combining the best elements **and** addressing
+unrealized potential:
 - What specifically would it incorporate beyond the current best?
+- What new features or improvements (from your Unrealized Potential analysis) would
+  you add?
 - Is there risk that combining approaches would introduce contradictions, muddled
   framing, or reduced coherence? Note any synthesis risks.
 
@@ -386,20 +400,47 @@ Now decide: call `{iterate_action}` or `{terminate_action}`.
 
 ### Confidence Assessment
 
-Based on your analysis, rate your confidence (0-100%) in each of the following
-statements. 0% = completely disagree, 100% = fully agree, no reservations.
+Your goal is **excellence**, not minimum viability. The question is not "does this
+satisfy the bare requirements?" but "is this the best version we can produce?"
+Depth, features, polish, and richness all count — they are never "beyond scope" or
+"unnecessary." If the answer can be meaningfully better, it should be.
+
+Rate your confidence (0-100%) in each of the following statements.
+0% = completely disagree, 100% = fully agree, no reservations.
 Be honest — do not inflate or deflate your scores.
 
 {numbered}
 
 ### Submit Your Scores
 
-Call the `submit_checklist` tool with your scores:
+Call `submit_checklist` with per-item reasoning and an improvements summary.
+Each score entry MUST include `"reasoning"` explaining why you gave that score —
+reference specific evidence from your analysis.
 
-  submit_checklist(scores={{"T1": <score>, "T2": <score>, "T3": <score>, "T4": <score>, "T5": <score>}})
+**Important**: Do not hedge your improvements with language like "optional", "not
+required", "could include", or "nice-to-have". If you identify something that would
+make the answer better, state it as something that **should** be done. If the verdict
+tells you to iterate, you are expected to implement what you identified.
+
+  submit_checklist(
+    scores={{
+      "T1": {{"score": <0-100>, "reasoning": "<why — cite specific evidence>"}},
+      "T2": {{"score": <0-100>, "reasoning": "<why>"}},
+      "T3": {{"score": <0-100>, "reasoning": "<why>"}},
+      "T4": {{"score": <0-100>, "reasoning": "<why>"}},
+      "T5": {{"score": <0-100>, "reasoning": "<why>"}}
+    }},
+    improvements="<substantial features/content that would make the answer obviously better — not minor tweaks>"
+  )
 
 The tool will evaluate your scores and return a verdict telling you whether
-to call `{terminate_action}` or `{iterate_action}`. Follow the verdict."""
+to call `{terminate_action}` or `{iterate_action}`. Follow the verdict.
+
+**If the verdict is `{iterate_action}`**: your new answer MUST be **obviously and
+substantially better** — not just marginally different. A user should immediately
+notice the improvement. Do NOT simply copy or resubmit the same content with minor
+tweaks. Use your improvements analysis to guide what to build differently, and
+implement the changes you identified — not just acknowledge them."""
 
 
 class Priority(IntEnum):
@@ -2297,7 +2338,10 @@ CRITICAL: New answers must be SUBSTANTIALLY different from existing answers.
 Different agents may have different builtin tools and capabilities.
 {phase_context}{evaluation_section}
 Otherwise, digest existing answers, combine their strengths, and do additional work to address their weaknesses,
-then use the `new_answer` tool to record a better answer to the ORIGINAL MESSAGE.{novelty_section}
+then use the `new_answer` tool to record a better answer to the ORIGINAL MESSAGE.
+Each iteration costs time and resources. When you produce a `new_answer`, the result must be
+**obviously and substantially better** — a user should immediately see the improvement.
+Identify concrete improvements, then actually implement them — do not just acknowledge gaps.{novelty_section}
 Make sure you actually call `vote` or `new_answer` (in tool call format).
 
 *Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d")}**."""

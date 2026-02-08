@@ -85,7 +85,7 @@ cli.py → orchestrator.py → chat_agent.py → backend/*.py
 4. Add capabilities to `backend/capabilities.py`
 5. Update `config_validator.py`
 
-**MCP Integration** (`mcp_tools/`): Model Context Protocol for external tools. `client.py` handles multi-server connections, `security.py` validates operations.
+**MCP Integration** (`mcp_tools/`): Model Context Protocol for external tools. `client.py` handles multi-server connections, `security.py` validates operations. Some tools have dual paths: SDK (in-process, for ClaudeCode) and stdio (config.toml-based, for Codex). **Stdio MCP servers run inside Docker where `massgen` is NOT installed** — never import from `massgen` in stdio servers. Pre-compute any needed values in the orchestrator and pass via JSON specs files. Also note Codex sometimes sends tool args as JSON strings instead of dicts — always add a `json.loads()` fallback.
 
 **Streaming Buffer** (`backend/_streaming_buffer_mixin.py`): Tracks partial responses during streaming for compression recovery.
 

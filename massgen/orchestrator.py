@@ -633,18 +633,39 @@ class Orchestrator(ChatAgent):
             logger.warning("claude-agent-sdk not available, checklist tool will not be registered")
             return
 
-        # Define tool schema
+        # Define tool schema — each score entry requires a reasoning string
+        # to force the model to justify every item.  `improvements` captures
+        # unrealized potential.  Reasoning text is ignored in verdict logic.
+        score_entry_schema = {
+            "type": "object",
+            "properties": {
+                "score": {"type": "integer", "minimum": 0, "maximum": 100},
+                "reasoning": {
+                    "type": "string",
+                    "description": "Why you gave this score — reference specific evidence.",
+                },
+            },
+            "required": ["score", "reasoning"],
+        }
         input_schema = {
             "type": "object",
             "properties": {
                 "scores": {
                     "type": "object",
-                    "description": ("Your confidence scores for each checklist item. " "Keys are item IDs (T1-T5), values are 0-100 integers."),
-                    "properties": {f"T{i+1}": {"type": "integer", "minimum": 0, "maximum": 100} for i in range(len(checklist_items))},
+                    "description": (
+                        "Your confidence scores with reasoning for each checklist item. "
+                        "Keys are item IDs (T1-T5), values are objects with 'score' (0-100) "
+                        "and 'reasoning' (justification for that score)."
+                    ),
+                    "properties": {f"T{i+1}": score_entry_schema for i in range(len(checklist_items))},
                     "required": [f"T{i+1}" for i in range(len(checklist_items))],
                 },
+                "improvements": {
+                    "type": "string",
+                    "description": ("Substantial features or content that would make the answer " "obviously better — not minor tweaks. If nothing meaningful, " "say so."),
+                },
             },
-            "required": ["scores"],
+            "required": ["scores", "improvements"],
         }
 
         # Create tool function with closure over mutable state
@@ -653,13 +674,25 @@ class Orchestrator(ChatAgent):
 
         @tool(
             name="submit_checklist",
-            description=("Submit your checklist confidence scores for evaluation. " "The system will apply thresholds and return a verdict."),
+            description=(
+                "Submit your checklist evaluation. Each score in 'scores' must be "
+                "an object with 'score' (0-100) and 'reasoning' (why you gave that "
+                "score). The 'improvements' field should describe features or content "
+                "that an ideal answer would have but no existing answer has attempted."
+            ),
             input_schema=input_schema,
         )
         async def submit_checklist_handler(args, _state=state):
             import json as _json
 
-            scores = args.get("scores", {})
+            raw_scores = args.get("scores", {})
+            # Extract numeric scores from {"score": int, "reasoning": str} entries
+            scores = {}
+            for k, v in raw_scores.items():
+                if isinstance(v, dict):
+                    scores[k] = v.get("score", 0)
+                else:
+                    scores[k] = v
             threshold = _state["threshold"]
             remaining = _state["remaining"]
             total = _state["total"]
@@ -687,7 +720,25 @@ class Orchestrator(ChatAgent):
                 explanation = f"First answer — no existing answers to evaluate. " f"Verdict: {verdict}."
             else:
                 verdict = terminate if true_count >= required else iterate
-                explanation = f"{true_count} of {len(items)} items passed " f"(required: {required}). " f"Verdict: {verdict}."
+                if verdict == iterate:
+                    failed_ids = [d["id"] for d in items_detail if not d["passed"]]
+                    improvements_text = (args.get("improvements") or "").strip()
+                    explanation = (
+                        f"{true_count} of {len(items)} items passed "
+                        f"(required: {required}). Verdict: {verdict}. "
+                        f"Items that need improvement: {', '.join(failed_ids)}. "
+                        f"Your new answer MUST make material changes — do NOT "
+                        f"simply copy or resubmit the same content."
+                    )
+                    if improvements_text:
+                        explanation += (
+                            f" Your own improvements analysis identified: "
+                            f"{improvements_text} — use this as your implementation "
+                            f"plan. The result must be obviously better, not just "
+                            f"marginally different."
+                        )
+                else:
+                    explanation = f"{true_count} of {len(items)} items passed " f"(required: {required}). Verdict: {verdict}."
 
             return {
                 "content": [

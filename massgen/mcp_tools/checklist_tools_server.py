@@ -59,6 +59,15 @@ def _read_specs(specs_path: Path) -> Dict[str, Any]:
         return {}
 
 
+def _extract_score(entry: Any) -> int:
+    """Extract numeric score from either int or {"score": int, "reasoning": str}."""
+    if isinstance(entry, dict):
+        return entry.get("score", 0)
+    if isinstance(entry, (int, float)):
+        return int(entry)
+    return 0
+
+
 def _register_checklist_tool(mcp: fastmcp.FastMCP, specs_path: Path) -> None:
     """Register the submit_checklist tool on the FastMCP server."""
     import inspect
@@ -67,8 +76,23 @@ def _register_checklist_tool(mcp: fastmcp.FastMCP, specs_path: Path) -> None:
     specs = _read_specs(specs_path)
     items = specs.get("items", [])
 
-    # Create handler that re-reads state on each call
-    async def submit_checklist(scores: dict) -> str:
+    # Create handler that re-reads state on each call.
+    # Each score entry is {"score": int, "reasoning": str} — the reasoning
+    # forces the model to justify each item but is not used in verdict logic.
+    # `improvements` captures unrealized potential.
+    async def submit_checklist(
+        scores: dict,
+        improvements: str = "",
+    ) -> str:
+        # Codex sometimes sends scores as a JSON string; normalise to dict
+        if isinstance(scores, str):
+            try:
+                scores = json.loads(scores)
+            except (json.JSONDecodeError, TypeError):
+                return json.dumps(
+                    {"error": "scores must be a JSON object, not a string"},
+                )
+
         # Re-read specs to get latest state from orchestrator
         current = _read_specs(specs_path)
         current_items = current.get("items", items)
@@ -84,9 +108,10 @@ def _register_checklist_tool(mcp: fastmcp.FastMCP, specs_path: Path) -> None:
 
         items_detail = []
         true_count = 0
-        for i, item_text in enumerate(current_items):
+        for i, _item_text in enumerate(current_items):
             key = f"T{i+1}"
-            score = scores.get(key, 0)
+            entry = scores.get(key, 0)
+            score = _extract_score(entry)
             passed = score >= cutoff
             if passed:
                 true_count += 1
@@ -98,7 +123,25 @@ def _register_checklist_tool(mcp: fastmcp.FastMCP, specs_path: Path) -> None:
             explanation = f"First answer — no existing answers to evaluate. " f"Verdict: {verdict}."
         else:
             verdict = terminate_action if true_count >= required else iterate_action
-            explanation = f"{true_count} of {len(current_items)} items passed " f"(required: {required}). " f"Verdict: {verdict}."
+            if verdict == iterate_action:
+                failed_ids = [d["id"] for d in items_detail if not d["passed"]]
+                improvements_text = improvements.strip() if improvements else ""
+                explanation = (
+                    f"{true_count} of {len(current_items)} items passed "
+                    f"(required: {required}). Verdict: {verdict}. "
+                    f"Items that need improvement: {', '.join(failed_ids)}. "
+                    f"Your new answer MUST make material changes — do NOT "
+                    f"simply copy or resubmit the same content."
+                )
+                if improvements_text:
+                    explanation += (
+                        f" Your own improvements analysis identified: "
+                        f"{improvements_text} — use this as your implementation "
+                        f"plan. The result must be obviously better, not just "
+                        f"marginally different."
+                    )
+            else:
+                explanation = f"{true_count} of {len(current_items)} items passed " f"(required: {required}). Verdict: {verdict}."
 
         result = {
             "verdict": verdict,
@@ -109,12 +152,18 @@ def _register_checklist_tool(mcp: fastmcp.FastMCP, specs_path: Path) -> None:
         }
         return json.dumps(result)
 
-    submit_checklist.__doc__ = "Submit your checklist confidence scores for evaluation. " "The system will apply thresholds and return a verdict."
+    submit_checklist.__doc__ = (
+        "Submit your checklist evaluation. Each score in 'scores' must be an "
+        "object with 'score' (0-100) and 'reasoning' (why you gave that score). "
+        "The 'improvements' field should describe features or content that an "
+        "ideal answer would have but no existing answer has attempted."
+    )
 
-    # Set proper signature so FastMCP sees the 'scores' parameter
+    # Set proper signature so FastMCP sees both parameters
     sig = inspect.Signature(
         [
             inspect.Parameter("scores", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+            inspect.Parameter("improvements", inspect.Parameter.POSITIONAL_OR_KEYWORD),
         ],
     )
     submit_checklist.__signature__ = sig
