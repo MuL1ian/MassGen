@@ -752,17 +752,14 @@ class PathPermissionManager:
         - compare_files: File comparison
         - compare_directories: Directory comparison
         """
-        # Use lowercase for case-insensitive matching
         tool_lower = tool_name.lower()
 
-        # Check if tool name contains any read operation keywords
-        read_keywords = [
-            # "read",  # Matches: read, Read, read_multimodal_files, mcp__filesystem__read_text_file
-            "compare_files",  # Matches: compare_files
-            "compare_directories",  # Matches: compare_directories
-        ]
+        # Track standard read tools (Read/read_*/mcp__...__read_*)
+        if tool_name == "Read" or "read_" in tool_lower or tool_lower.startswith("read"):
+            return True
 
-        return any(keyword in tool_lower for keyword in read_keywords)
+        # Track comparison tools that read file content.
+        return "compare_files" in tool_lower or "compare_directories" in tool_lower
 
     def _validate_binary_file_access(self, tool_name: str, tool_args: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
         """
@@ -1024,6 +1021,9 @@ class PathPermissionManager:
             Tuple of (allowed: bool, reason: Optional[str])
         """
         try:
+            if not self.file_operation_tracker.enforce_read_before_delete:
+                return (True, None)
+
             base_path = tool_args.get("base_path")
             include_patterns = tool_args.get("include_patterns") or ["*"]
             exclude_patterns = tool_args.get("exclude_patterns") or []

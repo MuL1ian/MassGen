@@ -926,6 +926,64 @@ class TestCommonBadConfigs:
         assert not result.is_valid()
         assert any("Invalid answer_novelty_requirement" in error.message for error in result.errors)
 
+    def test_valid_fairness_controls(self):
+        """Test valid fairness settings pass validation."""
+        config = {
+            "agents": [
+                {"id": "test", "backend": {"type": "openai", "model": "gpt-4o"}},
+            ],
+            "orchestrator": {
+                "fairness_enabled": True,
+                "fairness_lead_cap_answers": 1,
+                "max_midstream_injections_per_round": 2,
+            },
+        }
+
+        validator = ConfigValidator()
+        result = validator.validate_config(config)
+
+        assert result.is_valid()
+        assert not result.has_errors()
+
+    def test_invalid_fairness_enabled_type(self):
+        """Test fairness_enabled must be boolean."""
+        config = {
+            "agents": [{"id": "test", "backend": {"type": "openai", "model": "gpt-4o"}}],
+            "orchestrator": {"fairness_enabled": "yes"},
+        }
+
+        validator = ConfigValidator()
+        result = validator.validate_config(config)
+
+        assert not result.is_valid()
+        assert any("fairness_enabled" in error.location for error in result.errors)
+
+    def test_invalid_fairness_lead_cap(self):
+        """Test fairness_lead_cap_answers must be non-negative integer."""
+        config = {
+            "agents": [{"id": "test", "backend": {"type": "openai", "model": "gpt-4o"}}],
+            "orchestrator": {"fairness_lead_cap_answers": -1},
+        }
+
+        validator = ConfigValidator()
+        result = validator.validate_config(config)
+
+        assert not result.is_valid()
+        assert any("fairness_lead_cap_answers" in error.location for error in result.errors)
+
+    def test_invalid_midstream_injection_cap(self):
+        """Test max_midstream_injections_per_round must be positive integer."""
+        config = {
+            "agents": [{"id": "test", "backend": {"type": "openai", "model": "gpt-4o"}}],
+            "orchestrator": {"max_midstream_injections_per_round": 0},
+        }
+
+        validator = ConfigValidator()
+        result = validator.validate_config(config)
+
+        assert not result.is_valid()
+        assert any("max_midstream_injections_per_round" in error.location for error in result.errors)
+
     def test_v1_max_rounds(self):
         """Test V1 max_rounds parameter is rejected."""
         config = {

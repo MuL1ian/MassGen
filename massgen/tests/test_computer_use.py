@@ -27,7 +27,7 @@ TEST_CONFIG = {
 }
 
 
-class TestResult:
+class ComputerUseTestResult:
     """Test result container."""
 
     def __init__(self, name: str, passed: bool, message: str = "", details: Optional[Dict] = None):
@@ -48,20 +48,20 @@ class ComputerUseTestSuite:
     """Test suite for all computer use tools."""
 
     def __init__(self):
-        self.results: List[TestResult] = []
+        self.results: List[ComputerUseTestResult] = []
         self.base_path = Path(__file__).parent.parent
 
-    def add_result(self, result: TestResult):
+    def add_result(self, result: ComputerUseTestResult):
         """Add test result."""
         self.results.append(result)
         print(str(result))
 
     # ==================== Syntax & Structure Tests ====================
 
-    def test_file_syntax(self, filepath: Path, required_functions: List[str]) -> TestResult:
+    def test_file_syntax(self, filepath: Path, required_functions: List[str]) -> ComputerUseTestResult:
         """Test Python file syntax and structure."""
         if not filepath.exists():
-            return TestResult(f"File Exists: {filepath.name}", False, f"File not found: {filepath}")
+            return ComputerUseTestResult(f"File Exists: {filepath.name}", False, f"File not found: {filepath}")
 
         try:
             with open(filepath, "r") as f:
@@ -77,14 +77,14 @@ class ComputerUseTestSuite:
             # Check for required functions
             missing = set(required_functions) - set(functions)
             if missing:
-                return TestResult(
+                return ComputerUseTestResult(
                     f"Syntax: {filepath.name}",
                     False,
                     f"Missing functions: {', '.join(missing)}",
                     {"found": len(functions), "required": len(required_functions)},
                 )
 
-            return TestResult(
+            return ComputerUseTestResult(
                 f"Syntax: {filepath.name}",
                 True,
                 f"Valid syntax, {len(functions)} functions found",
@@ -92,11 +92,11 @@ class ComputerUseTestSuite:
             )
 
         except SyntaxError as e:
-            return TestResult(f"Syntax: {filepath.name}", False, f"Syntax error: {e}")
+            return ComputerUseTestResult(f"Syntax: {filepath.name}", False, f"Syntax error: {e}")
         except Exception as e:
-            return TestResult(f"Syntax: {filepath.name}", False, f"Error: {e}")
+            return ComputerUseTestResult(f"Syntax: {filepath.name}", False, f"Error: {e}")
 
-    def test_imports(self, filepath: Path, required_imports: List[str]) -> TestResult:
+    def test_imports(self, filepath: Path, required_imports: List[str]) -> ComputerUseTestResult:
         """Test required imports."""
         try:
             with open(filepath, "r") as f:
@@ -125,21 +125,21 @@ class ComputerUseTestSuite:
                         missing.append(req_import)
 
             if missing:
-                return TestResult(
+                return ComputerUseTestResult(
                     f"Imports: {filepath.name}",
                     False,
                     f"Missing or unused imports: {', '.join(missing)}",
                     {"found_imports": imports[:10]},
                 )
 
-            return TestResult(
+            return ComputerUseTestResult(
                 f"Imports: {filepath.name}",
                 True,
                 f"All required imports present ({len(required_imports)} checked)",
             )
 
         except Exception as e:
-            return TestResult(f"Imports: {filepath.name}", False, f"Error: {e}")
+            return ComputerUseTestResult(f"Imports: {filepath.name}", False, f"Error: {e}")
 
     # ==================== OpenAI Computer Use Tests ====================
 
@@ -169,7 +169,7 @@ class ComputerUseTestSuite:
         result = self.test_openai_response_api(tool_path)
         self.add_result(result)
 
-    def test_openai_response_api(self, filepath: Path) -> TestResult:
+    def test_openai_response_api(self, filepath: Path) -> ComputerUseTestResult:
         """Test if OpenAI Response API is properly implemented."""
         try:
             with open(filepath, "r") as f:
@@ -185,20 +185,20 @@ class ComputerUseTestSuite:
             found = [p for p in patterns if p in content]
 
             if len(found) < 2:
-                return TestResult(
+                return ComputerUseTestResult(
                     "OpenAI Response API",
                     False,
                     f"Missing Response API patterns (found {len(found)}/3)",
                 )
 
-            return TestResult(
+            return ComputerUseTestResult(
                 "OpenAI Response API",
                 True,
                 "Response API implementation detected",
             )
 
         except Exception as e:
-            return TestResult("OpenAI Response API", False, f"Error: {e}")
+            return ComputerUseTestResult("OpenAI Response API", False, f"Error: {e}")
 
     # ==================== Gemini Computer Use Tests ====================
 
@@ -228,7 +228,7 @@ class ComputerUseTestSuite:
         result = self.test_gemini_api_patterns(tool_path)
         self.add_result(result)
 
-    def test_gemini_api_patterns(self, filepath: Path) -> TestResult:
+    def test_gemini_api_patterns(self, filepath: Path) -> ComputerUseTestResult:
         """Test Gemini API implementation patterns."""
         try:
             with open(filepath, "r") as f:
@@ -245,20 +245,20 @@ class ComputerUseTestSuite:
             found = [p for p in patterns if p in content]
 
             if len(found) < 4:
-                return TestResult(
+                return ComputerUseTestResult(
                     "Gemini API Patterns",
                     False,
                     f"Missing Gemini patterns (found {len(found)}/5)",
                 )
 
-            return TestResult(
+            return ComputerUseTestResult(
                 "Gemini API Patterns",
                 True,
                 "Gemini API implementation detected",
             )
 
         except Exception as e:
-            return TestResult("Gemini API Patterns", False, f"Error: {e}")
+            return ComputerUseTestResult("Gemini API Patterns", False, f"Error: {e}")
 
     # ==================== Claude Computer Use Tests ====================
 
@@ -288,7 +288,7 @@ class ComputerUseTestSuite:
         result = self.test_claude_api_patterns(tool_path)
         self.add_result(result)
 
-    def test_claude_api_patterns(self, filepath: Path) -> TestResult:
+    def test_claude_api_patterns(self, filepath: Path) -> ComputerUseTestResult:
         """Test Claude API implementation patterns."""
         try:
             with open(filepath, "r") as f:
@@ -306,20 +306,20 @@ class ComputerUseTestSuite:
             found = [p for p in patterns if p in content]
 
             if len(found) < 5:
-                return TestResult(
+                return ComputerUseTestResult(
                     "Claude API Patterns",
                     False,
                     f"Missing Claude patterns (found {len(found)}/6)",
                 )
 
-            return TestResult(
+            return ComputerUseTestResult(
                 "Claude API Patterns",
                 True,
                 "Claude API implementation detected",
             )
 
         except Exception as e:
-            return TestResult("Claude API Patterns", False, f"Error: {e}")
+            return ComputerUseTestResult("Claude API Patterns", False, f"Error: {e}")
 
     # ==================== Browser Automation Tests ====================
 
@@ -349,7 +349,7 @@ class ComputerUseTestSuite:
         result = self.test_browser_actions(tool_path)
         self.add_result(result)
 
-    def test_browser_actions(self, filepath: Path) -> TestResult:
+    def test_browser_actions(self, filepath: Path) -> ComputerUseTestResult:
         """Test browser automation action support."""
         try:
             with open(filepath, "r") as f:
@@ -359,20 +359,20 @@ class ComputerUseTestSuite:
             found = [a for a in actions if f'action == "{a}"' in content or f"'{a}'" in content]
 
             if len(found) < 4:
-                return TestResult(
+                return ComputerUseTestResult(
                     "Browser Actions",
                     False,
                     f"Missing actions (found {len(found)}/5): {actions}",
                 )
 
-            return TestResult(
+            return ComputerUseTestResult(
                 "Browser Actions",
                 True,
                 f"All {len(found)} actions supported: {', '.join(found)}",
             )
 
         except Exception as e:
-            return TestResult("Browser Actions", False, f"Error: {e}")
+            return ComputerUseTestResult("Browser Actions", False, f"Error: {e}")
 
     # ==================== Configuration Tests ====================
 
@@ -403,13 +403,13 @@ class ComputerUseTestSuite:
             yaml_path = configs_dir / yaml_file
             if yaml_path.exists():
                 size = yaml_path.stat().st_size
-                result = TestResult(
+                result = ComputerUseTestResult(
                     f"Config: {description}",
                     True,
                     f"{yaml_file} exists ({size:,} bytes)",
                 )
             else:
-                result = TestResult(
+                result = ComputerUseTestResult(
                     f"Config: {description}",
                     False,
                     f"{yaml_file} not found",
@@ -421,13 +421,13 @@ class ComputerUseTestSuite:
             yaml_path = configs_dir / yaml_file
             if yaml_path.exists():
                 size = yaml_path.stat().st_size
-                result = TestResult(
+                result = ComputerUseTestResult(
                     f"Config: {description}",
                     True,
                     f"{yaml_file} exists ({size:,} bytes)",
                 )
             else:
-                result = TestResult(
+                result = ComputerUseTestResult(
                     f"Config: {description}",
                     True,  # Pass even if not found (optional)
                     f"{yaml_file} not found (optional template)",
@@ -436,7 +436,7 @@ class ComputerUseTestSuite:
 
     # ==================== Integration Tests ====================
 
-    async def run_browser_automation_integration(self) -> TestResult:
+    async def run_browser_automation_integration(self) -> ComputerUseTestResult:
         """Integration test for browser automation."""
         try:
             # Import the tool
@@ -455,14 +455,14 @@ class ComputerUseTestSuite:
             result_data = json.loads(result.output_blocks[0].data)
 
             if result_data.get("success") and "example.com" in result_data.get("current_url", "").lower():
-                return TestResult(
+                return ComputerUseTestResult(
                     "Integration: Browser Navigation",
                     True,
                     "Successfully navigated to example.com",
                     result_data,
                 )
             else:
-                return TestResult(
+                return ComputerUseTestResult(
                     "Integration: Browser Navigation",
                     False,
                     "Navigation failed or incorrect URL",
@@ -470,19 +470,19 @@ class ComputerUseTestSuite:
                 )
 
         except ImportError as e:
-            return TestResult(
+            return ComputerUseTestResult(
                 "Integration: Browser Navigation",
                 False,
                 f"Import error: {e}",
             )
         except Exception as e:
-            return TestResult(
+            return ComputerUseTestResult(
                 "Integration: Browser Navigation",
                 False,
                 f"Test failed: {e}",
             )
 
-    async def run_browser_extraction_integration(self) -> TestResult:
+    async def run_browser_extraction_integration(self) -> ComputerUseTestResult:
         """Integration test for browser text extraction."""
         try:
             sys.path.insert(0, str(self.base_path))
@@ -501,21 +501,21 @@ class ComputerUseTestSuite:
             result_data = json.loads(result.output_blocks[0].data)
 
             if result_data.get("success") and result_data.get("extracted_text"):
-                return TestResult(
+                return ComputerUseTestResult(
                     "Integration: Text Extraction",
                     True,
                     f"Extracted {len(result_data['extracted_text'])} elements",
                     {"sample": result_data["extracted_text"][:3]},
                 )
             else:
-                return TestResult(
+                return ComputerUseTestResult(
                     "Integration: Text Extraction",
                     False,
                     "Extraction failed or no text found",
                 )
 
         except Exception as e:
-            return TestResult(
+            return ComputerUseTestResult(
                 "Integration: Text Extraction",
                 False,
                 f"Test failed: {e}",
@@ -528,7 +528,7 @@ class ComputerUseTestSuite:
         print("=" * 80)
 
         if not TEST_CONFIG["run_integration_tests"]:
-            result = TestResult(
+            result = ComputerUseTestResult(
                 "Integration Tests",
                 True,
                 "Skipped (set RUN_INTEGRATION_TESTS=true to enable)",
@@ -540,10 +540,10 @@ class ComputerUseTestSuite:
         try:
             pass
 
-            result = TestResult("Playwright Available", True, "Playwright is installed")
+            result = ComputerUseTestResult("Playwright Available", True, "Playwright is installed")
             self.add_result(result)
         except ImportError:
-            result = TestResult(
+            result = ComputerUseTestResult(
                 "Playwright Available",
                 False,
                 "Playwright not installed (pip install playwright && playwright install)",

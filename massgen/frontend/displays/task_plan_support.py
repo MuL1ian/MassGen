@@ -10,6 +10,7 @@ This keeps the main TUI and subagent TUI in sync by centralizing:
 
 from __future__ import annotations
 
+import ast
 import json
 from typing import Any, Callable, Dict, List, Optional
 
@@ -33,6 +34,59 @@ _PLANNING_TOOL_NAMES = {
     "get_ready_tasks",
     "get_blocked_tasks",
 }
+
+
+def _safe_parse_mapping(raw: Any) -> Optional[Dict[str, Any]]:
+    """Best-effort parse for tool result payloads (JSON or Python-literal)."""
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str):
+        return None
+
+    text = raw.strip()
+    if not text:
+        return None
+
+    parsed: Any = None
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        try:
+            parsed = ast.literal_eval(text)
+        except Exception:
+            return None
+
+    if isinstance(parsed, dict):
+        return parsed
+    return None
+
+
+def _extract_structured_result(raw_result: Any) -> Optional[Dict[str, Any]]:
+    """Extract the structured Planning MCP payload from a tool result.
+
+    Handles:
+    - Direct JSON dict payloads
+    - Python-literal wrapper payloads (Codex style) with `structured_content`
+    - Wrapper payloads where the JSON lives in `content[*].text`
+    """
+    result_data = _safe_parse_mapping(raw_result)
+    if not result_data:
+        return None
+
+    structured = _safe_parse_mapping(result_data.get("structured_content"))
+    if structured:
+        return structured
+
+    content_blocks = result_data.get("content")
+    if isinstance(content_blocks, list):
+        for block in content_blocks:
+            if not isinstance(block, dict):
+                continue
+            parsed_text = _safe_parse_mapping(block.get("text"))
+            if parsed_text:
+                return parsed_text
+
+    return result_data
 
 
 def is_planning_tool(tool_name: str) -> bool:
@@ -77,10 +131,10 @@ def update_task_plan_from_tool(
         _log("_task_plan: no result_full")
         return True
 
-    try:
-        result_data = json.loads(result)
-    except (json.JSONDecodeError, TypeError) as exc:
-        _log(f"_task_plan: JSON parse error: {exc} (result length={len(result)})")
+    result_data = _extract_structured_result(result)
+    if not result_data:
+        result_len = len(result) if isinstance(result, str) else "n/a"
+        _log(f"_task_plan: parse error (result length={result_len})")
         return True
 
     if not isinstance(result_data, dict):

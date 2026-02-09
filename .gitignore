@@ -232,3 +232,6 @@ webui/mockups/
 
 node_modules/
 .sandbox_test/
+.playwright*
+.serena/
+.specify/

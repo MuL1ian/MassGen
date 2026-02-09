@@ -72,6 +72,7 @@ class TestImageSizeLimits:
         img.save(output_path, format="PNG")
 
     @pytest.mark.asyncio
+    @pytest.mark.expensive
     async def test_image_within_limits(self, temp_dir):
         """Test that images within size and dimension limits are processed without resizing."""
         from massgen.tool._multimodal_tools.understand_image import understand_image
@@ -101,6 +102,7 @@ class TestImageSizeLimits:
         assert result_data["success"] is True
 
     @pytest.mark.asyncio
+    @pytest.mark.expensive
     async def test_image_dimension_limit(self, temp_dir):
         """Test that images exceeding dimension limits are resized."""
         from massgen.tool._multimodal_tools.understand_image import understand_image
@@ -199,6 +201,7 @@ class TestVideoFrameLimits:
             video.release()
 
     @pytest.mark.asyncio
+    @pytest.mark.expensive
     async def test_video_with_large_frames(self, temp_dir):
         """Test that video with large frame dimensions processes correctly (frames are resized)."""
         try:
@@ -234,6 +237,7 @@ class TestVideoFrameLimits:
         assert result_data["success"] is True
 
     @pytest.mark.asyncio
+    @pytest.mark.expensive
     async def test_video_with_small_frames(self, temp_dir):
         """Test that video with small frame dimensions processes without resizing."""
         try:
@@ -324,6 +328,7 @@ class TestAudioSizeLimits:
         self._create_test_audio(output_path, duration_seconds=duration_seconds, sample_rate=sample_rate)
 
     @pytest.mark.asyncio
+    @pytest.mark.expensive
     async def test_audio_within_size_limit(self, temp_dir):
         """Test that audio files within size limit are accepted."""
         from massgen.tool._multimodal_tools.understand_audio import understand_audio
@@ -353,6 +358,7 @@ class TestAudioSizeLimits:
         assert result_data["success"] is True
 
     @pytest.mark.asyncio
+    @pytest.mark.expensive
     async def test_audio_exceeds_size_limit(self, temp_dir):
         """Test that audio files exceeding 25MB limit are rejected."""
         from massgen.tool._multimodal_tools.understand_audio import understand_audio

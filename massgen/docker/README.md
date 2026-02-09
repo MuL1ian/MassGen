@@ -44,6 +44,24 @@ bash massgen/docker/build.sh
 
 This builds `massgen/mcp-runtime:latest` (~400-500MB).
 
+### Alternative: Overlay on Official Images
+
+If you already use official GHCR images and only want local customizations
+(for example Agent Browser runtime/skill), build the lightweight overlay:
+
+```bash
+# Standard overlay on top of ghcr.io/massgen/mcp-runtime:latest
+bash massgen/docker/build_overlay_from_official.sh
+
+# Sudo overlay on top of ghcr.io/massgen/mcp-runtime-sudo:latest
+bash massgen/docker/build_overlay_from_official.sh --sudo
+```
+
+Overlay assets:
+- `massgen/docker/Dockerfile.overlay`
+- `massgen/docker/Dockerfile.overlay.sudo`
+- `massgen/docker/build_overlay_from_official.sh`
+
 ### 3. Enable in Configuration
 
 **Minimal setup:**
@@ -171,13 +189,14 @@ Orchestration End
 - Base: Python 3.11-slim
 - System packages: git, curl, build-essential, Node.js 20.x, ripgrep
 - Python packages: pytest, requests, numpy, pandas, ast-grep-cli
-- CLI tools: openskills, semtools (npm), uv (for uvx)
+- CLI tools: openskills, semtools, agent-browser (npm), uv (for uvx)
 - User: non-root (massgen, UID 1000)
 - Working directory: /workspace
 
 **Skills support:**
 - file_search (ripgrep + ast-grep) - pre-installed ✓
 - semtools (semantic search) - pre-installed ✓
+- agent-browser skill/runtime (browser-native automation) - pre-installed ✓
 - serena (LSP code understanding) - available via `uvx --from git+https://github.com/oraios/serena serena` ✓
 
 **Size:** ~500-600MB (compressed)

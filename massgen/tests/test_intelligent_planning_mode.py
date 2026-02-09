@@ -173,6 +173,7 @@ async def test_error_defaults_to_safe_mode(orchestrator_with_agents):
     # Mock the analysis to raise an error
     async def mock_analysis_error(*args, **kwargs):
         raise Exception("Analysis failed")
+        yield  # pragma: no cover - keeps this as an async generator for async iteration
 
     mock_backend.stream_with_tools = mock_analysis_error
 

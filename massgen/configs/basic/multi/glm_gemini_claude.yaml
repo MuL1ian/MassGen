@@ -11,10 +11,10 @@ agents:
       model: "gemini-2.5-flash"
       enable_web_search: true
 
-  - id: "claude-3.5-haiku"
+  - id: "claude-haiku-4-5-20251001"
     backend:
       type: "claude"
-      model: "claude-3-5-haiku-20241022"
+      model: "claude-haiku-4-5-20251001"
       enable_web_search: true
       enable_code_execution: true
 

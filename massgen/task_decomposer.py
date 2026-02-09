@@ -44,6 +44,53 @@ class TaskDecomposer:
         # Exposed for diagnostics/telemetry: "subagent" | "fallback"
         self.last_generation_source: str = "unknown"
 
+    @staticmethod
+    def _build_agent_alias_map(agent_ids: List[str]) -> Dict[str, str]:
+        """Build stable anonymous aliases (agent1, agent2, ...) for real agent IDs."""
+        return {aid: f"agent{i + 1}" for i, aid in enumerate(agent_ids)}
+
+    @staticmethod
+    def _parallel_start_clause() -> str:
+        """Canonical non-blocking execution clause for decomposition subtasks."""
+        return "Start immediately in parallel using contract-first assumptions/stubs for boundaries; do not wait for another agent's deliverable."
+
+    def _build_decomposition_prompt(
+        self,
+        task: str,
+        agent_descriptions: List[str],
+        agent_ids: List[str],
+        guidelines_section: str = "",
+    ) -> str:
+        """Build the decomposition prompt passed to the subagent."""
+        n_agents = len(agent_ids)
+        schema = ", ".join(f'"{aid}": "subtask description"' for aid in agent_ids)
+        return f"""Create a decomposition plan for {n_agents} agents.
+
+Task: {task}
+
+Agents and their expertise:
+{chr(10).join(agent_descriptions)}
+{guidelines_section}
+Requirements:
+- Assign exactly one subtask to each agent ID.
+- Keep subtasks complementary and non-overlapping.
+- Make each subtask concrete and actionable.
+- Ensure subtasks are roughly equal in expected effort and completion time.
+- Balance depth: each subtask should include implementation work plus quality validation.
+- Avoid "tiny scope" assignments unless all subtasks are intentionally tiny.
+- Keep ownership-first boundaries: each agent has one primary scope and only adjacent integration responsibilities.
+- Keep cross-subtask bleed limited to integration needs (interfaces/contracts/shared assets); avoid unrelated takeover.
+- Ensure every subtask can start at kickoff in parallel (no hard dependency on another agent finishing first).
+- If you reference peers in subtask prose, use anonymous aliases (`agent1`, `agent2`, ...) from the list above, not raw IDs.
+- Use contract-first phrasing for integration (interfaces/placeholders/stubs), not serial handoff phrasing.
+- Write each subtask as 2-3 sentences covering:
+  1) primary owned scope,
+  2) integration touchpoints with neighboring scopes,
+  3) quality bar (tests/checks/accessibility or equivalent).
+- Return valid JSON only (no markdown/prose), using this schema:
+{{"subtasks": {{{schema}}}}}
+"""
+
     async def generate_decomposition_via_subagent(
         self,
         task: str,
@@ -83,33 +130,23 @@ class TaskDecomposer:
         from .subagent.manager import SubagentManager
         from .subagent.models import SubagentOrchestratorConfig
 
-        n_agents = len(agent_ids)
-
         # Build agent expertise descriptions
+        alias_map = self._build_agent_alias_map(agent_ids)
         agent_descriptions = []
         for aid in agent_ids:
             sys_msg = existing_system_messages.get(aid)
             desc = sys_msg[:200] if sys_msg else "General-purpose agent"
-            agent_descriptions.append(f"- {aid}: {desc}")
+            agent_descriptions.append(f"- {alias_map[aid]} (output key: {aid}): {desc}")
 
         guidelines_section = ""
         if self.config.decomposition_guidelines:
             guidelines_section = f"\nDecomposition guidelines: {self.config.decomposition_guidelines}\n"
-
-        prompt = f"""Create a decomposition plan for {n_agents} agents.
-
-Task: {task}
-
-Agents and their expertise:
-{chr(10).join(agent_descriptions)}
-{guidelines_section}
-Requirements:
-- Assign exactly one subtask to each agent ID.
-- Keep subtasks complementary and non-overlapping.
-- Make each subtask concrete and actionable.
-- Return valid JSON only (no markdown/prose), using this schema:
-{{"subtasks": {{{", ".join(f'"{aid}": "subtask description"' for aid in agent_ids)}}}}}
-"""
+        prompt = self._build_decomposition_prompt(
+            task=task,
+            agent_descriptions=agent_descriptions,
+            agent_ids=agent_ids,
+            guidelines_section=guidelines_section,
+        )
 
         # Normalize parent configs to [{id, backend}, ...]
         normalized_parent_configs: List[Dict[str, Any]] = []
@@ -158,7 +195,7 @@ Requirements:
                     "enable_subagents": False,
                     "broadcast": False,
                 },
-                max_new_answers=2,
+                max_new_answers=5,
             )
 
             manager = SubagentManager(
@@ -197,7 +234,10 @@ Requirements:
                 task=prompt,
                 subagent_id="task_decomposition",
                 timeout_seconds=self.config.timeout_seconds,
-                refine=False,
+                # Decomposition planning benefits from iterative coordination quality.
+                # Keep refinement enabled to avoid quick-mode overrides
+                # (max_new_answers_per_agent=1, skip_final_presentation, disable_injection).
+                refine=True,
             )
 
             subtasks: Dict[str, str] = {}
@@ -256,7 +296,13 @@ Requirements:
         return {}
 
     def _parse_subtasks_from_workspace(self, workspace_path: str, agent_ids: List[str]) -> Dict[str, str]:
-        """Parse decomposition JSON artifacts from subagent workspace."""
+        """Parse decomposition JSON artifacts from subagent workspace.
+
+        Searches three locations in order:
+        1. Direct workspace files (workspace root and agent_* dirs)
+        2. Log final/ directories - the orchestrator archives agent workspaces
+           to final/ before clearing them, so this is the reliable source.
+        """
         workspace = Path(workspace_path)
         if not workspace.exists():
             return {}
@@ -275,6 +321,19 @@ Requirements:
                 ],
             )
 
+        # Also search the subprocess log final/ directories.
+        # The orchestrator clears agent workspaces between rounds, but the
+        # final/ snapshot is always preserved in the log directory.
+        massgen_logs = workspace / ".massgen" / "massgen_logs"
+        if massgen_logs.exists():
+            for final_workspace in massgen_logs.glob("*/turn_*/attempt_*/final/*/workspace"):
+                candidate_files.extend(
+                    [
+                        final_workspace / "decomposition.json",
+                        final_workspace / "subtasks.json",
+                    ],
+                )
+
         for path in candidate_files:
             if not path.exists() or not path.is_file():
                 continue
@@ -288,6 +347,7 @@ Requirements:
                 if isinstance(subtasks_obj, dict):
                     normalized = self._normalize_subtasks(subtasks_obj, agent_ids)
                     if normalized:
+                        logger.info(f"[TaskDecomposer] Found subtasks in {path}")
                         return normalized
 
         return {}
@@ -321,12 +381,22 @@ Requirements:
         Uses agent system messages to infer subtask roles.
         """
         subtasks = {}
+        clause = self._parallel_start_clause()
         for i, aid in enumerate(agent_ids):
             sys_msg = system_messages.get(aid)
             if sys_msg:
-                subtasks[aid] = "Work on your area of expertise as described in your role. " "Focus on the aspects of the task that align with your specialization: " f"{sys_msg[:100]}"
+                subtasks[aid] = (
+                    "Own one distinct slice of the task aligned with your specialization. "
+                    "Implement that slice end-to-end, validate quality with concrete checks, "
+                    "and only touch adjacent interfaces needed for integration. "
+                    f"{clause}"
+                )
             else:
-                subtasks[aid] = f"Work on part {i + 1} of {len(agent_ids)} for this task. Coordinate with other agents to avoid overlap."
+                subtasks[aid] = (
+                    f"Own part {i + 1} of {len(agent_ids)} of this task with implementation depth and quality checks. "
+                    "Coordinate on shared boundaries with peers, but avoid taking over unrelated scopes. "
+                    f"{clause}"
+                )
 
         logger.info(f"[TaskDecomposer] Generated {len(subtasks)} fallback subtasks")
         return subtasks
