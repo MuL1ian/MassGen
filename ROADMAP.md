@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.48
+**Current Version:** v0.1.49
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** February 6, 2026
+**Last Updated:** February 9, 2026
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,18 +42,66 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.49** | 02/09/26 | Add Model Selector for Log Analysis | @ncrispino | Choose model for `massgen logs analyze` self-analysis mode ([#766](https://github.com/massgen/MassGen/issues/766)) |
+| **v0.1.50** | 02/11/26 | Add Model Selector for Log Analysis | @ncrispino | Choose model for `massgen logs analyze` self-analysis mode ([#766](https://github.com/massgen/MassGen/issues/766)) |
 | | | Git Worktree Isolation for Agent Changes | @ncrispino | Worktree isolation improvements for agent file changes ([#853](https://github.com/massgen/MassGen/issues/853)) |
-| **v0.1.50** | 02/11/26 | Refactor ask_others for Targeted Agent Queries | @ncrispino | Support targeted agent queries via subagent for more efficient coordination ([#809](https://github.com/massgen/MassGen/issues/809)) |
+| **v0.1.51** | 02/13/26 | Refactor ask_others for Targeted Agent Queries | @ncrispino | Support targeted agent queries via subagent for more efficient coordination ([#809](https://github.com/massgen/MassGen/issues/809)) |
 | | | Curated Recommended Models List for Quickstart Wizard | @ncrispino | Curated model recommendations in quickstart wizard ([#840](https://github.com/massgen/MassGen/issues/840)) |
-| **v0.1.51** | 02/13/26 | Support dragging screenshots into TUI bar on Mac | @ncrispino | Enable drag-and-drop screenshot functionality in TUI input bar ([#831](https://github.com/massgen/MassGen/issues/831)) |
+| **v0.1.52** | 02/16/26 | Support dragging screenshots into TUI bar on Mac | @ncrispino | Enable drag-and-drop screenshot functionality in TUI input bar ([#831](https://github.com/massgen/MassGen/issues/831)) |
 | | | Fix Rounds Appearing and Log Dir Content in Multi-Turn | @ncrispino | Fix round display and log directory issues in multi-turn sessions ([#848](https://github.com/massgen/MassGen/issues/848)) |
 
 *All releases ship on MWF @ 9am PT when ready*
 
 ---
 
-## 📋 v0.1.49 - Log Analysis Model Selector & Worktree Isolation Improvements
+## 📋 v0.1.49 - Coordination Quality: Fairness Gate & Persona Easing
+
+### Features
+
+**1. Fairness Gate for Coordination** (@ncrispino)
+- PR: [#869](https://github.com/massgen/MassGen/pull/869)
+- Prevents fast agents from dominating coordination rounds
+- Configurable `fairness_lead_cap_answers` and `max_midstream_injections_per_round`
+- **Use Case**: Balanced multi-agent participation regardless of agent speed
+
+**2. Persona Generation with Easing** (@ncrispino)
+- PR: [#869](https://github.com/massgen/MassGen/pull/869)
+- Auto-generated diverse agent personas that soften after seeing peer solutions
+- Expanded `persona_generator.py` with easing support
+- **Use Case**: Better convergence without losing creative diversity
+
+**3. Checklist Voting Tool** (@ncrispino)
+- PR: [#869](https://github.com/massgen/MassGen/pull/869)
+- New `checklist_tools_server.py` MCP server for structured quality evaluation
+- Binary pass/fail scoring for objective quality assessment
+- **Use Case**: Consistent, repeatable evaluation across coordination rounds
+
+**4. ROI-Based Iteration Framework** (@ncrispino)
+- PR: [#869](https://github.com/massgen/MassGen/pull/869)
+- 5-dimension rubric: correctness, depth, robustness, polish, testing
+- Budget-aware quality bars that adapt iteration depth to available resources
+- **Use Case**: Smarter iteration decisions based on expected quality improvement
+
+**5. Automated Testing Infrastructure** (@ncrispino)
+- PR: [#869](https://github.com/massgen/MassGen/pull/869)
+- CI/CD workflow (`tests.yml`), SVG snapshot baselines, 16+ new test files
+- **Use Case**: Continuous quality assurance and visual regression testing
+
+**6. Shadow Agent Bug Fix** (@MuL1ian)
+- PR: [#861](https://github.com/massgen/MassGen/pull/861)
+- Fixed "[No response generated]" errors caused by incorrect chunk type comparison
+- **Use Case**: Reliable shadow agent responses
+
+### Success Criteria
+- ✅ Fairness gate prevents fast agents from dominating
+- ✅ Persona easing softens agent approaches after seeing peers
+- ✅ Checklist voting provides structured quality evaluation
+- ✅ ROI framework guides iteration decisions
+- ✅ CI/CD pipeline running with SVG snapshot baselines
+- ✅ Shadow agent responses working correctly
+
+---
+
+## 📋 v0.1.50 - Log Analysis Model Selector & Worktree Isolation
 
 ### Features
 
@@ -74,7 +122,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.50 - Targeted Agent Queries & Quickstart Model Curation
+## 📋 v0.1.51 - Targeted Agent Queries & Quickstart Model Curation
 
 ### Features
 
@@ -98,7 +146,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.51 - TUI Screenshot Support & Multi-Turn Fixes
+## 📋 v0.1.52 - TUI Screenshot Support & Multi-Turn Fixes
 
 ### Features
 
@@ -673,7 +721,7 @@ These features are being actively developed on **separate parallel tracks** and 
 - Issue: [#766](https://github.com/massgen/MassGen/issues/766)
 - Allow users to choose which model to use for `massgen logs analyze` self-analysis mode
 - Configurable model selection for different analysis requirements
-- **Target:** v0.1.49
+- **Target:** v0.1.50
 
 ### Track: General Hook Framework (@ncrispino, nickcrispino)
 - Issue: [#745](https://github.com/massgen/MassGen/issues/745)
@@ -694,13 +742,13 @@ These features are being actively developed on **separate parallel tracks** and 
 - Issue: [#722](https://github.com/massgen/MassGen/issues/722)
 - Enhanced log sharing workflows
 - Improved analysis tools and visualizations
-- **Target:** v0.1.49+
+- **Target:** v0.1.50+
 
 ### Track: Claude Code Plugin for MassGen Agents (@ncrispino, nickcrispino)
 - Issue: [#773](https://github.com/massgen/MassGen/issues/773)
 - Plugin/extension for spawning MassGen agents directly from Claude Code interface
 - Seamless integration with Claude Code workflows
-- **Target:** v0.1.49+
+- **Target:** v0.1.50+
 
 ### Track: Refactor ask_others for Targeted Agent Queries (@ncrispino, nickcrispino)
 - Issue: [#809](https://github.com/massgen/MassGen/issues/809)
@@ -730,6 +778,41 @@ These features are being actively developed on **separate parallel tracks** and 
 - Docker setup step in quickstart wizard with animated pull progress
 - Real-time stdout streaming for image downloads
 - **Status:** ✅ Completed in v0.1.48
+
+### Track: Fairness Gate for Coordination (@ncrispino, nickcrispino)
+- PR: [#869](https://github.com/massgen/MassGen/pull/869)
+- Prevents fast agents from dominating coordination rounds
+- Configurable `fairness_lead_cap_answers` and `max_midstream_injections_per_round`
+- **Status:** ✅ Completed in v0.1.49
+
+### Track: Persona Easing (@ncrispino, nickcrispino)
+- PR: [#869](https://github.com/massgen/MassGen/pull/869)
+- Auto-generated diverse agent personas that soften after seeing peer solutions
+- Expanded persona generator with easing support
+- **Status:** ✅ Completed in v0.1.49
+
+### Track: Checklist Voting Tool (@ncrispino, nickcrispino)
+- PR: [#869](https://github.com/massgen/MassGen/pull/869)
+- New `checklist_tools_server.py` MCP server for structured quality evaluation
+- Binary pass/fail scoring for objective quality assessment
+- **Status:** ✅ Completed in v0.1.49
+
+### Track: ROI-Based Iteration Framework (@ncrispino, nickcrispino)
+- PR: [#869](https://github.com/massgen/MassGen/pull/869)
+- 5-dimension rubric (correctness, depth, robustness, polish, testing) with budget-aware quality bars
+- Guides iteration decisions based on expected quality improvement
+- **Status:** ✅ Completed in v0.1.49
+
+### Track: Automated Testing Infrastructure (@ncrispino, nickcrispino)
+- PR: [#869](https://github.com/massgen/MassGen/pull/869)
+- CI/CD workflow (`tests.yml`), SVG snapshot baselines, 16+ new test files
+- Testing strategy specification and visual regression testing
+- **Status:** ✅ Completed in v0.1.49
+
+### Track: Shadow Agent Chunk Type Fix (@MuL1ian)
+- PR: [#861](https://github.com/massgen/MassGen/pull/861)
+- Fixed "[No response generated]" errors from incorrect chunk type comparison
+- **Status:** ✅ Completed in v0.1.49
 
 ### Track: Coding Agent Enhancements (@ncrispino, nickcrispino)
 - PR: [#251](https://github.com/massgen/MassGen/pull/251)
@@ -812,5 +895,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** February 6, 2026
+**Last Updated:** February 9, 2026
 **Maintained By:** MassGen Team

@@ -1,4 +1,4 @@
-# MassGen v0.1.48 Release Announcement
+# MassGen v0.1.49 Release Announcement
 
 <!--
 This is the current release announcement. Copy this + feature-highlights.md to LinkedIn/X.
@@ -7,17 +7,17 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.48, adding Decomposition Mode! 🚀 A new coordination mode that decomposes tasks into subtasks assigned to individual agents, with a presenter agent synthesizing the final result. Plus: Worktree isolation for safe file writes with review modal, quickstart wizard Docker setup, and bug fixes.
+We're excited to release MassGen v0.1.49, focused on Coordination Quality! 🚀 Fairness gate prevents fast agents from dominating, persona easing softens agent approaches after seeing peers, and checklist voting brings structured quality evaluation. Plus: ROI-based iteration framework, automated testing infrastructure, skills modal, and bug fixes.
 
 ## Install
 
 ```bash
-pip install massgen==0.1.48
+pip install massgen==0.1.49
 ```
 
 ## Links
 
-- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.48
+- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.49
 - **X post:** [TO BE ADDED AFTER POSTING]
 - **LinkedIn post:** [TO BE ADDED AFTER POSTING]
 
@@ -29,24 +29,39 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.48, adding Decomposition Mode! 🚀 A new coordination mode that decomposes tasks into subtasks assigned to individual agents, with a presenter agent synthesizing the final result. Plus: Worktree isolation for safe file writes with review modal, quickstart wizard Docker setup, and bug fixes.
+We're excited to release MassGen v0.1.49, focused on Coordination Quality! 🚀 Fairness gate prevents fast agents from dominating, persona easing softens agent approaches after seeing peers, and checklist voting brings structured quality evaluation. Plus: ROI-based iteration framework, automated testing infrastructure, and bug fixes.
 
 **Key Features:**
 
-**Decomposition Mode** - New `decomposition` coordination mode:
-- Automatically decomposes complex tasks into subtasks assigned to individual agents
-- Presenter agent role for synthesizing subtask results into a final answer
-- TUI mode bar toggle, subtask assignment display, and generation modals
-- Quickstart wizard integration for easy decomposition mode selection
+**Fairness Gate** - Balanced multi-agent coordination:
+- Prevents fast agents from dominating rounds with configurable `fairness_lead_cap_answers`
+- `max_midstream_injections_per_round` controls injection frequency
+- Ensures all agents contribute meaningfully regardless of speed
 
-**Worktree Isolation** - Safe file writes with review workflow:
-- New `write_mode` config for git worktree-based isolation of agent writes
-- Review modal for approving/rejecting changes before applying to original paths
-- Shadow repo support for non-git directories
+**Persona Easing** - Smarter agent adaptation:
+- Auto-generated diverse agent personas via expanded `persona_generator.py`
+- Personas soften after seeing peer solutions, reducing rigidity
+- Agents converge on quality without losing creative diversity
 
-**Quickstart Wizard Docker Setup** - Docker setup step with animated pull progress and real-time stdout streaming
+**Checklist Voting** - Structured quality evaluation:
+- New `checklist_tools_server.py` MCP server for objective quality assessment
+- Binary pass/fail scoring replaces subjective voting
+- Consistent, repeatable evaluation across coordination rounds
 
-Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.48
+**ROI-Based Iteration Framework** - Budget-aware quality:
+- 5-dimension rubric: correctness, depth, robustness, polish, testing
+- Quality bars adapt to available budget and iteration count
+
+**Automated Testing Infrastructure** - CI/CD and snapshot testing:
+- GitHub Actions workflow (`tests.yml`) for automated test execution
+- SVG snapshot baselines for TUI visual regression testing
+- 16+ new test files with comprehensive testing strategy
+
+**Bug Fixes:**
+- Fixed "[No response generated]" shadow agent errors (PR #861)
+- Round banner timing, hook injection, final answer lock responsiveness
+
+Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.49
 
 Feature highlights:
 

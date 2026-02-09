@@ -157,17 +157,17 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.49 (February 9, 2026)** - Coordination Quality: Fairness Gate & Persona Easing
+
+Fairness gate prevents fast agents from dominating coordination. Persona easing softens agent personas after seeing peer solutions. Checklist voting tool for structured quality evaluation. ROI-based iteration framework with budget-aware quality bars. Automated testing infrastructure with CI/CD and SVG snapshot baselines.
+
 **v0.1.48 (February 6, 2026)** - Decomposition Mode & Worktree Isolation
 
 New decomposition coordination mode decomposes tasks into subtasks assigned to individual agents with a presenter role. Worktree isolation for file writes with review modal for approving changes. Quickstart wizard Docker setup with animated pull progress.
 
 **v0.1.47 (February 4, 2026)** - Codex Backend & TUI Theme Refactoring
 
-Comprehensive visual overhaul with modern "Conversational AI" aesthetic. Rounded corners, professional desaturated colors, redesigned agent tabs with dot indicators, and polished modals. New Human Input Queue for injecting messages to agents mid-stream. AG2 single-agent coordination fixes.
-
-**v0.1.46 (February 3, 2026)** - Subagent TUI Streaming & Event Architecture Refactor
-
-Subagents now stream in real-time with clickable preview cards that expand to full timeline views. Major TUI event architecture refactor with structured event emission pipeline. Improved final presentation display with workspace visualization and winning agent highlighting.
+New Codex backend for OpenAI Codex CLI with local and Docker execution. TUI theme system refactored to palette-based architecture with unified base styles. Per-agent voting sensitivity configuration. Claude Code backend refactored with shared NativeToolMixin.
 
 :doc:`Full changelog → <changelog>`
 

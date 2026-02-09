@@ -227,7 +227,23 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.48 - Latest
+### v0.1.49 - Latest
+**New Features:** Fairness Gate, Persona Easing, Checklist Voting, ROI Framework, Testing Infrastructure
+
+**Key Features:**
+- **Fairness Gate**: Prevents fast agents from dominating coordination with configurable lead caps
+- **Persona Easing**: Auto-generated personas that soften after seeing peer solutions
+- **Checklist Voting**: Structured quality evaluation with binary pass/fail scoring via MCP server
+- **ROI-Based Iteration**: 5-dimension rubric (correctness, depth, robustness, polish, testing) with budget-aware quality bars
+- **Skills Modal**: TUI modal for discovering and toggling skills in interactive mode
+
+**Try It:**
+```bash
+# Launch with fairness gate and persona easing enabled
+uv run massgen
+```
+
+### v0.1.48
 **New Features:** Decomposition Mode, Worktree Isolation, Quickstart Docker Setup
 
 **Key Features:**
