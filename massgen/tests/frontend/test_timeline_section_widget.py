@@ -341,6 +341,28 @@ async def test_lock_and_unlock_toggle_hover_suppression_on_app():
 
 
 @pytest.mark.asyncio
+async def test_clear_while_locked_releases_hover_suppression():
+    app = _TimelineApp()
+    async with app.run_test(headless=True) as pilot:
+        timeline = app.query_one(TimelineSection)
+
+        timeline.add_widget(Static("middle", id="middle_card"), round_number=1)
+        timeline.add_widget(Static("final", id="final_card"), round_number=1)
+        await pilot.pause()
+
+        timeline.lock_to_final_answer("final_card")
+        await pilot.pause()
+        timeline.clear(add_round_1=False)
+        await pilot.pause()
+
+        assert not timeline.is_answer_locked
+        assert app.hover_suppression_events == [
+            (True, "answer_locked"),
+            (False, "answer_unlocked"),
+        ]
+
+
+@pytest.mark.asyncio
 async def test_final_card_lock_mode_skips_workspace_scan_for_responsiveness(monkeypatch, tmp_path):
     app = _TimelineApp()
     async with app.run_test(headless=True) as pilot:

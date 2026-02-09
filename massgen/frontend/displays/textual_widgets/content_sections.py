@@ -1800,12 +1800,9 @@ class TimelineSection(ScrollableContainer):
         # Close any open reasoning batch
         self._close_reasoning_batch()
 
-        # Ensure final-answer lock state is cleared
+        # Ensure final-answer lock state is cleared, including app-level hover suppression.
         if self._answer_lock_mode:
-            self._answer_lock_mode = False
-            self._locked_card_id = None
-            self.exit_final_lock()
-            self.remove_class("answer-locked")
+            self.unlock_final_answer()
 
         try:
             # Keep the scroll indicator, remove everything else

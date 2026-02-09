@@ -988,8 +988,12 @@ class WorkspaceBrowserModal(BaseModal):
         """Load files from the workspace path of the selected answer, current, or final workspace."""
         started = time.perf_counter()
         file_list = self.query_one("#workspace_file_list", VerticalScroll)
+        preview = self.query_one("#workspace_preview", VerticalScroll)
         file_list.remove_children()
+        preview.remove_children()
+        preview.mount(Static("[dim]Select a file to preview[/]", markup=True))
         self._current_files = []
+        self._selected_file_idx = -1
         self._tree_lines = []  # Reset tree structure
         self._expanded_dirs = set()  # Reset expanded state
         self._dir_file_counts = {}  # Reset file counts
