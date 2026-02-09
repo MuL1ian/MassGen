@@ -38,6 +38,20 @@ _PACKAGES_NOT_IN_REGISTRY: Dict[str, str] = {
 }
 
 
+def _description_cache_key(server: Dict[str, Any]) -> str:
+    """Create a stable cache key for server description lookups.
+
+    Using only server name is too coarse: different configurations can reuse
+    the same name and legitimately resolve to different descriptions.
+    """
+    try:
+        payload = json.dumps(server, sort_keys=True, separators=(",", ":"), default=str)
+    except Exception:
+        payload = repr(server)
+    digest = hashlib.md5(payload.encode("utf-8")).hexdigest()
+    return f"desc:{digest}"
+
+
 def warmup_mcp_registry_cache(config: Optional[Dict[str, Any]] = None) -> None:
     """
     Pre-warm the MCP registry cache by fetching descriptions for all servers.
@@ -216,9 +230,15 @@ def get_mcp_server_descriptions(
 
     for server in mcp_servers:
         server_name = server.get("name", "unknown")
+        fallback_desc = fallback_descriptions.get(server_name)
 
         # Check session cache first (fast path for multi-agent scenarios)
-        cache_key = f"desc:{server_name}"
+        cache_key = _description_cache_key(
+            {
+                **server,
+                "__fallback_description": fallback_desc,
+            },
+        )
         if cache_key in _SESSION_CACHE:
             descriptions[server_name] = _SESSION_CACHE[cache_key]
             logger.debug(f"Session cache hit for {server_name}")
@@ -259,9 +279,9 @@ def get_mcp_server_descriptions(
             continue
 
         # Fall back to provided fallback descriptions
-        if server_name in fallback_descriptions:
-            descriptions[server_name] = fallback_descriptions[server_name]
-            _SESSION_CACHE[cache_key] = fallback_descriptions[server_name]
+        if fallback_desc is not None:
+            descriptions[server_name] = fallback_desc
+            _SESSION_CACHE[cache_key] = fallback_desc
             continue
 
         # Last resort: generate generic description

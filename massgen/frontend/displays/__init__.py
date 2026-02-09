@@ -22,7 +22,9 @@ try:
     )
 
     TEXTUAL_IMPORTS_AVAILABLE = True
-except ImportError:
+except (ImportError, NameError):
+    # Keep non-Textual imports usable when textual dependencies are unavailable
+    # or when textual symbols fail to resolve during module initialization.
     TextualTerminalDisplay = None
     TEXTUAL_IMPORTS_AVAILABLE = False
 

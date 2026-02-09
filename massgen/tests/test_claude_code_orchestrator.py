@@ -24,6 +24,7 @@ sys.path.insert(0, "/workspaces/MassGen")
 
 
 @pytest.mark.integration
+@pytest.mark.live_api
 @pytest.mark.asyncio
 async def test_claude_code_with_orchestrator():
     """Test Claude Code backend with MassGen Orchestrator."""
@@ -94,13 +95,9 @@ async def test_claude_code_with_orchestrator():
             print("-" * 40)
             print(final_response)
             print("-" * 40)
-
+        assert final_response
     except Exception as e:
-        print(f"❌ Error during orchestrator test: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return
+        pytest.fail(f"Error during orchestrator test: {e}")
 
     print("\n✅ Orchestrator test completed successfully!")
 

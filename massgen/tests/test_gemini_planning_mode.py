@@ -58,8 +58,7 @@ def test_gemini_planning_mode():
         backend = GeminiBackend(config=agent_config)
         print("✅ Gemini backend created successfully")
     except Exception as e:
-        print(f"❌ Failed to create Gemini backend: {e}")
-        return False
+        raise AssertionError(f"Failed to create Gemini backend: {e}") from e
 
     # Test 1: Planning mode flag functionality
     print("\n1. Testing planning mode flag...")
@@ -83,7 +82,6 @@ def test_gemini_planning_mode():
     print("\n🎉 All Gemini planning mode tests passed!")
     print("✅ Gemini backend respects planning mode flags")
     print("✅ MCP tool blocking should work during coordination phase")
-    return True
 
 
 async def test_gemini_mcp_tool_registration_blocking():
@@ -152,7 +150,6 @@ async def test_gemini_mcp_tool_registration_blocking():
         print("   Expected behavior: MCP tools will be registered in session config")
 
     print("\n✅ Gemini MCP tool registration blocking logic verified!")
-    return True
 
 
 async def test_gemini_planning_mode_integration():
@@ -192,7 +189,6 @@ async def test_gemini_planning_mode_integration():
     print(f"   Final presentation: planning_mode = {backend.is_planning_mode_enabled()}")
 
     print("\n✅ Gemini backend planning mode integration verified!")
-    return True
 
 
 async def test_gemini_actual_planning_mode_logic():
@@ -255,7 +251,6 @@ async def test_gemini_actual_planning_mode_logic():
     assert session_tools_registered, "MCP tools should be registered when planning mode is disabled"
 
     print("\n✅ Actual Gemini planning mode logic verified!")
-    return True
 
 
 def test_gemini_planning_mode_vs_other_backends():
@@ -295,7 +290,6 @@ def test_gemini_planning_mode_vs_other_backends():
     print("✅ Gemini uses tool registration blocking, not execution-time blocking")
 
     print("\n✅ Gemini planning mode approach is distinct and appropriate!")
-    return True
 
 
 if __name__ == "__main__":
@@ -306,7 +300,7 @@ if __name__ == "__main__":
 
     # Test 1: Basic planning mode functionality
     try:
-        success &= test_gemini_planning_mode()
+        test_gemini_planning_mode()
     except Exception as e:
         print(f"❌ Basic planning mode test failed: {e}")
         success = False
@@ -334,7 +328,7 @@ if __name__ == "__main__":
 
     # Test 5: Comparison with other backends
     try:
-        success &= test_gemini_planning_mode_vs_other_backends()
+        test_gemini_planning_mode_vs_other_backends()
     except Exception as e:
         print(f"❌ Backend comparison test failed: {e}")
         success = False

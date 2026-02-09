@@ -538,6 +538,39 @@ interface SkillPackage {
   skillCount?: number;
 }
 
+const DEFAULT_SKILL_PACKAGES: SkillPackage[] = [
+  {
+    id: 'anthropic',
+    name: 'Anthropic Skills Collection',
+    description: 'Official Anthropic skills including code analysis, research, and more.',
+    installed: false,
+  },
+  {
+    id: 'openai',
+    name: 'OpenAI Skills Collection',
+    description: 'Official OpenAI skill library with curated and experimental skill sets.',
+    installed: false,
+  },
+  {
+    id: 'vercel',
+    name: 'Vercel Agent Skills',
+    description: 'Vercel-maintained skill pack for modern full-stack and app workflows.',
+    installed: false,
+  },
+  {
+    id: 'agent_browser',
+    name: 'Vercel Agent Browser Skill',
+    description: 'Skill for browser-native automation via the agent-browser runtime.',
+    installed: false,
+  },
+  {
+    id: 'crawl4ai',
+    name: 'Crawl4AI',
+    description: 'Web crawling and scraping skill for extracting content from websites.',
+    installed: false,
+  },
+];
+
 // Skills Section Component
 function SkillsSection() {
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -548,20 +581,7 @@ function SkillsSection() {
   const [showSkillsBrowser, setShowSkillsBrowser] = useState(false);
 
   // Skill packages that can be installed
-  const [packages, setPackages] = useState<SkillPackage[]>([
-    {
-      id: 'anthropic',
-      name: 'Anthropic Skills Collection',
-      description: 'Official Anthropic skills including code analysis, research, and more. Requires npm/Node.js.',
-      installed: false,
-    },
-    {
-      id: 'crawl4ai',
-      name: 'Crawl4AI',
-      description: 'Web crawling and scraping skill for extracting content from websites.',
-      installed: false,
-    },
-  ]);
+  const [packages, setPackages] = useState<SkillPackage[]>(DEFAULT_SKILL_PACKAGES);
 
   const fetchSkills = async () => {
     try {
@@ -573,24 +593,25 @@ function SkillsSection() {
       const skillsList = data.skills || [];
       setSkills(skillsList);
 
-      // Update package installation status based on installed skills
-      setPackages(prev => prev.map(pkg => {
-        if (pkg.id === 'anthropic') {
-          // Check for installed skills (user or project, excluding builtin and crawl4ai)
-          const installedSkills = skillsList.filter((s: Skill) =>
-            (s.location === 'user' || s.location === 'project') &&
-            !s.name.toLowerCase().includes('crawl4ai')
-          );
-          return { ...pkg, installed: installedSkills.length > 0, skillCount: installedSkills.length };
-        }
-        if (pkg.id === 'crawl4ai') {
-          const hasCrawl4ai = skillsList.some((s: Skill) =>
-            s.name.toLowerCase().includes('crawl4ai')
-          );
-          return { ...pkg, installed: hasCrawl4ai };
-        }
-        return pkg;
-      }));
+      // Prefer server-side package status (authoritative) when available.
+      const packageMap = data.packages;
+      if (packageMap && typeof packageMap === 'object') {
+        const packageList: SkillPackage[] = Object.entries(packageMap).map(([id, pkg]) => {
+          const typedPkg = pkg as Record<string, unknown>;
+          return {
+            id,
+            name: String(typedPkg['name'] || id),
+            description: String(typedPkg['description'] || ''),
+            installed: Boolean(typedPkg['installed']),
+            skillCount: typeof typedPkg['skill_count'] === 'number'
+              ? typedPkg['skill_count']
+              : (typeof typedPkg['skillCount'] === 'number' ? typedPkg['skillCount'] : undefined),
+          };
+        });
+        setPackages(packageList);
+      } else {
+        setPackages(DEFAULT_SKILL_PACKAGES);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load skills');
     } finally {

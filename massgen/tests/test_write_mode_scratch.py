@@ -805,7 +805,7 @@ class TestDockerMountsWriteMode:
             assert mount_paths[0][2] == "rw", f"Expected rw mode, got {mount_paths[0][2]}"
 
     def test_non_git_context_paths_not_mounted(self, tmp_path):
-        """Non-git context paths produce no mounts at all (shadow copy is self-contained)."""
+        """Non-git context paths are preserved as regular context_paths (no .git/ mounts needed)."""
         from unittest.mock import MagicMock, patch
 
         from massgen.filesystem_manager._filesystem_manager import FilesystemManager
@@ -832,9 +832,12 @@ class TestDockerMountsWriteMode:
 
         call_kwargs = fm.docker_manager.create_container.call_args
         kwargs = call_kwargs.kwargs if call_kwargs.kwargs else {}
-        # context_paths should be empty
+        # Non-git context paths are preserved (not suppressed) so agents
+        # can still read external artifacts like log/session directories.
         if "context_paths" in kwargs:
-            assert kwargs["context_paths"] == [], "context_paths should be empty"
+            assert kwargs["context_paths"] == [
+                {"path": str(non_git_path), "permission": "read"},
+            ], "Non-git context paths should be preserved"
         # extra_mount_paths should be empty (no .git/ to mount)
         if "extra_mount_paths" in kwargs:
             assert kwargs["extra_mount_paths"] == [], f"No .git/ mounts expected, got {kwargs['extra_mount_paths']}"

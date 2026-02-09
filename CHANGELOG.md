@@ -9,16 +9,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.49 (February 9, 2026)** - Coordination Quality: Log Analysis TUI, Fairness Gate & Checklist Voting
+Log analysis mode built into TUI mode bar for in-app run analysis. Fairness gate prevents fast agents from dominating coordination. Checklist voting tool for structured quality evaluation. Automated testing infrastructure with CI/CD and SVG snapshot baselines.
+
 **v0.1.48 (February 6, 2026)** - Decomposition Mode & Worktree Isolation
 New decomposition coordination mode decomposes tasks into subtasks assigned to individual agents with a presenter role. Worktree isolation for file writes with review modal for approving changes. Quickstart wizard Docker setup with animated pull progress.
 
 **v0.1.47 (February 4, 2026)** - Codex Backend & TUI Theme Refactoring
 New Codex backend for OpenAI Codex CLI with local and Docker execution. TUI theme system refactored to palette-based architecture with unified base styles. Per-agent voting sensitivity configuration. Claude Code backend refactored with shared NativeToolMixin.
 
-**v0.1.46 (February 3, 2026)** - Subagent TUI Streaming & Event Architecture Refactor
-Subagents now stream in real-time with clickable preview cards that expand to full timeline views. Major TUI event architecture refactor with structured event emission pipeline. Improved final presentation display with workspace visualization and winning agent highlighting. Tutorial video GIF previews added to documentation.
-
 ---
+
+## [0.1.49] - 2026-02-09
+
+### Added
+- **Log Analysis Mode in TUI** ([#869](https://github.com/massgen/MassGen/pull/869)): New "Analyzing" state in the TUI mode bar for in-app run analysis
+  - Mode bar cycle: Normal → Planning → Executing → Analyzing
+  - Browse and select log directories and turns directly in the TUI
+  - Configurable analysis profiles for different analysis depths
+  - Empty submit in analysis mode runs default analysis on selected target
+
+- **Fairness Gate for Coordination** ([#869](https://github.com/massgen/MassGen/pull/869)): Prevents fast agents from dominating coordination rounds
+  - Configurable `fairness_lead_cap_answers` to limit how far ahead one agent can get
+  - `max_midstream_injections_per_round` to control injection frequency
+  - Ensures balanced participation across agents of different speeds
+
+- **Checklist Voting Tool** ([#869](https://github.com/massgen/MassGen/pull/869)): New `checklist_tools_server.py` MCP server for structured quality evaluation
+  - Binary pass/fail scoring for objective quality assessment
+  - Structured checklist-based evaluation replacing subjective voting
+
+- **Automated Testing Infrastructure** ([#869](https://github.com/massgen/MassGen/pull/869)): CI/CD workflow (`tests.yml`), SVG snapshot baselines, testing strategy spec, 16+ new test files
+  - GitHub Actions CI pipeline for automated test execution
+  - SVG snapshot baseline testing for TUI visual regression
+  - Comprehensive testing strategy specification
+
+- **Skills Modal in TUI** ([#869](https://github.com/massgen/MassGen/pull/869)): New modal for discovering and toggling skills in interactive mode
+  - `skills_modals.py` for skill discovery and management in TUI
+
+- **Docker Overlay Images** ([#869](https://github.com/massgen/MassGen/pull/869)): `Dockerfile.overlay` and build script for Agent Browser and OpenSkills integration
+
+### Changed
+- **Persona Easing in TUI Mode Bar** ([#869](https://github.com/massgen/MassGen/pull/869)): Persona easing toggle now accessible from the TUI mode bar
+- **Improved Decomposition Prompts** ([#869](https://github.com/massgen/MassGen/pull/869)): Better hook injection for non-hook backends
+- **Enhanced System Prompt Sections** ([#869](https://github.com/massgen/MassGen/pull/869)): Project instructions discovery and checklist evaluation blocks
+- **Expanded Skills Installer** ([#869](https://github.com/massgen/MassGen/pull/869)): Playwright, Agent Browser, and OpenSkills support
+- **Native Codex & Claude Code Skills** ([#869](https://github.com/massgen/MassGen/pull/869)): Direct skill integration for both backends
+
+### Fixed
+- **Shadow Agent Chunk Type Comparison** ([#861](https://github.com/massgen/MassGen/pull/861)): Fixed "[No response generated]" errors caused by incorrect chunk type comparison
+- **Round Banner Timing** ([#869](https://github.com/massgen/MassGen/pull/869)): Round banner no longer appears before final answer is locked
+- **Hook Injection for Non-Hook Backends** ([#869](https://github.com/massgen/MassGen/pull/869)): Corrected decomposition prompt injection for backends without native hook support
+- **Final Answer Lock Responsiveness** ([#869](https://github.com/massgen/MassGen/pull/869)): Improved lock timing and reduced hover lag
+- **Multiple Test Failures** ([#869](https://github.com/massgen/MassGen/pull/869)): Fixed hooks, persona easing, Docker mounts, and snapshot tests
+
+### Documentation, Configurations and Resources
+- **Testing Strategy**: New `docs/modules/testing.md` with testing architecture and CI gates
+- **SVG Snapshots**: Baseline snapshots in `massgen/tests/snapshot_tests/`
+- **CI/CD Pipeline**: `.github/workflows/tests.yml` for automated testing
+
+### Technical Details
+- **Major Focus**: Coordination quality improvements (log analysis TUI, fairness gate, checklist voting), automated testing infrastructure
+- **PRs Merged**: [#869](https://github.com/massgen/MassGen/pull/869) (Automate testing), [#861](https://github.com/massgen/MassGen/pull/861) (Shadow agent fix)
+- **Files Modified**:
+  - New: `massgen/mcp_tools/servers/checklist_tools_server.py`, `massgen/frontend/displays/textual/widgets/modals/skills_modals.py`
+  - Modified: `massgen/orchestrator.py` (fairness gate), `massgen/persona_generator.py` (easing), `massgen/frontend/displays/textual_widgets/mode_bar.py` (analysis mode)
+  - Infrastructure: `.github/workflows/tests.yml`, `Dockerfile.overlay`, `massgen/tests/` (16+ new test files)
+- **Contributors**: @ncrispino, @MuL1ian, and the MassGen team
 
 ## [0.1.48] - 2026-02-06
 

@@ -11,10 +11,11 @@ Provides a dropdown popover for plan mode configuration:
 
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import VerticalScroll
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, Label, Select, Static
@@ -80,6 +81,36 @@ class ViewPlanRequested(Message):
         super().__init__()
 
 
+class AnalysisProfileChanged(Message):
+    """Message emitted when analysis profile is changed."""
+
+    def __init__(self, profile: str) -> None:
+        self.profile = profile
+        super().__init__()
+
+
+class AnalysisTargetChanged(Message):
+    """Message emitted when analysis log/turn target is changed."""
+
+    def __init__(self, log_dir: Optional[str], turn: Optional[int]) -> None:
+        self.log_dir = log_dir
+        self.turn = turn
+        super().__init__()
+
+
+class ViewAnalysisRequested(Message):
+    """Message emitted when user wants to view an analysis report."""
+
+    def __init__(self, log_dir: str, turn: int) -> None:
+        self.log_dir = log_dir
+        self.turn = turn
+        super().__init__()
+
+
+class OpenSkillsRequested(Message):
+    """Message emitted when user wants to open the skills manager."""
+
+
 def _popover_log(msg: str) -> None:
     """Log to TUI debug file."""
     try:
@@ -110,14 +141,17 @@ class PlanOptionsPopover(Widget):
     DEFAULT_CSS = """
     PlanOptionsPopover {
         layer: overlay;
-        dock: bottom;
-        width: 70;
+        dock: right;
+        width: 84;
+        min-width: 64;
+        max-width: 92;
         height: auto;
-        max-height: 35;
+        max-height: 44;
         background: $surface;
         border: solid $primary;
-        padding: 1;
+        padding: 1 2;
         margin-bottom: 3;
+        margin-right: 1;
         display: none;
     }
 
@@ -129,6 +163,14 @@ class PlanOptionsPopover(Widget):
         text-style: bold;
         color: $text;
         margin-bottom: 1;
+    }
+
+    PlanOptionsPopover #popover_content {
+        width: 100%;
+        height: auto;
+        max-height: 34;
+        overflow-y: auto;
+        padding-right: 1;
     }
 
     PlanOptionsPopover .section-label {
@@ -148,7 +190,8 @@ class PlanOptionsPopover(Widget):
         padding: 1;
         margin: 1 0;
         height: auto;
-        max-height: 8;
+        max-height: 14;
+        text-wrap: wrap;
     }
 
     PlanOptionsPopover #plan_details.hidden {
@@ -170,6 +213,23 @@ class PlanOptionsPopover(Widget):
         margin-top: 1;
     }
 
+    PlanOptionsPopover #analysis_preview {
+        background: $surface-darken-1;
+        border: solid $primary-darken-2;
+        padding: 1;
+        margin: 1 0;
+        height: auto;
+        max-height: 14;
+        text-wrap: wrap;
+        color: $text-muted;
+    }
+
+    PlanOptionsPopover #analysis_target_meta {
+        color: $text-muted;
+        margin: 0 0 1 0;
+        text-wrap: wrap;
+    }
+
     PlanOptionsPopover #close_btn {
         margin-top: 1;
         width: 100%;
@@ -184,13 +244,19 @@ class PlanOptionsPopover(Widget):
         current_plan_id: Optional[str] = None,
         current_depth: "PlanDepth" = "medium",
         current_broadcast: Any = "human",
+        analysis_profile: str = "dev",
+        analysis_log_options: Optional[List[tuple[str, str]]] = None,
+        analysis_selected_log_dir: Optional[str] = None,
+        analysis_turn_options: Optional[List[tuple[str, str]]] = None,
+        analysis_selected_turn: Optional[int] = None,
+        analysis_preview_text: str = "",
         id: Optional[str] = None,
         classes: Optional[str] = None,
     ) -> None:
         """Initialize the plan options popover.
 
         Args:
-            plan_mode: Current plan mode ("normal", "plan", "execute").
+            plan_mode: Current mode ("normal", "plan", "execute", or "analysis").
             available_plans: List of available plan sessions.
             current_plan_id: Currently selected plan ID.
             current_depth: Current plan depth setting.
@@ -204,8 +270,24 @@ class PlanOptionsPopover(Widget):
         self._current_plan_id = current_plan_id
         self._current_depth = current_depth
         self._current_broadcast = current_broadcast
+        self._analysis_profile = analysis_profile
+        self._analysis_log_options = analysis_log_options or []
+        self._analysis_selected_log_dir = analysis_selected_log_dir
+        self._analysis_turn_options = analysis_turn_options or []
+        self._analysis_selected_turn = analysis_selected_turn
+        self._analysis_preview_text = analysis_preview_text
         self._plan_details_widget: Optional[Static] = None
         self._initialized = False  # Track if popover has been shown (to ignore events during recompose)
+
+    @staticmethod
+    def _safe_select_value(options: List[tuple[str, str]], preferred: Optional[str]) -> Optional[str]:
+        """Return a safe select value from options, preferring the given value."""
+        if not options:
+            return None
+        values = {value for _, value in options}
+        if preferred in values:
+            return preferred
+        return options[0][1]
 
     def compose(self) -> ComposeResult:
         """Create the popover contents.
@@ -213,14 +295,17 @@ class PlanOptionsPopover(Widget):
         Content differs by mode:
         - "plan" mode: Shows depth and human feedback options only
         - "execute" mode: Shows plan selector and plan details only
+        - "analysis" mode: Shows profile, log target, turn target, and skills controls
         """
         # Title changes based on mode
         if self._plan_mode == "plan":
             yield Label("Planning Options", id="popover_title")
+        elif self._plan_mode == "analysis":
+            yield Label("Log Analysis Options", id="popover_title")
         else:
             yield Label("Select Plan", id="popover_title")
 
-        with Vertical(id="popover_content"):
+        with VerticalScroll(id="popover_content"):
             # Execute mode: Show plan selector and details
             if self._plan_mode == "execute" and self._available_plans:
                 yield Label("Select Plan:", classes="section-label")
@@ -281,6 +366,61 @@ class PlanOptionsPopover(Widget):
                     value=broadcast_value,
                     id="broadcast_selector",
                 )
+
+            # Analysis mode: profile + target controls
+            if self._plan_mode == "analysis":
+                turn_label = f"turn_{self._analysis_selected_turn}" if self._analysis_selected_turn is not None else "latest"
+                if self._analysis_selected_log_dir:
+                    log_name = Path(self._analysis_selected_log_dir).name
+                    report_exists = False
+                    if self._analysis_selected_turn is not None:
+                        report_exists = (Path(self._analysis_selected_log_dir) / f"turn_{self._analysis_selected_turn}" / "ANALYSIS_REPORT.md").exists()
+                    report_label = "available" if report_exists else "not generated yet"
+                    yield Static(
+                        f"Target: {log_name} / {turn_label}\nReport: {report_label}",
+                        id="analysis_target_meta",
+                    )
+
+                yield Label("Analysis Profile:", classes="section-label")
+                yield Select(
+                    [
+                        ("Dev (internals)", "dev"),
+                        ("User (skills)", "user"),
+                    ],
+                    value=self._analysis_profile if self._analysis_profile in ("dev", "user") else "dev",
+                    id="analysis_profile_selector",
+                )
+
+                yield Label("Log Session:", classes="section-label")
+                if self._analysis_log_options:
+                    selected_log = self._safe_select_value(self._analysis_log_options, self._analysis_selected_log_dir)
+                    yield Select(
+                        self._analysis_log_options,
+                        value=selected_log,
+                        id="analysis_log_selector",
+                    )
+                else:
+                    yield Static("[dim]No log sessions found[/]", markup=True)
+
+                yield Label("Turn:", classes="section-label")
+                if self._analysis_turn_options:
+                    selected_turn = self._safe_select_value(
+                        self._analysis_turn_options,
+                        str(self._analysis_selected_turn) if self._analysis_selected_turn is not None else None,
+                    )
+                    yield Select(
+                        self._analysis_turn_options,
+                        value=selected_turn,
+                        id="analysis_turn_selector",
+                    )
+                else:
+                    yield Static("[dim]No turns found for selected log[/]", markup=True)
+
+                preview_text = self._analysis_preview_text or "Preview unavailable for this selection."
+                yield Static(preview_text, id="analysis_preview")
+
+                yield Button("View Analysis Report", id="view_analysis_btn", variant="primary")
+                yield Button("Manage Skills", id="open_skills_btn", variant="default")
 
             yield Button("Close", id="close_btn", variant="default")
 
@@ -381,18 +521,8 @@ class PlanOptionsPopover(Widget):
             self._plan_details_widget.update(f"[red]Error loading plan: {e}[/]")
 
     def show(self) -> None:
-        """Show the popover positioned on the right side."""
+        """Show the popover."""
         _popover_log(f"show() called, current classes: {list(self.classes)}")
-
-        # Calculate right-side position based on screen width
-        if self.app and self.app.size:
-            screen_width = self.app.size.width
-            popover_width = 70  # Match CSS width
-            right_margin = 10
-            # Clamp to non-negative to prevent popover from rendering off left edge
-            offset_x = max(0, screen_width - popover_width - right_margin)
-            self.styles.offset = (offset_x, 0)
-            _popover_log(f"  Positioned at offset_x={offset_x} (screen={screen_width})")
 
         self.add_class("visible")
         _popover_log(f"show() after add_class, classes: {list(self.classes)}")
@@ -516,6 +646,26 @@ class PlanOptionsPopover(Widget):
             # Convert "off" back to False
             broadcast = False if value == "off" else value
             self.post_message(BroadcastModeChanged(broadcast))
+        elif selector_id == "analysis_profile_selector":
+            profile = str(event.value)
+            if profile == self._analysis_profile:
+                return
+            self._analysis_profile = profile
+            self.post_message(AnalysisProfileChanged(profile))
+        elif selector_id == "analysis_log_selector":
+            log_dir = str(event.value)
+            if log_dir == self._analysis_selected_log_dir:
+                return
+            self._analysis_selected_log_dir = log_dir
+            # turn=None signals app to pick latest valid turn for this log
+            self.post_message(AnalysisTargetChanged(log_dir, None))
+        elif selector_id == "analysis_turn_selector":
+            turn_raw = str(event.value)
+            turn = int(turn_raw) if turn_raw.isdigit() else None
+            if turn == self._analysis_selected_turn:
+                return
+            self._analysis_selected_turn = turn
+            self.post_message(AnalysisTargetChanged(self._analysis_selected_log_dir, turn))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
@@ -524,6 +674,12 @@ class PlanOptionsPopover(Widget):
             event.stop()
         elif event.button.id == "view_plan_btn":
             self._handle_view_plan()
+            event.stop()
+        elif event.button.id == "view_analysis_btn":
+            self._handle_view_analysis()
+            event.stop()
+        elif event.button.id == "open_skills_btn":
+            self.post_message(OpenSkillsRequested())
             event.stop()
 
     def _handle_view_plan(self) -> None:
@@ -565,3 +721,17 @@ class PlanOptionsPopover(Widget):
 
         except Exception as e:
             _popover_log(f"  -> error loading plan: {e}")
+
+    def _handle_view_analysis(self) -> None:
+        """Emit an event to open the selected analysis report."""
+        if not self._analysis_selected_log_dir:
+            return
+        if self._analysis_selected_turn is None:
+            return
+        self.post_message(
+            ViewAnalysisRequested(
+                self._analysis_selected_log_dir,
+                int(self._analysis_selected_turn),
+            ),
+        )
+        self.hide()

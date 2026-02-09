@@ -575,6 +575,9 @@ Full multi-agent configuration demonstrating all 6 configuration levels:
      max_new_answers_per_agent: 2           # Cap new answers per agent (null=unlimited)
      max_new_answers_global: 8              # Cap total new answers across all agents (null=unlimited)
      answer_novelty_requirement: "balanced" # How different new answers must be (lenient/balanced/strict)
+     fairness_enabled: true                 # Keep coordination pacing balanced (default: true)
+     fairness_lead_cap_answers: 2           # Max lead in answer revisions vs slowest active peer
+     max_midstream_injections_per_round: 2  # Cap injected unseen source updates per round
 
      # Advanced settings
      skip_coordination_rounds: false        # Normal coordination
@@ -1038,6 +1041,8 @@ Voting and Answer Control
 
 These parameters control coordination behavior to balance quality and duration.
 
+Fairness controls are designed to solve a common multi-agent failure mode: fast agents can repeatedly submit revisions while slower peers are still working, which creates uneven effort, restart churn, and noisy coordination loops. With fairness enabled (default), agents stay within a bounded revision lead and wait for peer updates before terminal decisions.
+
 .. list-table::
    :header-rows: 1
 
@@ -1061,6 +1066,18 @@ These parameters control coordination behavior to balance quality and duration.
      - string
      - No
      - Controls how different new answers must be from existing ones to prevent rephrasing. **Options:** ``"lenient"`` (default) - no similarity checks (fastest); ``"balanced"`` - reject if >70% token overlap, requires meaningful differences; ``"strict"`` - reject if >50% token overlap, requires substantially different solutions.
+   * - ``fairness_enabled``
+     - boolean
+     - No
+     - Enable fairness pacing controls across both ``coordination_mode: voting`` and ``coordination_mode: decomposition``. **Default:** ``true``.
+   * - ``fairness_lead_cap_answers``
+     - integer
+     - No
+     - Maximum allowed lead in answer revisions over the slowest active peer. When exceeded, ``new_answer`` is blocked until peers catch up. **Default:** ``2`` (set ``0`` for strict lockstep).
+   * - ``max_midstream_injections_per_round``
+     - integer
+     - No
+     - Maximum unseen source-agent updates injected mid-stream into a single agent during one round. Helps prevent fast models from receiving runaway update fanout. **Default:** ``2``.
 
 **Example Configurations:**
 
@@ -1073,6 +1090,9 @@ Fast but thorough (recommended for balanced evaluation):
      max_new_answers_per_agent: 2         # But cap at 2 tries
      max_new_answers_global: 8            # Stop global churn in long runs
      answer_novelty_requirement: "balanced"  # Must actually improve
+     fairness_enabled: true
+     fairness_lead_cap_answers: 2
+     max_midstream_injections_per_round: 2
 
 Maximum quality with bounded time:
 
@@ -1107,6 +1127,9 @@ Decomposition mode (recommended defaults):
      # Add a global cap for deterministic total coordination budget.
      max_new_answers_global: 9
      answer_novelty_requirement: "balanced"
+     fairness_enabled: true
+     fairness_lead_cap_answers: 2
+     max_midstream_injections_per_round: 2
 
 Timeout Configuration
 ~~~~~~~~~~~~~~~~~~~~~

@@ -1,23 +1,37 @@
 # -*- coding: utf-8 -*-
-"""
-Test LangGraph Lesson Planner Tool
-Tests the interoperability feature where LangGraph state graph is wrapped as a MassGen custom tool.
-"""
+"""Tests for the LangGraph lesson planner tool wrapper."""
 
 import asyncio
 import os
-import sys
-from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
-from massgen.tool._extraframework_agents.langgraph_lesson_planner_tool import (  # noqa: E402
+from massgen.tool._extraframework_agents.langgraph_lesson_planner_tool import (
     langgraph_lesson_planner,
 )
-from massgen.tool._result import ExecutionResult  # noqa: E402
+from massgen.tool._result import ExecutionResult, TextContent
+
+
+def _build_prompt(topic: str) -> list[dict[str, str]]:
+    return [{"role": "user", "content": f"Create a fourth grade lesson plan for {topic}."}]
+
+
+async def _fake_langgraph_runner(messages, api_key):
+    topic = messages[0]["content"] if messages else "unknown topic"
+    yield {"type": "log", "content": f"Generating lesson plan for {topic}"}
+    yield {"type": "output", "content": f"Lesson plan for {topic}"}
+
+
+async def _collect_outputs(generator):
+    outputs = []
+    logs = []
+    async for result in generator:
+        if getattr(result, "is_log", False):
+            logs.append(result)
+        else:
+            outputs.append(result)
+    return outputs, logs
 
 
 class TestLangGraphLessonPlannerTool:
@@ -26,107 +40,96 @@ class TestLangGraphLessonPlannerTool:
     @pytest.mark.asyncio
     async def test_basic_lesson_plan_creation(self):
         """Test basic lesson plan creation with a simple topic."""
-        # Skip if no API key
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            pytest.skip("OPENAI_API_KEY not set")
+        with (
+            patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}),
+            patch(
+                "massgen.tool._extraframework_agents.langgraph_lesson_planner_tool.run_langgraph_lesson_planner_agent",
+                new=_fake_langgraph_runner,
+            ),
+        ):
+            outputs, logs = await _collect_outputs(langgraph_lesson_planner(prompt=_build_prompt("photosynthesis")))
 
-        # Test with a simple topic
-        result = await langgraph_lesson_planner(topic="photosynthesis", api_key=api_key)
-
-        # Verify result structure
+        assert len(outputs) >= 1
+        assert len(logs) >= 1
+        result = outputs[-1]
         assert isinstance(result, ExecutionResult)
         assert len(result.output_blocks) > 0
-        # Check that the result doesn't contain an error
         assert not result.output_blocks[0].data.startswith("Error:")
-
-        # Verify lesson plan contains expected elements
-        lesson_plan = result.output_blocks[0].data
-        assert "photosynthesis" in lesson_plan.lower()
+        assert "photosynthesis" in result.output_blocks[0].data.lower()
 
     @pytest.mark.asyncio
     async def test_lesson_plan_with_env_api_key(self):
         """Test lesson plan creation using environment variable for API key."""
-        # Skip if no API key
-        if not os.getenv("OPENAI_API_KEY"):
-            pytest.skip("OPENAI_API_KEY not set")
+        with (
+            patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}),
+            patch(
+                "massgen.tool._extraframework_agents.langgraph_lesson_planner_tool.run_langgraph_lesson_planner_agent",
+                new=_fake_langgraph_runner,
+            ),
+        ):
+            outputs, _ = await _collect_outputs(langgraph_lesson_planner(prompt=_build_prompt("fractions")))
 
-        # Test without passing api_key parameter (should use env var)
-        result = await langgraph_lesson_planner(topic="fractions")
-
+        result = outputs[-1]
         assert isinstance(result, ExecutionResult)
         assert len(result.output_blocks) > 0
-        # Check that the result doesn't contain an error
         assert not result.output_blocks[0].data.startswith("Error:")
 
     @pytest.mark.asyncio
     async def test_missing_api_key_error(self):
         """Test error handling when API key is missing."""
-        # Temporarily save and remove env var
-        original_key = os.environ.get("OPENAI_API_KEY")
-        if "OPENAI_API_KEY" in os.environ:
-            del os.environ["OPENAI_API_KEY"]
+        with patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
+            outputs, _ = await _collect_outputs(langgraph_lesson_planner(prompt=_build_prompt("test topic")))
 
-        try:
-            # The tool uses prompt parameter with message list format (injected via context_params)
-            messages = [{"role": "user", "content": "test topic"}]
-            result = None
-            async for res in langgraph_lesson_planner(prompt=messages):
-                result = res
-                break  # Get first result which should be the error
-
-            # Should return error result
-            assert isinstance(result, ExecutionResult)
-            assert result.output_blocks[0].data.startswith("Error:")
-            assert "OPENAI_API_KEY not found" in result.output_blocks[0].data
-        finally:
-            # Restore env var
-            if original_key:
-                os.environ["OPENAI_API_KEY"] = original_key
+        assert len(outputs) == 1
+        result = outputs[0]
+        assert isinstance(result, ExecutionResult)
+        assert result.output_blocks[0].data.startswith("Error:")
+        assert "OPENAI_API_KEY not found" in result.output_blocks[0].data
 
     @pytest.mark.asyncio
     async def test_different_topics(self):
         """Test lesson plan creation with different topics."""
-        # Skip if no API key
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            pytest.skip("OPENAI_API_KEY not set")
-
         topics = ["addition", "animals", "water cycle"]
 
-        for topic in topics:
-            result = await langgraph_lesson_planner(topic=topic, api_key=api_key)
-
-            assert isinstance(result, ExecutionResult)
-            assert len(result.output_blocks) > 0
-            # Check that the result doesn't contain an error
-            assert not result.output_blocks[0].data.startswith("Error:")
-            assert topic.lower() in result.output_blocks[0].data.lower()
+        with (
+            patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}),
+            patch(
+                "massgen.tool._extraframework_agents.langgraph_lesson_planner_tool.run_langgraph_lesson_planner_agent",
+                new=_fake_langgraph_runner,
+            ),
+        ):
+            for topic in topics:
+                outputs, _ = await _collect_outputs(langgraph_lesson_planner(prompt=_build_prompt(topic)))
+                result = outputs[-1]
+                assert isinstance(result, ExecutionResult)
+                assert len(result.output_blocks) > 0
+                assert not result.output_blocks[0].data.startswith("Error:")
+                assert topic.lower() in result.output_blocks[0].data.lower()
 
     @pytest.mark.asyncio
     async def test_concurrent_lesson_plan_creation(self):
         """Test creating multiple lesson plans concurrently."""
-        # Skip if no API key
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            pytest.skip("OPENAI_API_KEY not set")
-
         topics = ["math", "science", "reading"]
 
-        # Create tasks for concurrent execution
-        tasks = [langgraph_lesson_planner(topic=topic, api_key=api_key) for topic in topics]
+        async def _run_topic(topic: str):
+            outputs, _ = await _collect_outputs(langgraph_lesson_planner(prompt=_build_prompt(topic)))
+            return outputs[-1]
 
-        # Execute concurrently
-        results = await asyncio.gather(*tasks)
+        with (
+            patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}),
+            patch(
+                "massgen.tool._extraframework_agents.langgraph_lesson_planner_tool.run_langgraph_lesson_planner_agent",
+                new=_fake_langgraph_runner,
+            ),
+        ):
+            results = await asyncio.gather(*[_run_topic(topic) for topic in topics])
 
-        # Verify all results
         assert len(results) == len(topics)
-        for i, result in enumerate(results):
+        for topic, result in zip(topics, results):
             assert isinstance(result, ExecutionResult)
             assert len(result.output_blocks) > 0
-            # Check that the result doesn't contain an error
             assert not result.output_blocks[0].data.startswith("Error:")
-            assert topics[i].lower() in result.output_blocks[0].data.lower()
+            assert topic.lower() in result.output_blocks[0].data.lower()
 
 
 class TestLangGraphToolIntegration:
@@ -154,22 +157,20 @@ class TestLangGraphToolIntegration:
     @pytest.mark.asyncio
     async def test_execution_result_structure(self):
         """Test that the returned ExecutionResult has the correct structure."""
-        # Skip if no API key
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            pytest.skip("OPENAI_API_KEY not set")
+        with (
+            patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}),
+            patch(
+                "massgen.tool._extraframework_agents.langgraph_lesson_planner_tool.run_langgraph_lesson_planner_agent",
+                new=_fake_langgraph_runner,
+            ),
+        ):
+            outputs, _ = await _collect_outputs(langgraph_lesson_planner(prompt=_build_prompt("test")))
 
-        result = await langgraph_lesson_planner(topic="test", api_key=api_key)
-
-        # Verify ExecutionResult structure
+        result = outputs[-1]
         assert hasattr(result, "output_blocks")
         assert isinstance(result.output_blocks, list)
         assert len(result.output_blocks) > 0
-        # Check that the result doesn't contain an error
         assert not result.output_blocks[0].data.startswith("Error:")
-
-        # Verify TextContent structure
-        from massgen.tool._result import TextContent
 
         assert isinstance(result.output_blocks[0], TextContent)
         assert hasattr(result.output_blocks[0], "data")
@@ -219,12 +220,3 @@ class TestLangGraphToolWithBackend:
         assert langgraph_schema is not None
         assert langgraph_schema["type"] == "function"
         assert "parameters" in langgraph_schema["function"]
-
-
-# ============================================================================
-# Run tests
-# ============================================================================
-
-if __name__ == "__main__":
-    # Run pytest
-    pytest.main([__file__, "-v"])

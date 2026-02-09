@@ -512,6 +512,7 @@ Sensible defaults guidance:
 * Usually this is lower than fully parallel voting mode settings.
 * Add ``max_new_answers_global`` for deterministic total coordination budget.
 * Keep other answer-control parameters at defaults unless you need stricter behavior.
+* Keep fairness defaults enabled (``fairness_enabled: true``, ``fairness_lead_cap_answers: 2``, ``max_midstream_injections_per_round: 2``) to prevent fast agents from repeatedly lapping slower peers and causing restart churn.
 
 Quickstart note:
 

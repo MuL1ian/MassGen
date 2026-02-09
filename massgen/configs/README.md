@@ -227,7 +227,23 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.48 - Latest
+### v0.1.49 - Latest
+**New Features:** Log Analysis TUI Mode, Fairness Gate, Checklist Voting, Testing Infrastructure
+
+**Key Features:**
+- **Log Analysis in TUI**: New "Analyzing" mode in TUI mode bar for in-app run analysis with configurable profiles
+- **Fairness Gate**: Prevents fast agents from dominating coordination with configurable lead caps
+- **Checklist Voting**: Structured quality evaluation with binary pass/fail scoring via MCP server
+- **Skills Modal**: TUI modal for discovering and toggling skills in interactive mode
+- **Persona Easing in TUI**: Persona easing toggle now available in the TUI mode bar
+
+**Try It:**
+```bash
+# Launch and cycle to Analysis mode via the TUI mode bar
+uv run massgen
+```
+
+### v0.1.48
 **New Features:** Decomposition Mode, Worktree Isolation, Quickstart Docker Setup
 
 **Key Features:**
@@ -998,7 +1014,7 @@ uv run massgen --config massgen/configs/providers/gemini/gemini_3_pro.yaml \
 **Key Features:**
 - **Code-Based Tools (CodeAct Paradigm)**: Revolutionary tool integration via importable Python code, reducing token usage by 98%
 - **MCP Server Registry**: Auto-discovery and intelligent tool routing with on-demand loading
-- **Skills Installation System**: Cross-platform automated installer for openskills CLI, Anthropic skills, and Crawl4AI
+- **Skills Installation System**: Cross-platform automated installer for openskills CLI, Anthropic/OpenAI/Vercel skills, Agent Browser skill, and Crawl4AI
 - **NLIP Integration**: Advanced tool routing with Natural Language Interface Protocol across all backends
 - **Shared Tools Directory**: Tools generated once and shared across all agents to avoid duplication
 - **Auto-Discover Custom Tools**: Automatically discover and load all tools from `massgen/tool/` directory
@@ -1011,7 +1027,7 @@ uv run massgen --config massgen/configs/providers/gemini/gemini_3_pro.yaml \
 pip install --upgrade massgen
 
 # Automated Skills Installation - cross-platform setup
-massgen --setup-skills  # Installs openskills CLI, Anthropic skills, and Crawl4AI
+massgen --setup-skills  # Installs openskills CLI, Anthropic/OpenAI/Vercel skills, Agent Browser skill, and Crawl4AI
 
 # Code-Based Tools with Auto-Discovery - demonstrates 98% context reduction
 # Prerequisites: Docker running, .env file with API keys (OPENAI_API_KEY, GOOGLE_API_KEY, etc.)

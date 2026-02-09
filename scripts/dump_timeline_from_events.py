@@ -5,12 +5,15 @@
 Replays events through the same pipeline as the live TUI, including
 agent_id filtering, round-banner dedup, and status filtering.
 
-Two modes:
+Three modes:
   Text mode (default) — dumps a transcript of what the TUI renders:
     uv run python scripts/dump_timeline_from_events.py /path/to/events.jsonl [agent_id]
 
-  TUI mode — visual replay with real Textual widgets:
+  TUI mode (`--tui`) — lightweight visual replay around TimelineSection:
     uv run python scripts/dump_timeline_from_events.py --tui /path/to/events.jsonl [agent_id]
+
+  Real TUI mode (`--tui-real`) — replays through the full runtime TextualApp shell:
+    uv run python scripts/dump_timeline_from_events.py --tui-real /path/to/events.jsonl [agent_id]
 
 If agent_id is omitted, auto-detects real agents (excludes orchestrator/None).
 """
@@ -18,12 +21,19 @@ If agent_id is omitted, auto-detects real agents (excludes orchestrator/None).
 from __future__ import annotations
 
 import json
+import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from massgen.events import MassGenEvent
 from massgen.frontend.displays.timeline_event_recorder import TimelineEventRecorder
+
+USAGE = "Usage: dump_timeline_from_events.py [--tui|--tui-real] /path/to/events.jsonl [agent_id]"
+DEFAULT_REAL_TUI_SPEED = 8.0
+MIN_REAL_TUI_DELAY = 0.05
+MAX_REAL_TUI_DELAY = 0.75
 
 
 def load_events(path: Path) -> list[MassGenEvent]:
@@ -57,6 +67,93 @@ def detect_agent_ids(events: list[MassGenEvent]) -> set[str]:
         if aid and aid not in ("orchestrator",):
             agents.add(aid)
     return agents
+
+
+def parse_mode_flags(args: list[str]) -> tuple[str, list[str]]:
+    """Parse replay mode flags and return `(mode, remaining_args)`."""
+    flag_to_mode = {
+        "--tui": "tui",
+        "--tui-real": "tui_real",
+    }
+    selected_flags = [flag for flag in flag_to_mode if flag in args]
+    if len(selected_flags) > 1:
+        raise ValueError("Use either --tui or --tui-real, not both.")
+
+    mode = flag_to_mode[selected_flags[0]] if selected_flags else "text"
+    filtered_args = [arg for arg in args if arg not in flag_to_mode]
+    return mode, filtered_args
+
+
+def _parse_event_timestamp(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    normalized = value.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
+def _compute_replay_delay(previous_event: MassGenEvent, next_event: MassGenEvent, speed: float) -> float:
+    prev_ts = _parse_event_timestamp(previous_event.timestamp)
+    next_ts = _parse_event_timestamp(next_event.timestamp)
+    if prev_ts is None or next_ts is None:
+        return 0.18
+
+    delta_seconds = max(0.0, (next_ts - prev_ts).total_seconds())
+    scaled = delta_seconds / max(speed, 0.1)
+    return max(MIN_REAL_TUI_DELAY, min(MAX_REAL_TUI_DELAY, scaled))
+
+
+def _get_real_tui_speed() -> float:
+    raw = os.environ.get("MASSGEN_TUI_REPLAY_SPEED", str(DEFAULT_REAL_TUI_SPEED))
+    try:
+        value = float(raw)
+    except ValueError:
+        return DEFAULT_REAL_TUI_SPEED
+    return value if value > 0 else DEFAULT_REAL_TUI_SPEED
+
+
+def _derive_question(events: list[MassGenEvent], agent_ids: set[str]) -> str:
+    for event in events:
+        if event.agent_id not in agent_ids:
+            continue
+        if event.event_type != "text" or not isinstance(event.data, dict):
+            continue
+        content = str(event.data.get("content", "")).strip()
+        if content:
+            first_line = content.splitlines()[0].strip()
+            if first_line:
+                return first_line
+    return "Synthetic event replay (no API calls)"
+
+
+def _derive_agent_models(events: list[MassGenEvent], agent_ids: set[str]) -> dict[str, str]:
+    models = {agent_id: "synthetic-replay" for agent_id in sorted(agent_ids)}
+    for event in events:
+        agent_id = event.agent_id
+        if agent_id not in models or not isinstance(event.data, dict):
+            continue
+        candidate = event.data.get("model") or event.data.get("model_name")
+        if isinstance(candidate, str) and candidate.strip():
+            models[agent_id] = candidate.strip()
+    return models
+
+
+def filter_replay_events(events: list[MassGenEvent], agent_ids: set[str]) -> list[MassGenEvent]:
+    """Keep events relevant for replay, applying the same skips as live TUI."""
+    filtered: list[MassGenEvent] = []
+    for event in events:
+        if event.event_type in ("timeline_entry", "stream_chunk"):
+            continue
+
+        if event.agent_id is None:
+            filtered.append(event)
+            continue
+
+        if event.agent_id in agent_ids:
+            filtered.append(event)
+    return filtered
 
 
 # ─── Text mode ───────────────────────────────────────────────────────────
@@ -214,22 +311,117 @@ def run_tui(events: list[MassGenEvent], agent_ids: set[str]) -> int:
     return 0
 
 
+def run_tui_real(events: list[MassGenEvent], agent_ids: set[str]) -> int:
+    """Replay events through the full runtime TextualApp shell."""
+    from textual import events as textual_events
+    from textual.binding import Binding
+    from textual.widgets import Label, Static
+
+    from massgen.frontend.displays import (
+        textual_terminal_display as textual_display_module,
+    )
+    from massgen.frontend.displays.textual_terminal_display import (
+        TextualTerminalDisplay,
+    )
+
+    agents = sorted(agent_ids)
+    replay_events = filter_replay_events(events, agent_ids)
+    replay_speed = _get_real_tui_speed()
+
+    display = TextualTerminalDisplay(
+        agents,
+        agent_models=_derive_agent_models(events, agent_ids),
+        theme="dark",
+    )
+
+    class RealEventReplayApp(textual_display_module.TextualApp):
+        BINDINGS = [*textual_display_module.TextualApp.BINDINGS, Binding("q", "quit", "Quit", show=False)]
+
+        def __init__(self):
+            super().__init__(
+                display=display,
+                question=_derive_question(events, agent_ids),
+                buffers=display._buffers,
+                buffer_lock=display._buffer_lock,
+                buffer_flush_interval=display.buffer_flush_interval,
+            )
+            self._replay_index = 0
+
+        async def on_mount(self) -> None:
+            await super().on_mount()
+            self.title = "Event Replay (Real TUI)"
+            self._prime_shell_for_replay()
+            self.set_timer(0.05, self._replay_next_event)
+
+        def on_key(self, event: textual_events.Key) -> None:
+            if event.key == "q":
+                self.exit()
+                event.stop()
+                return
+            super().on_key(event)
+
+        def _prime_shell_for_replay(self) -> None:
+            for panel in self.agent_widgets.values():
+                try:
+                    panel._hide_loading()
+                except Exception:
+                    pass
+
+            try:
+                self.query_one("#status_cwd", Static).update("[dim]📁[/] /workspace")
+            except Exception:
+                pass
+            try:
+                self.query_one("#timeout_display", Label).update("⏱ 0:00 / 10:00")
+            except Exception:
+                pass
+
+            try:
+                if self.question_input:
+                    self.question_input.can_focus = False
+            except Exception:
+                pass
+
+            # Keep focus off input so "q" works as a quick exit key for replay.
+            self.set_focus(None)
+
+        def _replay_next_event(self) -> None:
+            if self._replay_index >= len(replay_events):
+                return
+
+            current_event = replay_events[self._replay_index]
+            self._replay_index += 1
+            self._route_event_batch([current_event])
+
+            for adapter in self._event_adapters.values():
+                adapter.flush()
+
+            if self._replay_index >= len(replay_events):
+                return
+
+            next_event = replay_events[self._replay_index]
+            delay = _compute_replay_delay(current_event, next_event, replay_speed)
+            self.set_timer(delay, self._replay_next_event)
+
+    app = RealEventReplayApp()
+    display._app = app
+    app.run()
+    return 0
+
+
 # ─── Main ─────────────────────────────────────────────────────────────────
 
 
 def main() -> int:
-    args = sys.argv[1:]
-    tui_mode = False
-
-    if "--tui" in args:
-        tui_mode = True
-        args.remove("--tui")
+    try:
+        mode, args = parse_mode_flags(sys.argv[1:])
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        print(USAGE, file=sys.stderr)
+        return 1
 
     if not args:
-        print(
-            "Usage: dump_timeline_from_events.py [--tui] /path/to/events.jsonl [agent_id]",
-            file=sys.stderr,
-        )
+        print(USAGE, file=sys.stderr)
         return 1
 
     path = Path(args[0])
@@ -246,10 +438,11 @@ def main() -> int:
         print("No agents found in events.", file=sys.stderr)
         return 1
 
-    if tui_mode:
+    if mode == "tui":
         return run_tui(events, agent_ids)
-    else:
-        return run_text(events, agent_ids)
+    if mode == "tui_real":
+        return run_tui_real(events, agent_ids)
+    return run_text(events, agent_ids)
 
 
 if __name__ == "__main__":
