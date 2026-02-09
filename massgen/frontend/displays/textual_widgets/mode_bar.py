@@ -2,13 +2,15 @@
 """
 Mode Bar Widget for MassGen TUI.
 
-Provides a horizontal bar with mode toggles for plan/analyze mode, agent mode,
+Provides a responsive mode bar with toggles for plan/analyze mode, agent mode,
 coordination mode, refinement mode, and override functionality.
 """
 
 from typing import TYPE_CHECKING, Optional
 
+from textual import events
 from textual.app import ComposeResult
+from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widget import Widget
@@ -64,6 +66,10 @@ class SubtasksClicked(Message):
     """Message emitted when subtasks button is clicked."""
 
 
+class SkillsClicked(Message):
+    """Message emitted when skills button is clicked."""
+
+
 def _mode_log(msg: str) -> None:
     """Log to TUI debug file."""
     try:
@@ -107,6 +113,14 @@ class ModeToggle(Static):
         "personas": {"off": "Personas OFF", "on": "Personas"},
     }
 
+    COMPACT_LABELS = {
+        "plan": {"normal": "Norm", "plan": "Plan", "execute": "Exec", "analysis": "Analyze"},
+        "agent": {"multi": "Multi", "single": "Single"},
+        "coordination": {"parallel": "Par", "decomposition": "Decomp"},
+        "refinement": {"on": "Refine", "off": "Refine Off"},
+        "personas": {"off": "Persona Off", "on": "Persona"},
+    }
+
     def __init__(
         self,
         mode_type: str,
@@ -130,6 +144,7 @@ class ModeToggle(Static):
         self._states = states
         self._current_state = initial_state
         self._enabled = True
+        self._compact = False
 
     def on_mount(self) -> None:
         """Apply initial style class on mount."""
@@ -138,8 +153,13 @@ class ModeToggle(Static):
     def render(self) -> str:
         """Render the toggle button."""
         icon = self.ICONS.get(self.mode_type, {}).get(self._current_state, "⚙️")
-        label = self.LABELS.get(self.mode_type, {}).get(self._current_state, self._current_state)
-        return f" {icon} {label} "
+        labels = self.COMPACT_LABELS if self._compact else self.LABELS
+        label_map = labels.get(self.mode_type, {})
+        label = label_map.get(self._current_state, self._current_state)
+        # Keep a stable width across state transitions so longer plan labels
+        # (Planning/Executing/Analyzing) remain fully visible.
+        max_label_width = max((len(value) for value in label_map.values()), default=len(label))
+        return f" {icon} {label.ljust(max_label_width)} "
 
     def set_state(self, state: str) -> None:
         """Set the toggle state.
@@ -167,6 +187,13 @@ class ModeToggle(Static):
             self.remove_class("disabled")
         else:
             self.add_class("disabled")
+
+    def set_compact(self, compact: bool) -> None:
+        """Toggle compact labels for narrow terminals."""
+        if self._compact == compact:
+            return
+        self._compact = compact
+        self.refresh(layout=True)
 
     def _update_style(self) -> None:
         """Update CSS classes based on current state."""
@@ -208,7 +235,7 @@ class ModeToggle(Static):
 
 
 class ModeBar(Widget):
-    """Horizontal bar with mode toggles positioned above the input area.
+    """Responsive mode bar with toggles positioned above the input area.
 
     Contains toggles for:
     - Plan/analyze mode: normal → plan → execute → analysis
@@ -217,6 +244,7 @@ class ModeBar(Widget):
     - Coordination mode: parallel ↔ decomposition
     - Personas toggle (parallel mode only)
     - Subtasks button (shown in decomposition mode)
+    - Skills button (shown when skills are available)
     - Help button for mode bar explanations
     - Override button (shown when override is available)
     """
@@ -241,6 +269,7 @@ class ModeBar(Widget):
         self._refinement_toggle: Optional[ModeToggle] = None
         self._persona_toggle: Optional[ModeToggle] = None
         self._subtasks_btn: Optional[Button] = None
+        self._skills_btn: Optional[Button] = None
         self._mode_help_btn: Optional[Button] = None
         self._override_btn: Optional[Button] = None
         self._plan_info: Optional[Label] = None
@@ -249,80 +278,166 @@ class ModeBar(Widget):
 
     def compose(self) -> ComposeResult:
         """Create mode bar contents."""
-        # Plan mode toggle
-        self._plan_toggle = ModeToggle(
-            mode_type="plan",
-            initial_state="normal",
-            states=["normal", "plan", "execute", "analysis"],
-            id="plan_toggle",
+        with Vertical(id="mode_rows"):
+            with Horizontal(id="mode_row_primary"):
+                # Plan mode toggle
+                self._plan_toggle = ModeToggle(
+                    mode_type="plan",
+                    initial_state="normal",
+                    states=["normal", "plan", "execute", "analysis"],
+                    id="plan_toggle",
+                )
+                yield self._plan_toggle
+
+                # Agent mode toggle
+                self._agent_toggle = ModeToggle(
+                    mode_type="agent",
+                    initial_state="multi",
+                    states=["multi", "single"],
+                    id="agent_toggle",
+                )
+                yield self._agent_toggle
+
+                # Refinement mode toggle
+                self._refinement_toggle = ModeToggle(
+                    mode_type="refinement",
+                    initial_state="on",
+                    states=["on", "off"],
+                    id="refinement_toggle",
+                )
+                yield self._refinement_toggle
+
+                # Coordination mode toggle (parallel voting vs decomposition subtasks)
+                self._coordination_toggle = ModeToggle(
+                    mode_type="coordination",
+                    initial_state="parallel",
+                    states=["parallel", "decomposition"],
+                    id="coordination_toggle",
+                )
+                yield self._coordination_toggle
+
+            with Horizontal(id="mode_row_secondary"):
+                # Parallel persona generation toggle (off by default)
+                self._persona_toggle = ModeToggle(
+                    mode_type="personas",
+                    initial_state="off",
+                    states=["off", "on"],
+                    id="persona_toggle",
+                )
+                yield self._persona_toggle
+
+                # Subtasks editor button (decomposition mode only)
+                self._subtasks_btn = Button("Subtasks", id="subtasks_btn", variant="default")
+                self._subtasks_btn.add_class("hidden")
+                yield self._subtasks_btn
+
+                # Skills manager button (shown when skills are available)
+                self._skills_btn = Button("Skills", id="skills_btn", variant="default")
+                self._skills_btn.add_class("hidden")
+                yield self._skills_btn
+
+                # Plan settings button (hidden when plan mode is "normal")
+                self._plan_settings_btn = Button("⋮", id="plan_settings_btn", variant="default")
+                self._plan_settings_btn.add_class("hidden")
+                yield self._plan_settings_btn
+
+                # Mode bar help button
+                self._mode_help_btn = Button("?", id="mode_help_btn", variant="default")
+                yield self._mode_help_btn
+
+                # Plan info (shown when executing plan)
+                self._plan_info = Label("", id="plan_info")
+                yield self._plan_info
+
+                # Spacer to push status and override button to the right
+                yield Static("", id="mode_spacer")
+
+                # Plan status text (right-aligned, shows plan being executed)
+                self._plan_status = Static("", id="plan_status", classes="hidden")
+                yield self._plan_status
+
+                # Override button (hidden by default)
+                self._override_btn = Button("Override [Ctrl+O]", id="override_btn", variant="warning")
+                self._override_btn.add_class("hidden")
+                yield self._override_btn
+
+    def on_mount(self) -> None:
+        """Initialize responsive labels once layout is available."""
+        self.call_after_refresh(self._refresh_responsive_labels)
+
+    def on_resize(self, event: events.Resize) -> None:
+        """Keep toggle labels readable on narrow terminals."""
+        del event
+        self._refresh_responsive_labels()
+
+    def _refresh_responsive_labels(self) -> None:
+        """Switch to compact labels and shorter button text when constrained."""
+        width = self.size.width
+        if width <= 0 and self.app is not None:
+            width = self.app.size.width
+        compact_labels = width < 92
+
+        for toggle in (
+            self._plan_toggle,
+            self._agent_toggle,
+            self._coordination_toggle,
+            self._refinement_toggle,
+            self._persona_toggle,
+        ):
+            if toggle:
+                toggle.set_compact(compact_labels)
+
+        if self._subtasks_btn:
+            self._subtasks_btn.label = "Tasks" if compact_labels else "Subtasks"
+        if self._override_btn:
+            self._override_btn.label = "Override" if compact_labels else "Override [Ctrl+O]"
+
+        # Prefer a single row when controls can fit; stack only when necessary.
+        required_width = self._measure_control_width()
+        if width > 0 and required_width > 0:
+            stacked_layout = required_width > max(0, width - 4)
+        else:
+            # Conservative fallback during initial mount before regions settle.
+            stacked_layout = width < 104
+
+        if stacked_layout:
+            self.add_class("compact-layout")
+        else:
+            self.remove_class("compact-layout")
+
+    def _measure_control_width(self) -> int:
+        """Measure total width of visible interactive controls."""
+        controls = (
+            self._plan_toggle,
+            self._agent_toggle,
+            self._refinement_toggle,
+            self._coordination_toggle,
+            self._persona_toggle,
+            self._subtasks_btn,
+            self._skills_btn,
+            self._plan_settings_btn,
+            self._mode_help_btn,
+            self._override_btn,
         )
-        yield self._plan_toggle
 
-        # Agent mode toggle
-        self._agent_toggle = ModeToggle(
-            mode_type="agent",
-            initial_state="multi",
-            states=["multi", "single"],
-            id="agent_toggle",
-        )
-        yield self._agent_toggle
+        total = 0
+        for control in controls:
+            if control is None:
+                continue
+            if control.has_class("hidden"):
+                continue
+            if control.region.width > 0:
+                total += control.region.width
+                continue
+            # Fallback estimate before first layout pass.
+            if isinstance(control, ModeToggle):
+                total += len(str(control.render()))
+            elif isinstance(control, Button):
+                total += len(str(control.label)) + 4
+            else:
+                total += 8
 
-        # Refinement mode toggle
-        self._refinement_toggle = ModeToggle(
-            mode_type="refinement",
-            initial_state="on",
-            states=["on", "off"],
-            id="refinement_toggle",
-        )
-        yield self._refinement_toggle
-
-        # Coordination mode toggle (parallel voting vs decomposition subtasks)
-        self._coordination_toggle = ModeToggle(
-            mode_type="coordination",
-            initial_state="parallel",
-            states=["parallel", "decomposition"],
-            id="coordination_toggle",
-        )
-        yield self._coordination_toggle
-
-        # Parallel persona generation toggle (off by default)
-        self._persona_toggle = ModeToggle(
-            mode_type="personas",
-            initial_state="off",
-            states=["off", "on"],
-            id="persona_toggle",
-        )
-        yield self._persona_toggle
-
-        # Subtasks editor button (decomposition mode only)
-        self._subtasks_btn = Button("Subtasks", id="subtasks_btn", variant="default")
-        self._subtasks_btn.add_class("hidden")
-        yield self._subtasks_btn
-
-        # Plan settings button (hidden when plan mode is "normal")
-        self._plan_settings_btn = Button("⋮", id="plan_settings_btn", variant="default")
-        self._plan_settings_btn.add_class("hidden")
-        yield self._plan_settings_btn
-
-        # Mode bar help button
-        self._mode_help_btn = Button("?", id="mode_help_btn", variant="default")
-        yield self._mode_help_btn
-
-        # Plan info (shown when executing plan)
-        self._plan_info = Label("", id="plan_info")
-        yield self._plan_info
-
-        # Spacer to push status and override button to the right
-        yield Static("", id="mode_spacer")
-
-        # Plan status text (right-aligned, shows plan being executed)
-        self._plan_status = Static("", id="plan_status", classes="hidden")
-        yield self._plan_status
-
-        # Override button (hidden by default)
-        self._override_btn = Button("Override [Ctrl+O]", id="override_btn", variant="warning")
-        self._override_btn.add_class("hidden")
-        yield self._override_btn
+        return total
 
     def watch_override_available(self, available: bool) -> None:
         """React to override availability changes."""
@@ -331,6 +446,7 @@ class ModeBar(Widget):
                 self._override_btn.remove_class("hidden")
             else:
                 self._override_btn.add_class("hidden")
+        self.call_after_refresh(self._refresh_responsive_labels)
 
     def set_plan_mode(self, mode: str, plan_info: str = "") -> None:
         """Set the plan mode state.
@@ -353,6 +469,7 @@ class ModeBar(Widget):
                 self._plan_settings_btn.remove_class("hidden")
             else:
                 self._plan_settings_btn.add_class("hidden")
+        self.call_after_refresh(self._refresh_responsive_labels)
 
     def set_agent_mode(self, mode: str) -> None:
         """Set the agent mode state.
@@ -382,10 +499,29 @@ class ModeBar(Widget):
             self._coordination_toggle.set_state(mode)
         self._update_coordination_aux_controls(mode)
 
+    def set_coordination_enabled(self, enabled: bool) -> None:
+        """Enable/disable coordination toggle interaction.
+
+        Used to prevent unsupported combinations (e.g., decomposition in single-agent mode).
+        """
+        if self._coordination_toggle:
+            self._coordination_toggle.set_enabled(enabled)
+        self.call_after_refresh(self._refresh_responsive_labels)
+
     def set_parallel_personas_enabled(self, enabled: bool) -> None:
         """Set the parallel persona toggle state."""
         if self._persona_toggle:
             self._persona_toggle.set_state("on" if enabled else "off")
+
+    def set_skills_available(self, available: bool) -> None:
+        """Show/hide skills manager button based on runtime skill availability."""
+        if not self._skills_btn:
+            return
+        if available:
+            self._skills_btn.remove_class("hidden")
+        else:
+            self._skills_btn.add_class("hidden")
+        self.call_after_refresh(self._refresh_responsive_labels)
 
     def _update_coordination_aux_controls(self, mode: str) -> None:
         """Update controls that depend on coordination mode."""
@@ -401,6 +537,7 @@ class ModeBar(Widget):
                 self._persona_toggle.remove_class("hidden")
             else:
                 self._persona_toggle.add_class("hidden")
+        self.call_after_refresh(self._refresh_responsive_labels)
 
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable all mode toggles.
@@ -420,6 +557,8 @@ class ModeBar(Widget):
             self._persona_toggle.set_enabled(enabled)
         if self._subtasks_btn:
             self._subtasks_btn.disabled = not enabled
+        if self._skills_btn:
+            self._skills_btn.disabled = not enabled
 
     def get_plan_mode(self) -> str:
         """Get current plan mode."""
@@ -469,6 +608,9 @@ class ModeBar(Widget):
         elif event.button.id == "subtasks_btn":
             _mode_log("ModeBar: Subtasks button pressed")
             self.post_message(SubtasksClicked())
+        elif event.button.id == "skills_btn":
+            _mode_log("ModeBar: Skills button pressed")
+            self.post_message(SkillsClicked())
 
     def on_mode_changed(self, event: ModeChanged) -> None:
         """Let mode change messages bubble to parent."""

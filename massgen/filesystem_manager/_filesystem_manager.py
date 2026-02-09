@@ -476,7 +476,11 @@ class FilesystemManager:
 
         # Setup local skills if local mode enabled and skills configured
         if self.enable_mcp_command_line and self.command_line_execution_mode == "local" and (skills_directory or massgen_skills):
-            self.setup_local_skills(skills_directory, massgen_skills)
+            self.setup_local_skills(
+                skills_directory,
+                massgen_skills,
+                load_previous_session_skills=load_previous_session_skills,
+            )
 
     def recreate_container_for_write_access(
         self,
@@ -578,7 +582,12 @@ class FilesystemManager:
                 self.path_permission_manager.add_path(docker_skills_dir, Permission.READ, "docker_skills")
                 logger.info(f"[Docker] Added skills directory to allowed paths: {docker_skills_dir}")
 
-    def setup_local_skills(self, skills_directory: Optional[str] = None, massgen_skills: Optional[List[str]] = None) -> None:
+    def setup_local_skills(
+        self,
+        skills_directory: Optional[str] = None,
+        massgen_skills: Optional[List[str]] = None,
+        load_previous_session_skills: bool = False,
+    ) -> None:
         """
         Setup merged skills directory for local command line execution mode.
 
@@ -588,6 +597,8 @@ class FilesystemManager:
         Args:
             skills_directory: Path to user's skills directory (e.g., .agent/skills)
             massgen_skills: List of MassGen built-in skills to enable
+            load_previous_session_skills: If True, include evolving skills from
+                previous sessions in the merged local skills directory.
         """
         import shutil
         import tempfile
@@ -641,6 +652,27 @@ class FilesystemManager:
                         logger.info(f"[Local] Adding MassGen skill: {skill_dir.name}")
                         shutil.copytree(skill_dir, skill_dest, dirs_exist_ok=True)
                         added_skills.add(skill_dir.name)
+
+        if load_previous_session_skills:
+            from .skills_manager import scan_previous_session_skills
+
+            logs_dir = Path(".massgen/massgen_logs")
+            logger.info(f"[Local] load_previous_session_skills enabled, scanning: {logs_dir}")
+            prev_skills = scan_previous_session_skills(logs_dir)
+            logger.info(f"[Local] Found {len(prev_skills)} previous session skills")
+
+            for skill in prev_skills:
+                source_path = skill.get("source_path")
+                if not source_path:
+                    continue
+                source = Path(source_path)
+                if not source.exists():
+                    continue
+                skill_name = str(skill.get("name", "unknown")).strip() or "unknown"
+                skill_dest = temp_skills_dir / skill_name
+                skill_dest.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, skill_dest / "SKILL.md")
+                logger.info(f"[Local] Added previous session skill: {skill_name} from {source}")
 
         # Store the merged skills directory path
         self.local_skills_directory = temp_skills_dir
@@ -1500,7 +1532,7 @@ class FilesystemManager:
 
         return config
 
-    def get_workspace_tools_mcp_config(self) -> Dict[str, Any]:
+    def get_workspace_tools_mcp_config(self, backend_type: Optional[str] = None) -> Dict[str, Any]:
         """
         Generate workspace tools MCP server configuration.
 
@@ -1560,6 +1592,15 @@ class FilesystemManager:
                     "generate_and_store_audio_no_input_audios",
                 ],
             )
+
+        backend_type_normalized = str(backend_type or "").strip().lower()
+        disable_skills_tool = bool(self.enable_mcp_command_line) or backend_type_normalized in {"codex", "claude_code"}
+        if disable_skills_tool:
+            if "exclude_tools" not in config:
+                config["exclude_tools"] = []
+            if "skills" not in config["exclude_tools"]:
+                config["exclude_tools"].append("skills")
+            config.setdefault("env", {})["MASSGEN_DISABLE_SKILLS_TOOL"] = "1"
 
         return config
 
@@ -1698,13 +1739,13 @@ class FilesystemManager:
                 # If file ops excluded, only add workspace_tools if media generation is enabled
                 if self.exclude_file_operation_mcps:
                     if self.enable_image_generation or self.enable_audio_generation:
-                        mcp_servers.append(self.get_workspace_tools_mcp_config())
+                        mcp_servers.append(self.get_workspace_tools_mcp_config(backend_type=backend_config.get("type")))
                         logger.info("[FilesystemManager.inject_filesystem_mcp] Added workspace_tools MCP with media tools only (exclude_file_operation_mcps=True)")
                     else:
                         logger.info("[FilesystemManager.inject_filesystem_mcp] Skipping workspace_tools MCP entirely (exclude_file_operation_mcps=True, no media enabled)")
                 else:
                     # Normal case - add all workspace tools
-                    mcp_servers.append(self.get_workspace_tools_mcp_config())
+                    mcp_servers.append(self.get_workspace_tools_mcp_config(backend_type=backend_config.get("type")))
             else:
                 logger.warning("[FilesystemManager.inject_filesystem_mcp] Custom workspace_tools MCP server already present")
 

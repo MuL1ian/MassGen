@@ -741,6 +741,7 @@ def get_log_analysis_prompt_prefix(
     log_dir: Optional[str],
     turn: Optional[int],
     profile: str = "dev",
+    skill_lifecycle_mode: str = "create_or_update",
 ) -> str:
     """Generate the user prompt prefix for Textual analysis mode.
 
@@ -752,7 +753,10 @@ def get_log_analysis_prompt_prefix(
     Returns:
         Prefix instructions to prepend to the user's question.
     """
+    from massgen.filesystem_manager.skills_manager import normalize_skill_lifecycle_mode
+
     normalized_profile = profile if profile in ("dev", "user") else "dev"
+    normalized_lifecycle_mode = normalize_skill_lifecycle_mode(skill_lifecycle_mode)
     target_log = log_dir or "auto-select current/latest log session"
     target_turn = f"turn_{turn}" if turn is not None else "latest available turn"
 
@@ -764,6 +768,20 @@ def get_log_analysis_prompt_prefix(
 
     if normalized_profile == "user":
         skill_creator_ref = _load_skill_creator_reference()
+        lifecycle_instructions = {
+            "create_or_update": """- Lifecycle mode: create_or_update (default).
+- First look for the best existing skill in `.agent/skills/` and update it when it matches the same domain workflow.
+- Only create a new skill if no existing skill is a strong match.
+""",
+            "create_new": """- Lifecycle mode: create_new.
+- Always create a new skill directory in `.agent/skills/`.
+- Do not modify existing skills in this mode.
+""",
+            "consolidate": """- Lifecycle mode: consolidate.
+- Prefer updating existing matching skills over creating new ones.
+- Consolidate overlapping skills and merge duplicate/near-duplicate workflows when appropriate.
+""",
+        }.get(normalized_lifecycle_mode, "")
         profile_section = f"""## Profile Focus: USER (skills-first)
 
 Primary objective:
@@ -775,10 +793,14 @@ IMPORTANT constraints:
 - The skill must be about the DOMAIN TASK (the original query above), NOT about "analyzing logs" or "evaluating runs".
 - The skill should encode the workflow, techniques, prompt patterns, and tool usage that made this run effective.
 - Name the skill after what it DOES (e.g., "poem-workshop", "website-builder"), not after analysis.
+{lifecycle_instructions}
 
 Required outputs:
 - Create a skill directory on disk: `.agent/skills/<skill-name>/SKILL.md` using filesystem tools.
 - The SKILL.md should capture the specific workflow, prompts, and patterns from the logs so someone else can reproduce or build on this work.
+- Add provenance metadata so MassGen can classify this as an evolving skill:
+  - `massgen_origin: "{target_log}::{target_turn}"`
+  - `evolving: true`
 
 ## Skill Creation Reference
 
@@ -789,8 +811,9 @@ Required outputs:
 When creating a skill from analysis findings:
 1. Choose a descriptive kebab-case name that reflects the domain task (NOT "log-analysis" or similar).
 2. Write the SKILL.md file directly to `.agent/skills/<name>/SKILL.md` using filesystem tools.
-3. Include proper YAML frontmatter with at least `name` and `description`.
+3. Include YAML frontmatter with at least `name`, `description`, `massgen_origin`, and `evolving`.
 4. Focus the skill content on the actual workflow and techniques, not on meta-analysis.
+5. Respect lifecycle mode `{normalized_lifecycle_mode}` when deciding whether to update existing skills, create a new one, or consolidate overlaps.
 """
     else:
         profile_section = """## Profile Focus: DEV (internals-first)
@@ -5373,6 +5396,13 @@ async def run_textual_interactive_mode(
     display_kwargs["agent_models"] = agent_models
     configured_coordination_mode = orchestrator_cfg.get("coordination_mode", "voting") if orchestrator_cfg else "voting"
     display_kwargs["default_coordination_mode"] = "decomposition" if configured_coordination_mode == "decomposition" else "parallel"
+    coordination_settings = orchestrator_cfg.get("coordination", {}) if orchestrator_cfg else {}
+    display_kwargs["default_load_previous_session_skills"] = bool(
+        coordination_settings.get("load_previous_session_skills", False),
+    )
+    display_kwargs["default_skill_lifecycle_mode"] = str(
+        coordination_settings.get("skill_lifecycle_mode", "create_or_update"),
+    )
     display = TextualTerminalDisplay(agent_ids, **display_kwargs)
 
     # Start background MCP registry cache warmup (non-blocking)
@@ -5892,6 +5922,42 @@ async def run_textual_interactive_mode(
                         logger.info(f"[Textual] Single-agent mode: using {list(effective_agents.keys())}")
                         agents = effective_agents
 
+                enabled_skill_names = mode_state.analysis_config.get_enabled_skill_names()
+                include_previous_session_skills = bool(
+                    mode_state.analysis_config.include_previous_session_skills,
+                )
+                skill_lifecycle_mode = str(
+                    getattr(mode_state.analysis_config, "skill_lifecycle_mode", "create_or_update"),
+                )
+                skills_runtime_enabled = bool(
+                    (orchestrator_config.coordination_config and orchestrator_config.coordination_config.use_skills) or mode_state.plan_mode == "analysis",
+                )
+                if skills_runtime_enabled:
+                    if orchestrator_config.coordination_config is None:
+                        from .agent_config import CoordinationConfig
+
+                        orchestrator_config.coordination_config = CoordinationConfig()
+
+                    # Analysis mode always requires skills to be on.
+                    if mode_state.plan_mode == "analysis":
+                        orchestrator_config.coordination_config.use_skills = True
+
+                    setattr(
+                        orchestrator_config.coordination_config,
+                        "enabled_skill_names",
+                        enabled_skill_names,
+                    )
+                    setattr(
+                        orchestrator_config.coordination_config,
+                        "load_previous_session_skills",
+                        include_previous_session_skills,
+                    )
+                    setattr(
+                        orchestrator_config.coordination_config,
+                        "skill_lifecycle_mode",
+                        skill_lifecycle_mode,
+                    )
+
                 # Prepend task planning prompt prefix when TUI plan mode is "plan" (not "execute")
                 # Execute mode has its own execution prompt with plan context
                 if mode_state.plan_mode == "plan":
@@ -5923,22 +5989,6 @@ async def run_textual_interactive_mode(
                                 f"[Textual] Plan mode: Captured {len(mode_state.planning_context_paths)} context paths for execution",
                             )
                 elif mode_state.plan_mode == "analysis":
-                    # In analysis mode, always keep skills enabled and optionally
-                    # apply a runtime skill allowlist selected in the TUI.
-                    if orchestrator_config.coordination_config is None:
-                        from .agent_config import CoordinationConfig
-
-                        orchestrator_config.coordination_config = CoordinationConfig()
-
-                    orchestrator_config.coordination_config.use_skills = True
-
-                    enabled_skill_names = mode_state.analysis_config.get_enabled_skill_names()
-                    setattr(
-                        orchestrator_config.coordination_config,
-                        "enabled_skill_names",
-                        enabled_skill_names,
-                    )
-
                     analysis_profile = mode_state.analysis_config.profile
                     analysis_log_dir = mode_state.analysis_config.selected_log_dir
                     analysis_turn = mode_state.analysis_config.selected_turn
@@ -5947,13 +5997,16 @@ async def run_textual_interactive_mode(
                             log_dir=analysis_log_dir,
                             turn=analysis_turn,
                             profile=analysis_profile,
+                            skill_lifecycle_mode=skill_lifecycle_mode,
                         )
                         + question
                     )
                     logger.info(
                         "[Textual] Analysis mode: prepended analysis instructions "
                         f"(profile={analysis_profile}, log_dir={analysis_log_dir}, turn={analysis_turn}, "
-                        f"skills_filter={'all' if enabled_skill_names is None else len(enabled_skill_names)})",
+                        f"skills_filter={'all' if enabled_skill_names is None else len(enabled_skill_names)}, "
+                        f"evolving={'on' if include_previous_session_skills else 'off'}, "
+                        f"lifecycle={skill_lifecycle_mode})",
                     )
 
             # Get generated personas from session info if persist_across_turns is enabled

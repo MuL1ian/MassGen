@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 # Type alias for plan depth
 PlanDepth = Literal["shallow", "medium", "deep"]
 AnalysisProfile = Literal["dev", "user"]
+SkillLifecycleMode = Literal["create_new", "create_or_update", "consolidate"]
 
 
 @dataclass
@@ -61,6 +62,12 @@ class AnalysisConfig:
 
     # Session-only skill allowlist. None means "no filtering" (all discovered skills).
     enabled_skill_names: Optional[List[str]] = None
+
+    # Include evolving skills discovered from previous sessions.
+    include_previous_session_skills: bool = False
+
+    # How newly discovered analysis skills are applied to project skills.
+    skill_lifecycle_mode: SkillLifecycleMode = "create_or_update"
 
     # Pre-analysis snapshot for detecting new skills. Internal state only.
     _pre_analysis_skill_dirs: Optional[Set[str]] = field(default=None, repr=False)
@@ -178,8 +185,13 @@ class TuiModeState:
         """
         overrides: Dict[str, Any] = {}
 
-        # Coordination mode mapping from TUI labels to orchestrator config values
-        overrides["coordination_mode"] = "decomposition" if self.coordination_mode == "decomposition" else "voting"
+        # Coordination mode mapping from TUI labels to orchestrator config values.
+        # Decomposition requires multiple active agents, so single-agent mode
+        # always falls back to voting/parallel.
+        effective_coordination_mode = self.coordination_mode
+        if self.agent_mode == "single" and effective_coordination_mode == "decomposition":
+            effective_coordination_mode = "parallel"
+        overrides["coordination_mode"] = "decomposition" if effective_coordination_mode == "decomposition" else "voting"
 
         # Refinement disabled = quick mode
         if not self.refinement_enabled:

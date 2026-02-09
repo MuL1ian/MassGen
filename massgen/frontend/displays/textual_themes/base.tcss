@@ -41,12 +41,21 @@ Screen {
 }
 
 #welcome_screen Label, #welcome_screen Static {
-    width: auto;
+    width: 100%;
     text-align: center;
+    text-wrap: wrap;
     color: $text;
 }
 
+#welcome_agents_wrap {
+    width: 100%;
+    height: auto;
+    align: center top;
+}
+
 #welcome_logo {
+    width: auto;
+    text-wrap: nowrap;
     color: $primary;
     text-style: bold;
 }
@@ -54,7 +63,13 @@ Screen {
 #welcome_tagline {
     color: $secondary;
     text-style: none;
-    margin-top: 2;
+    margin-top: 1;
+}
+
+#welcome_divider {
+    color: $text-muted;
+    margin-top: 1;
+    margin-bottom: 1;
 }
 
 #welcome_workflow {
@@ -62,27 +77,33 @@ Screen {
     margin-top: 1;
 }
 
-#welcome_agents {
-    color: $text;
+#welcome_screen #welcome_agents {
+    color: $text-muted;
     margin-top: 1;
+    width: auto;
+    max-width: 100%;
+    text-align: left;
+    padding: 0 1;
 }
 
 #welcome_hint {
     color: $primary;
-    text-style: italic;
+    text-style: bold;
     margin-top: 2;
 }
 
 #welcome_shortcuts_hint {
     color: $text-muted;
     text-style: italic;
-    margin-top: 1;
+    margin-top: 0;
+    padding: 0 2;
 }
 
 #cwd_hint {
     color: $text-muted;
     text-style: italic;
     margin-top: 1;
+    padding: 0 2;
 }
 
 #main_container {
@@ -510,30 +531,71 @@ SessionInfoPanel #session_content {
 /* === Mode Bar (now inside input_header on the left) === */
 /* Override ModeBar widget's DEFAULT_CSS - keep width: auto so buttons fit content */
 ModeBar {
-    height: 2;
-    width: auto;
-    layout: horizontal;
+    height: auto;
+    width: 1fr;
+    min-width: 0;
+    max-width: 100%;
+    layout: vertical;
     background: $background;
     padding: 0;
-    margin-left: 1;  /* Align with input box left edge */
-    align: left middle;
+    align: left top;
+    overflow-x: hidden;
+    overflow-y: hidden;
     border: none;
     border-bottom: none;
 }
 
 #mode_bar {
-    height: 2;
-    width: auto;
-    layout: horizontal;
+    height: auto;
+    width: 1fr;
+    min-width: 0;
+    max-width: 100%;
+    layout: vertical;
     background: $background;
     padding: 0;
-    align: left middle;
+    align: left top;
+    overflow-x: hidden;
+    overflow-y: hidden;
     border: none;
     border-bottom: none;
 }
 
 #mode_bar.hidden {
     display: none;
+}
+
+#mode_rows {
+    width: 100%;
+    height: 2;
+    layout: horizontal;
+    align: left middle;
+    overflow-x: hidden;
+    overflow-y: hidden;
+}
+
+#mode_row_primary,
+#mode_row_secondary {
+    width: auto;
+    height: 2;
+    layout: horizontal;
+    align: left middle;
+    overflow-x: hidden;
+    overflow-y: hidden;
+}
+
+#mode_row_secondary {
+    width: 1fr;
+}
+
+ModeBar.compact-layout #mode_rows {
+    height: auto;
+    layout: vertical;
+    align: left top;
+}
+
+ModeBar.compact-layout #mode_row_primary,
+ModeBar.compact-layout #mode_row_secondary {
+    width: 100%;
 }
 
 /* Mode Toggle buttons - underline style
@@ -990,7 +1052,7 @@ HeaderWidget.hidden {
 #input_area {
     dock: bottom;
     height: auto;
-    min-height: 4;
+    min-height: 5;
     width: 100%;
     padding: 0 1;
     background: $background;
@@ -1047,7 +1109,7 @@ HeaderWidget.hidden {
     background: $panel;
     border: solid $primary;
     padding: 0;
-    margin-bottom: 7;
+    margin-bottom: 9;
     layout: vertical;
 }
 
@@ -1111,16 +1173,33 @@ SuggestionRow.selected {
     display: none;
 }
 
-/* Input header - contains modes (left) and hint (right) on same line */
+#question_input .text-area--placeholder {
+    color: $text-muted;
+    text-style: italic;
+}
+
+/* Input header - mode controls and compact vim/help hints in one row */
 #input_header {
-    layout: horizontal;
+    layout: vertical;
     height: auto;
     width: 100%;
     margin: 0;
-    align: left middle;
+    align: left top;
     border-top: solid $separator-border;
     padding: 0;
     background: $background;
+}
+
+#input_modes_row {
+    layout: horizontal;
+    width: 100%;
+    height: auto;
+    align: left bottom;
+    padding: 0 1;
+}
+
+#input_meta_spacer {
+    width: 1fr;
 }
 
 /* Theme-class based separator colors for dynamic switching */
@@ -1132,15 +1211,16 @@ SuggestionRow.selected {
     border-top: solid #30363d;
 }
 
-/* Input hint text - docked to right side */
+/* Input hint text - shown at right when vim mode is active */
 #input_hint {
-    dock: right;
     height: 1;
     width: auto;
-    color: $primary-lighten-1;  /* Darker than $text-muted for shadow effect */
-    text-style: italic;
-    padding: 0 1;
+    max-width: 34;
+    color: $text-muted;
+    text-style: none;
+    padding: 0;
     background: $background;
+    margin-left: 1;
 }
 
 /* Vim mode indicator - hidden by default */
@@ -1148,30 +1228,35 @@ SuggestionRow.selected {
     display: none;
     height: 1;
     width: auto;
-    min-width: 10;
+    min-width: 0;
+    padding: 0;
+    margin-left: 1;
+    background: transparent;
+    color: $text-muted;
+    text-style: bold;
 }
 
-/* Vim mode indicator - shown when active (use !important to override display: none) */
+/* Vim mode indicator - shown when active (compact inline badge) */
 #input_header #vim_indicator.vim-normal-indicator {
     display: block !important;
     height: 1;
-    width: 10;
-    padding: 0 1;
+    width: auto;
+    min-width: 1;
+    padding: 0;
     text-style: bold;
-    content-align: center middle;
-    background: $warning;
-    color: $background;
+    background: transparent;
+    color: $warning;
 }
 
 #input_header #vim_indicator.vim-insert-indicator {
     display: block !important;
     height: 1;
-    width: 10;
-    padding: 0 1;
+    width: auto;
+    min-width: 1;
+    padding: 0;
     text-style: bold;
-    content-align: center middle;
-    background: $primary;
-    color: white;
+    background: transparent;
+    color: $primary;
 }
 
 /* Vim normal mode - input border */
@@ -2299,14 +2384,14 @@ TaskPlanModal .close-button {
 
 /* === Skills Modal === */
 #skills_modal_container {
-    width: 98%;
-    min-width: 90;
-    max-width: 180;
-    height: 92%;
-    max-height: 60;
+    width: 96%;
+    min-width: 96;
+    max-width: 170;
+    height: 90%;
+    max-height: 62;
     background: $background 90%;
     border: solid $primary;
-    padding: 1 2;
+    padding: 1 1;
     layout: vertical;
 }
 
@@ -2321,14 +2406,29 @@ TaskPlanModal .close-button {
     margin-bottom: 1;
 }
 
+#include_previous_skills_checkbox {
+    margin: 0 1 1 1;
+}
+
 #skills_modal_scroll {
     width: 100%;
     height: 1fr;
     border: solid $surface-lighten-1;
     background: $panel;
-    padding: 1;
+    padding: 1 1;
     margin-bottom: 1;
     overflow-y: auto;
+}
+
+#skills_modal_scroll .modal-section-header {
+    color: $primary;
+    text-style: bold;
+    margin: 1 0 0 0;
+}
+
+#skills_modal_scroll .modal-list-item {
+    color: $text-muted;
+    margin: 0 0 1 2;
 }
 
 #skills_modal_actions {
@@ -2340,6 +2440,7 @@ TaskPlanModal .close-button {
 
 #skills_modal_actions Button {
     margin-right: 1;
+    min-width: 14;
 }
 
 #skills_modal_actions #apply_skills_btn {
@@ -5060,6 +5161,28 @@ PlanOptionsPopover #close_btn:hover {
 }
 
 #subtasks_btn.hidden {
+    display: none;
+}
+
+#skills_btn {
+    width: auto;
+    height: 2;
+    min-width: 8;
+    background: transparent;
+    color: $text-muted;
+    border: none;
+    border-bottom: tall $surface-lighten-2;
+    padding: 0 1;
+    margin-left: 1;
+}
+
+#skills_btn:hover {
+    background: transparent;
+    color: $primary;
+    border-bottom: tall $primary;
+}
+
+#skills_btn.hidden {
     display: none;
 }
 

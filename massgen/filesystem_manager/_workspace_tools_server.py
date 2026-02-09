@@ -14,6 +14,7 @@ Tools provided:
 - delete_files_batch: Delete multiple files with pattern matching
 - compare_directories: Compare two directories and show differences
 - compare_files: Compare two text files and show unified diff
+- skills: List/read available skills (openskills wrapper with local fallback)
 - generate_and_store_image_with_input_images: Create variations of existing images using gpt-4.1
 - generate_and_store_image_no_input_images: Generate new images from text prompts using gpt-4.1
 - generate_and_store_audio_no_input_audios: Generate audio from text using OpenAI's gpt-4o-audio-preview model
@@ -24,7 +25,9 @@ import argparse
 import difflib
 import filecmp
 import fnmatch
+import os
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -342,6 +345,72 @@ def _perform_copy(source: Path, destination: Path, overwrite: bool = False) -> D
         raise ValueError(f"Copy operation failed: {e}")
 
 
+def _load_skill_catalog() -> List[Dict[str, Any]]:
+    """Load skills from project/user/built-in plus previous sessions when available."""
+    from massgen.filesystem_manager.skills_manager import scan_skills
+
+    logs_dir = Path(".massgen/massgen_logs")
+    logs_source = logs_dir if logs_dir.exists() else None
+    return scan_skills(Path(".agent/skills"), logs_dir=logs_source)
+
+
+def _run_openskills_read(skill_name: str) -> Tuple[Optional[str], str]:
+    """Try `openskills read` and return content/error detail."""
+    try:
+        result = subprocess.run(
+            ["openskills", "read", skill_name],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except FileNotFoundError:
+        return None, "openskills CLI not found"
+    except Exception as e:
+        return None, f"openskills execution failed: {e}"
+
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout, ""
+
+    stderr = (result.stderr or "").strip()
+    stdout = (result.stdout or "").strip()
+    detail = stderr or stdout or f"openskills exited with code {result.returncode}"
+    return None, detail
+
+
+def _read_skill_fallback(
+    skill_name: str,
+    catalog: List[Dict[str, Any]],
+) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    """Read a skill directly from SKILL.md when openskills is unavailable."""
+    target = (skill_name or "").strip().lower()
+    if not target:
+        return None, None
+
+    for skill in catalog:
+        name = str(skill.get("name", "")).strip()
+        if not name:
+            continue
+        source_path = skill.get("source_path")
+        if not source_path:
+            continue
+
+        source = Path(str(source_path))
+        if not source.exists():
+            continue
+
+        folder_name = source.parent.name.strip().lower()
+        if name.lower() != target and folder_name != target:
+            continue
+
+        try:
+            return source.read_text(encoding="utf-8"), skill
+        except Exception:
+            continue
+
+    return None, None
+
+
 async def create_server() -> fastmcp.FastMCP:
     """Factory function to create and configure the workspace copy server."""
 
@@ -360,6 +429,7 @@ async def create_server() -> fastmcp.FastMCP:
 
     # Add allowed paths from arguments
     mcp.allowed_paths = [Path(p).resolve() for p in args.allowed_paths]
+    disable_skills_tool = os.environ.get("MASSGEN_DISABLE_SKILLS_TOOL", "").strip().lower() in {"1", "true", "yes"}
 
     # Below is for debugging - can be uncommented if needed
     # @mcp.tool()
@@ -802,5 +872,104 @@ async def create_server() -> fastmcp.FastMCP:
 
         except Exception as e:
             return {"success": False, "operation": "compare_files", "error": str(e)}
+
+    if not disable_skills_tool:
+
+        @mcp.tool()
+        def skills(action: str = "list", skill_name: Optional[str] = None) -> Dict[str, Any]:
+            """List or read skills.
+
+            This wraps `openskills read` when available, with a direct SKILL.md fallback
+            so skills remain usable in local modes where command execution is limited.
+
+            Args:
+                action: "list" or "read"
+                skill_name: Required when action="read"
+
+            Returns:
+                Dictionary containing skill metadata or skill content.
+            """
+            action_normalized = (action or "").strip().lower() or "list"
+            catalog = _load_skill_catalog()
+
+            if action_normalized == "list":
+                grouped_counts: Dict[str, int] = {}
+                for item in catalog:
+                    location = str(item.get("location", "project"))
+                    grouped_counts[location] = grouped_counts.get(location, 0) + 1
+
+                return {
+                    "success": True,
+                    "operation": "skills",
+                    "action": "list",
+                    "count": len(catalog),
+                    "by_location": grouped_counts,
+                    "skills": [
+                        {
+                            "name": item.get("name", ""),
+                            "description": item.get("description", ""),
+                            "location": item.get("location", "project"),
+                            "is_custom": bool(item.get("is_custom", False)),
+                            "is_evolving": bool(item.get("is_evolving", False)),
+                            "origin": item.get("origin", ""),
+                        }
+                        for item in catalog
+                    ],
+                }
+
+            if action_normalized != "read":
+                return {
+                    "success": False,
+                    "operation": "skills",
+                    "action": action_normalized,
+                    "error": "Unsupported action. Use 'list' or 'read'.",
+                }
+
+            if not skill_name or not str(skill_name).strip():
+                return {
+                    "success": False,
+                    "operation": "skills",
+                    "action": "read",
+                    "error": "skill_name is required when action='read'.",
+                }
+
+            requested_name = str(skill_name).strip()
+            cli_content, cli_error = _run_openskills_read(requested_name)
+            if cli_content:
+                return {
+                    "success": True,
+                    "operation": "skills",
+                    "action": "read",
+                    "skill_name": requested_name,
+                    "source": "openskills",
+                    "content": cli_content,
+                }
+
+            fallback_content, fallback_skill = _read_skill_fallback(requested_name, catalog)
+            if fallback_content is not None and fallback_skill is not None:
+                return {
+                    "success": True,
+                    "operation": "skills",
+                    "action": "read",
+                    "skill_name": fallback_skill.get("name", requested_name),
+                    "source": "skill_file",
+                    "location": fallback_skill.get("location", "project"),
+                    "source_path": fallback_skill.get("source_path", ""),
+                    "content": fallback_content,
+                    "note": f"openskills unavailable: {cli_error}" if cli_error else "",
+                }
+
+            available = sorted(
+                {str(item.get("name", "")).strip() for item in catalog if str(item.get("name", "")).strip()},
+            )
+            return {
+                "success": False,
+                "operation": "skills",
+                "action": "read",
+                "skill_name": requested_name,
+                "error": f"Skill not found: {requested_name}",
+                "openskills_error": cli_error,
+                "available_skills": available,
+            }
 
     return mcp

@@ -98,6 +98,14 @@ class AnalysisTargetChanged(Message):
         super().__init__()
 
 
+class AnalysisSkillLifecycleChanged(Message):
+    """Message emitted when analysis skill lifecycle mode is changed."""
+
+    def __init__(self, mode: str) -> None:
+        self.mode = mode
+        super().__init__()
+
+
 class ViewAnalysisRequested(Message):
     """Message emitted when user wants to view an analysis report."""
 
@@ -105,10 +113,6 @@ class ViewAnalysisRequested(Message):
         self.log_dir = log_dir
         self.turn = turn
         super().__init__()
-
-
-class OpenSkillsRequested(Message):
-    """Message emitted when user wants to open the skills manager."""
 
 
 def _popover_log(msg: str) -> None:
@@ -250,6 +254,7 @@ class PlanOptionsPopover(Widget):
         analysis_turn_options: Optional[List[tuple[str, str]]] = None,
         analysis_selected_turn: Optional[int] = None,
         analysis_preview_text: str = "",
+        analysis_skill_lifecycle_mode: str = "create_or_update",
         id: Optional[str] = None,
         classes: Optional[str] = None,
     ) -> None:
@@ -276,6 +281,7 @@ class PlanOptionsPopover(Widget):
         self._analysis_turn_options = analysis_turn_options or []
         self._analysis_selected_turn = analysis_selected_turn
         self._analysis_preview_text = analysis_preview_text
+        self._analysis_skill_lifecycle_mode = analysis_skill_lifecycle_mode
         self._plan_details_widget: Optional[Static] = None
         self._initialized = False  # Track if popover has been shown (to ignore events during recompose)
 
@@ -295,7 +301,7 @@ class PlanOptionsPopover(Widget):
         Content differs by mode:
         - "plan" mode: Shows depth and human feedback options only
         - "execute" mode: Shows plan selector and plan details only
-        - "analysis" mode: Shows profile, log target, turn target, and skills controls
+        - "analysis" mode: Shows profile, log target, and turn target controls
         """
         # Title changes based on mode
         if self._plan_mode == "plan":
@@ -391,6 +397,22 @@ class PlanOptionsPopover(Widget):
                     id="analysis_profile_selector",
                 )
 
+                yield Label("Skill Lifecycle:", classes="section-label")
+                lifecycle_options = [
+                    ("Create or Update (recommended)", "create_or_update"),
+                    ("Create New Only", "create_new"),
+                    ("Consolidate Similar Skills", "consolidate"),
+                ]
+                lifecycle_selected = self._safe_select_value(
+                    lifecycle_options,
+                    self._analysis_skill_lifecycle_mode,
+                )
+                yield Select(
+                    lifecycle_options,
+                    value=lifecycle_selected,
+                    id="analysis_skill_lifecycle_selector",
+                )
+
                 yield Label("Log Session:", classes="section-label")
                 if self._analysis_log_options:
                     selected_log = self._safe_select_value(self._analysis_log_options, self._analysis_selected_log_dir)
@@ -420,7 +442,6 @@ class PlanOptionsPopover(Widget):
                 yield Static(preview_text, id="analysis_preview")
 
                 yield Button("View Analysis Report", id="view_analysis_btn", variant="primary")
-                yield Button("Manage Skills", id="open_skills_btn", variant="default")
 
             yield Button("Close", id="close_btn", variant="default")
 
@@ -659,6 +680,12 @@ class PlanOptionsPopover(Widget):
             self._analysis_selected_log_dir = log_dir
             # turn=None signals app to pick latest valid turn for this log
             self.post_message(AnalysisTargetChanged(log_dir, None))
+        elif selector_id == "analysis_skill_lifecycle_selector":
+            mode = str(event.value)
+            if mode == self._analysis_skill_lifecycle_mode:
+                return
+            self._analysis_skill_lifecycle_mode = mode
+            self.post_message(AnalysisSkillLifecycleChanged(mode))
         elif selector_id == "analysis_turn_selector":
             turn_raw = str(event.value)
             turn = int(turn_raw) if turn_raw.isdigit() else None
@@ -677,9 +704,6 @@ class PlanOptionsPopover(Widget):
             event.stop()
         elif event.button.id == "view_analysis_btn":
             self._handle_view_analysis()
-            event.stop()
-        elif event.button.id == "open_skills_btn":
-            self.post_message(OpenSkillsRequested())
             event.stop()
 
     def _handle_view_plan(self) -> None:

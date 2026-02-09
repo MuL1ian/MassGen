@@ -136,6 +136,7 @@ The interactive agent can delegate evaluation to other agents via `launch_run` w
 ### Context Bar (replaces Mode Bar)
 - Shows: current project name, run status (idle/running/complete), "Coordinate" button
 - No plan/agent/refinement phase indicators (those are for coordination mode)
+- In coordination mode (outside interactive context bar), skills management now lives on a dedicated `Skills` mode-bar button rather than analysis-only settings.
 
 ### Run Display (reuses Subagent infrastructure)
 - `SubagentCard` appears inline in interactive timeline during runs

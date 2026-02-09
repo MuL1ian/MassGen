@@ -37,7 +37,63 @@ When planning or creating specs, use AskUserQuestions to ensure you align with t
 
 ## Implementation Guidelines
 
-After implementing any feature that involves passing parameters through multiple layers (e.g., backend → manager → component), always verify the full wiring chain end-to-end by tracing the parameter from its origin to its final usage site. Do not rely solely on unit tests passing — add an integration smoke test or assertion that the parameter actually arrives at its destination, not just that the downstream logic works when the parameter is provided.
+After implementing any feature that involves passing parameters through multiple layers (e.g., backend -> manager -> component), always verify the full wiring chain end-to-end by tracing the parameter from its origin to its final usage site. Do not rely solely on unit tests passing -- add an integration smoke test or assertion that the parameter actually arrives at its destination, not just that the downstream logic works when the parameter is provided.
+
+## Test-Driven Development (TDD)
+
+**TDD is the default development methodology for this project.** With 121 test files and 1580+ tests across unit, integration, frontend, and snapshot layers, the test infrastructure is mature. All non-trivial work MUST follow the TDD cycle.
+
+### The TDD Contract
+
+For every non-trivial change (bug fix, new feature, refactor, backend change, TUI work, WebUI work), follow this sequence **in order**:
+
+1. **Agree on acceptance tests first.** Before writing any production code, align with the user on what tests will prove the change works. Define pass/fail criteria explicitly.
+2. **Write the tests.** Implement or update tests that express the desired behavior. These tests MUST fail initially -- if they pass before you write production code, either the tests are wrong or the feature already exists.
+3. **Confirm tests fail for the right reason.** Run the tests and verify they fail because the feature/fix is missing, not because of a test bug.
+4. **Implement the minimum code to pass.** Write production code until the test suite passes. Do not add untested behavior.
+5. **Refactor under green.** Clean up only while all tests remain green.
+6. **Commit tests alongside code.** Tests are not throwaway scaffolding -- they are permanent regression protection.
+
+### When to Apply TDD
+
+| Change Type | TDD Required? | Rationale |
+|-------------|:---:|-----------|
+| New feature / capability | **Yes** | Define behavior before implementing it |
+| Bug fix | **Yes** | Write a test that reproduces the bug first |
+| Backend changes | **Yes** | Test across affected backends |
+| TUI behavior changes | **Yes** | Use snapshot, golden, or event pipeline tests |
+| WebUI changes | **Yes** | Vitest unit + Playwright E2E as appropriate |
+| Refactoring | **Yes** | Ensure existing tests pass before AND after |
+| Config/YAML changes | **Yes** | Validate with config validation tests |
+| Trivial one-liner fixes (typos, imports) | No | Use judgment -- but when in doubt, test |
+
+### What "Non-Trivial" Means
+
+If you're tempted to skip tests, ask: *"Could this break silently?"* If the answer is anything other than a confident "no," write a test. Specifically:
+- Any change touching `orchestrator.py`, `chat_agent.py`, `backend/*.py`, `mcp_tools/`, or `coordination_tracker.py` is always non-trivial.
+- Any change to TUI widgets, content handlers, or event processing is always non-trivial.
+- Any change to system prompts, config validation, or YAML parsing is always non-trivial.
+
+### Test Placement
+
+| Test Type | Location | When to Use |
+|-----------|----------|-------------|
+| Unit tests | `massgen/tests/` or `massgen/tests/unit/` | Isolated logic, single-component |
+| Integration tests | `massgen/tests/integration/` | Multi-component orchestration flows |
+| Frontend/TUI tests | `massgen/tests/frontend/` | Widget, snapshot, golden transcript |
+| WebUI tests | `webui/src/**/*.test.ts` | Store, component, E2E |
+
+### Anti-Patterns (Do NOT Do These)
+
+- **Implement first, test later.** This inverts the TDD cycle and leads to tests that confirm what was written rather than what was intended.
+- **Skip tests "because it's small."** Small changes cause big regressions. The test suite exists to catch exactly these.
+- **Write tests that always pass.** A test that can't fail is not a test. Always verify the red-green cycle.
+- **Test only the happy path.** Cover edge cases, error conditions, and boundary values.
+- **Rely on manual testing.** If you tested it by running `massgen --automation`, also encode that expectation as an automated test.
+
+### Reference
+
+Full testing strategy, marker model, CI gates, and layer definitions: `docs/modules/testing.md`
 
 ## Project Overview
 
@@ -53,7 +109,7 @@ MassGen's strength comes from two orthogonal dimensions working together:
 | **Ensuring Depth in Roles** | Strong personas give agents distinct creative visions, producing diverse high-quality attempts | Persona specialization ensures deep domain fit per subtask |
 
 - **Enforcing refinement** (currently: checklist-gated voting, gap analysis, improvements echo) = controls *how much* agents iterate and ensures each iteration is *worth it*. Multiple agents are key here: each round's evaluator sees all agents' prior answers, can identify unique strengths across them, and synthesizes the best elements into the next attempt. Without refinement, agents settle for "good enough."
-- **Ensuring depth in roles** = persona/role generation that gives agents strong opinionated visions. A bare user prompt is rarely enough for quality output — the persona fills in the creative direction. Consider using a preliminary MassGen call to generate rich personas/briefs before the main execution run.
+- **Ensuring depth in roles** = persona/role generation that gives agents strong opinionated visions. A bare user prompt is rarely enough for quality output -- the persona fills in the creative direction. Consider using a preliminary MassGen call to generate rich personas/briefs before the main execution run.
 
 Neither dimension alone is sufficient. Refinement without strong roles produces polished mediocrity. Strong roles without refinement produces ambitious first drafts that never mature.
 
@@ -86,54 +142,26 @@ cd webui && npm run build
 
 ## Architecture Overview
 
-### Core Flow
+Core flow, key components, backend hierarchy, agent statelessness, and TUI design principles. Full guide: `docs/modules/architecture.md`.
+
 ```text
-cli.py → orchestrator.py → chat_agent.py → backend/*.py
-                ↓
+cli.py -> orchestrator.py -> chat_agent.py -> backend/*.py
+                |
         coordination_tracker.py (voting, consensus)
-                ↓
+                |
         mcp_tools/ (tool execution)
 ```
 
-### Key Components
-
-**Orchestrator** (`orchestrator.py`): Central coordinator managing parallel agent execution, voting, and consensus detection. Handles coordination phases: initial_answer → enforcement (voting) → presentation.
-
-**Backends** (`backend/`): Provider-specific implementations. All inherit from `base.py`. Add new backends by:
-1. Create `backend/new_provider.py` inheriting from base
-2. Register in `backend/__init__.py`
-3. Add model mappings to `massgen/utils.py`
-4. Add capabilities to `backend/capabilities.py`
-5. Update `config_validator.py`
-
-**MCP Integration** (`mcp_tools/`): Model Context Protocol for external tools. `client.py` handles multi-server connections, `security.py` validates operations. Some tools have dual paths: SDK (in-process, for ClaudeCode) and stdio (config.toml-based, for Codex). **Stdio MCP servers run inside Docker where `massgen` is NOT installed** — never import from `massgen` in stdio servers. Pre-compute any needed values in the orchestrator and pass via JSON specs files. Also note Codex sometimes sends tool args as JSON strings instead of dicts — always add a `json.loads()` fallback.
-
-**Streaming Buffer** (`backend/_streaming_buffer_mixin.py`): Tracks partial responses during streaming for compression recovery.
-
-### Backend Hierarchy
 ```text
 base.py (abstract interface)
-    └── base_with_custom_tool_and_mcp.py (tool + MCP support)
-            ├── response.py (OpenAI Response API)
-            ├── chat_completions.py (generic OpenAI-compatible)
-            ├── claude.py (Anthropic)
-            ├── claude_code.py (Claude Code SDK)
-            ├── gemini.py (Google)
-            └── grok.py (xAI)
+    +-- base_with_custom_tool_and_mcp.py (tool + MCP support)
+            |-- response.py (OpenAI Response API)
+            |-- chat_completions.py (generic OpenAI-compatible)
+            |-- claude.py (Anthropic)
+            |-- claude_code.py (Claude Code SDK)
+            |-- gemini.py (Google)
+            +-- grok.py (xAI)
 ```
-
-### Agent Statelessness and Anonymity
-Agents are STATELESS and ANONYMOUS across coordination rounds. Each round:
-- Agent gets a fresh LLM invocation with no memory of previous rounds
-- Agent does not know which agent it is (all identities are anonymous)
-- Cross-agent information (answers, workspaces) is presented anonymously
-- System prompts and branch names must NOT reveal agent identity or round history
-
-### TUI Design Principles
-
-**Timeline Chronology Rule**: Tool batching MUST respect chronological order. Tools should ONLY be batched when they arrive consecutively with no intervening content (thinking, text, status). When non-tool content arrives, any pending batch must be finalized before the content is added, and the next tool starts a fresh batch.
-
-This is enforced via `ToolBatchTracker.mark_content_arrived()` in `content_handlers.py`, which is called whenever non-tool content is added to the timeline.
 
 ## Configuration
 
@@ -144,118 +172,28 @@ YAML configs in `massgen/configs/` define agent setups. Structure:
 - `teams/` - Pre-configured specialized teams
 
 When adding new YAML parameters, update **both**:
-- `massgen/backend/base.py` → `get_base_excluded_config_params()`
-- `massgen/api_params_handler/_api_params_handler_base.py` → `get_base_excluded_config_params()`
+- `massgen/backend/base.py` -> `get_base_excluded_config_params()`
+- `massgen/api_params_handler/_api_params_handler_base.py` -> `get_base_excluded_config_params()`
 
 ## Workflow Guidelines
 
-1. **Prioritize specs and TDD** - Write tests before implementation for complex features
-2. **Keep PR_DRAFT.md updated** - Create a PR_DRAFT.md that references each new feature with corresponding Linear (e.g., `Closes MAS-XXX`) and GitHub issue numbers. Keep this updated as new features are added. You may need to ask the user whether to overwrite or append to this file. Ensure you include test cases here as well as configs used to test them.
-3. **Review PRs** with `pr-checks` skill.
-4. **Git staging**: Use `git add -u .` for modified tracked files
-5. **Test-first execution loop**:
-   - Align with the user on acceptance tests and pass/fail criteria first.
-   - Implement tests before implementation changes for non-trivial work.
-   - After tests are in place, implement code and iterate until the agreed test suite passes.
-   - Treat this as the default path for automation work, backend changes, TUI work, and WebUI work.
+1. **TDD is the default.** Every non-trivial task starts with tests. See the [TDD section above](#test-driven-development-tdd) for the full contract. Do not skip this -- if you find yourself writing production code before tests, stop and reverse course.
+2. **Run tests early and often.** After each meaningful code change, run the relevant test subset. Do not batch up changes and test at the end.
+3. **Keep PR_DRAFT.md updated** - Create a PR_DRAFT.md that references each new feature with corresponding Linear (e.g., `Closes MAS-XXX`) and GitHub issue numbers. Keep this updated as new features are added. You may need to ask the user whether to overwrite or append to this file. Ensure you include test cases here as well as configs used to test them.
+4. **Review PRs** with `pr-checks` skill.
+5. **Git staging**: Use `git add -u .` for modified tracked files
 
 ## Documentation Requirements
 
-Documentation must be **consistent with implementation**, **concise**, and **usable**.
-
-### What to Update (per PR)
-
-| Change Type | Required Documentation |
-|-------------|----------------------|
-| New features | `docs/source/user_guide/` RST with runnable commands and expected output |
-| New YAML params | `docs/source/reference/yaml_schema.rst` |
-| New models | `massgen/backend/capabilities.py` + `massgen/token_manager/token_manager.py` |
-| Complex/architectural | Design doc in `docs/dev_notes/` with architecture diagrams |
-| New config options | Example YAML in `massgen/configs/` |
-| Breaking changes | Migration guide |
-
-### What to Update (release PRs only)
-
-For release PRs on `dev/v0.1.X` branches (e.g., `dev/v0.1.33`):
-- `README.md` - Recent Achievements section
-- `CHANGELOG.md` - Full release notes
-
-### Documentation Quality Standards
-
-**Consistency**: Parameter names, file paths, and behavior descriptions must match actual code. Flag any discrepancies.
-
-**Usability**:
-- Include runnable commands users can try immediately
-- Provide architecture diagrams for complex features
-- Show expected output so users know what to expect
-
-**Conciseness**:
-- Avoid bloated prose and over-documentation
-- One clear explanation beats multiple redundant ones
-- Remove filler text and unnecessary verbosity
-
-### File Locations
-
-- **Internal** (not published): `docs/dev_notes/[feature-name]_design.md`
-- **User guides**: `docs/source/user_guide/`
-- **Reference**: `docs/source/reference/`
-- **API docs**: Auto-generate from Google-style docstrings
+Documentation must be consistent with implementation, concise, and usable. Full guide with per-PR tables, quality standards, and file locations: `docs/modules/documentation.md`.
 
 ## Registry Updates
 
-### When Adding New Models
-
-1. **Always update** `massgen/backend/capabilities.py`:
-   - Add to `models` list (newest first)
-   - Add to `model_release_dates`
-   - Update `supported_capabilities` if new features
-
-2. **Check LiteLLM first** before adding to `token_manager.py`:
-   - If model is in LiteLLM database, no pricing update needed
-   - Only add to `PROVIDER_PRICING` if missing from LiteLLM
-   - Use correct provider casing: `"OpenAI"`, `"Anthropic"`, `"Google"`, `"xAI"`
-
-3. **Regenerate docs**: `uv run python docs/scripts/generate_backend_tables.py`
-
-### When Adding New YAML Parameters
-
-Update **both** files to exclude from API passthrough:
-- `massgen/backend/base.py` → `get_base_excluded_config_params()`
-- `massgen/api_params_handler/_api_params_handler_base.py` → `get_base_excluded_config_params()`
+Checklists for adding new models and new YAML parameters. Full guide: `docs/modules/registry.md`. Key rule: when adding YAML params, update both `base.py` and `_api_params_handler_base.py` exclusion lists.
 
 ## CodeRabbit Integration
 
-This project uses CodeRabbit for automated PR reviews. Configuration: `.coderabbit.yaml`
-
-### Claude Code CLI Integration
-
-CodeRabbit integrates directly with Claude Code via CLI. After implementing a feature, run:
-
-```bash
-coderabbit --prompt-only
-```
-
-This provides token-efficient review output. Claude Code will create a task list from detected issues and can apply fixes systematically.
-
-**Options**:
-- `--type uncommitted` - Review only uncommitted changes
-- `--type committed` - Review only committed changes
-- `--base develop` - Specify comparison branch
-
-**Workflow example**: Ask Claude to implement and review together:
-> "Implement the new config option and then run coderabbit --prompt-only"
-
-### PR Commands (GitHub/GitLab)
-
-In PR comments:
-- `@coderabbitai review` - Trigger incremental review
-- `@coderabbitai resolve` - Mark all comments as resolved
-- `@coderabbitai summary` - Regenerate PR summary
-
-### Applying Suggestions
-
-- **Committable suggestions**: Click "Commit suggestion" button on GitHub
-- **Complex fixes**: Hand off to Claude Code or address manually
+Automated PR reviews via CodeRabbit. Full guide: `docs/modules/code_review.md`. Quick command: `coderabbit --prompt-only`.
 
 ## Custom Tools
 
@@ -276,43 +214,20 @@ Docker execution mode auto-excludes tools missing required API keys.
 
 ## Testing Notes
 
-- Mark expensive API tests with `@pytest.mark.expensive`
-- Use `@pytest.mark.docker` for Docker-dependent tests
-- Async tests use `@pytest.mark.asyncio`
-- **API Keys**: Use `python-dotenv` to load API keys from `.env` file in test scripts:
-  ```python
-  from dotenv import load_dotenv
-  load_dotenv()  # Load before importing os.getenv()
-  ```
+Full testing strategy, markers, commands, snapshot workflow, and backend testing patterns: `docs/modules/testing.md`.
 
-### Integration Testing Across Backends
+```bash
+# Fast local suite (PR gate)
+uv run pytest massgen/tests --run-integration -m "not live_api and not docker and not expensive" -q --tb=short
 
-When creating integration tests that involve backend functionality (hooks, tool execution, streaming, compression, etc.), **test across all 5 standard backends**:
+# Just unit tests
+uv run pytest massgen/tests/ -q --tb=short
 
-| Backend | Type | Model | API Style |
-|---------|------|-------|-----------|
-| Claude | `claude` | `claude-haiku-4-5-20251001` | anthropic |
-| OpenAI | `openai` | `gpt-4o-mini` | openai |
-| Gemini | `gemini` | `gemini-3-flash-preview` | gemini |
-| OpenRouter | `chatcompletion` | `openai/gpt-4o-mini` | openai |
-| Grok | `grok` | `grok-3-mini` | openai |
-
-**Reference scripts**:
-- `scripts/test_hook_backends.py` - Hook framework integration tests
-- `scripts/test_compression_backends.py` - Context compression tests
-
-**Integration test pattern**:
-```python
-BACKEND_CONFIGS = {
-    "claude": {"type": "claude", "model": "claude-haiku-4-5-20251001"},
-    "openai": {"type": "openai", "model": "gpt-4o-mini"},
-    "gemini": {"type": "gemini", "model": "gemini-3-flash-preview"},
-    "openrouter": {"type": "chatcompletion", "model": "openai/gpt-4o-mini", "base_url": "..."},
-    "grok": {"type": "grok", "model": "grok-3-mini"},
-}
+# Integration tests (deterministic, non-costly)
+uv run pytest massgen/tests/integration -q
 ```
 
-Use `--verbose` flag to show detailed output (injection content, message formats, etc.).
+Markers: `@pytest.mark.integration` (opt-in: `--run-integration`), `@pytest.mark.live_api` (opt-in: `--run-live-api`), `@pytest.mark.expensive`, `@pytest.mark.docker`, `@pytest.mark.asyncio`.
 
 ## Key Files for New Contributors
 
@@ -327,37 +242,20 @@ Use `--verbose` flag to show detailed output (injection content, message formats
 
 Detailed documentation for specific modules lives in `docs/modules/`. **Always check these before working on a module, and update them when making changes.**
 
+- `docs/modules/architecture.md` - Core flow, key components, backend hierarchy, agent statelessness, TUI design principles
+- `docs/modules/testing.md` - Testing strategy, TDD contract, CI gates, markers, backend testing, TUI/WebUI test architecture
+- `docs/modules/documentation.md` - Per-PR documentation requirements, quality standards, file locations
+- `docs/modules/registry.md` - Adding new models, adding new YAML parameters
+- `docs/modules/code_review.md` - CodeRabbit integration, CLI options, PR commands
+- `docs/modules/skills.md` - Skill discovery, creation, improvement
+- `docs/modules/release.md` - GitHub Actions automation, release-prep, announcements, full release process
 - `docs/modules/subagents.md` - Subagent spawning, logging architecture, TUI integration
 - `docs/modules/interactive_mode.md` - Interactive mode architecture, launch_run MCP, system prompts, project workspace
-- `docs/modules/testing.md` - Testing strategy, TDD contract, CI gates, TUI/WebUI test architecture
 - `docs/modules/worktrees.md` - Worktree lifecycle, branch naming, scratch archives, system prompt integration
 
 ## MassGen Skills
 
-MassGen includes specialized skills in `massgen/skills/` for common workflows (log analysis, running experiments, creating configs, etc.).
-
-### Enabling Skill Discovery
-
-If MassGen skills aren't being discovered, symlink them to `.claude/skills/`:
-
-```bash
-mkdir -p .claude/skills
-for skill in massgen/skills/*/; do
-  ln -sf "../../$skill" ".claude/skills/$(basename "$skill")"
-done
-
-# Also symlink the skill-creator for creating new skills
-ln -sf "../.agent/skills/skill-creator" ".claude/skills/skill-creator"
-```
-
-Once symlinked, Claude Code will automatically discover and use these skills when relevant.
-
-### Creating New Skills
-
-When you notice a repeatable workflow emerging (e.g., same sequence of steps done multiple times), suggest creating a new skill for it. Use the `skill-creator` skill to help structure and create new skills in `massgen/skills/`.
-
-### Improving Existing Skills
-After you finish a workflow using a skill, it is a good idea to improve it, especially if a human has guided you through new workflows or you found other errors or inefficiencies. You should edit the file in `massgen/skills/` to improve it and have the human approve it.
+Specialized skills in `massgen/skills/` for common workflows. Full guide: `docs/modules/skills.md`. Symlink to `.claude/skills/` for discovery.
 
 ## Linear Integration
 
@@ -373,10 +271,10 @@ claude mcp add --transport http linear-server https://mcp.linear.app/mcp
 
 ### Feature Workflow
 
-1. **Create Linear issue first** → `mcp__linear-server__create_issue`
-2. **For significant changes** → Create OpenSpec proposal referencing the issue
-3. **Implement** → Reference issue ID in commits
-4. **Update status** → `mcp__linear-server__update_issue`
+1. **Create Linear issue first** -> `mcp__linear-server__create_issue`
+2. **For significant changes** -> Create OpenSpec proposal referencing the issue
+3. **Implement** -> Reference issue ID in commits
+4. **Update status** -> `mcp__linear-server__update_issue`
 
 This ensures features are tracked in Linear and spec'd via OpenSpec before implementation.
 
@@ -384,45 +282,4 @@ This ensures features are tracked in Linear and spec'd via OpenSpec before imple
 
 ## Release Workflow
 
-### Automated (GitHub Actions)
-
-| Trigger | Action | Workflow |
-|---------|--------|----------|
-| Git tag push | GitHub Release created | `auto-release.yml` |
-| GitHub Release published | PyPI publish | `pypi-publish.yml` |
-| Git tag push | Docker images built | `docker-publish.yml` |
-| Git tag push | Docs validated | `release-docs-automation.yml` |
-
-### Release Preparation
-
-Use the `release-prep` skill to automate release documentation:
-
-```bash
-release-prep v0.1.34
-```
-
-This will:
-1. Archive previous announcement → `docs/announcements/archive/`
-2. Generate CHANGELOG.md entry draft
-3. Create `docs/announcements/current-release.md`
-4. Validate documentation is updated
-5. Check LinkedIn character count (~3000 limit)
-
-### Announcement Files
-
-```text
-docs/announcements/
-├── feature-highlights.md    # Long-lived feature list (update for major features)
-├── current-release.md       # Active announcement (copy to LinkedIn/X)
-└── archive/                 # Past announcements
-```
-
-### Full Release Process
-
-1. **Merge release PR** to main
-2. **Run `release-prep v0.1.34`** - generates CHANGELOG, announcement
-3. **Review and commit** announcement files
-4. **Create git tag**: `git tag v0.1.34 && git push origin v0.1.34`
-5. **Publish GitHub Release** - triggers PyPI publish automatically
-6. **Post to LinkedIn/X** - copy from `docs/announcements/current-release.md` + `feature-highlights.md`
-7. **Update links** in `current-release.md` after posting
+Automated GitHub Actions, release-prep skill, announcement files, and full release process. Full guide: `docs/modules/release.md`. Quick command: `release-prep v0.1.XX`.

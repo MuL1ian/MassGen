@@ -74,6 +74,7 @@ try:
         AgentTabBar,
         AgentTabChanged,
         AnalysisProfileChanged,
+        AnalysisSkillLifecycleChanged,
         AnalysisTargetChanged,
         BroadcastModeChanged,
         CompletionFooter,
@@ -84,7 +85,6 @@ try:
         ModeChanged,
         ModeHelpClicked,
         MultiLineInput,
-        OpenSkillsRequested,
         OverrideRequested,
         PathSuggestionDropdown,
         PlanDepthChanged,
@@ -93,6 +93,7 @@ try:
         PlanSettingsClicked,
         QueuedInputBanner,
         SessionInfoClicked,
+        SkillsClicked,
         SubagentCard,
         SubagentScreen,
         SubtasksClicked,
@@ -279,6 +280,12 @@ class TextualTerminalDisplay(TerminalDisplay):
         self.truncate_web_on_status_change = kwargs.get("truncate_web_on_status_change", True)
         self.max_web_lines_on_status_change = kwargs.get("max_web_lines_on_status_change", 3)
         self.default_coordination_mode = kwargs.get("default_coordination_mode", "parallel")
+        self.default_load_previous_session_skills = bool(
+            kwargs.get("default_load_previous_session_skills", False),
+        )
+        self.default_skill_lifecycle_mode = str(
+            kwargs.get("default_skill_lifecycle_mode", "create_or_update"),
+        )
         # Runtime toggle to ignore hotkeys/key handling when enabled
         self.safe_keyboard_mode = kwargs.get("safe_keyboard_mode", False)
         self.max_buffer_batch = kwargs.get("max_buffer_batch", 50)
@@ -2759,6 +2766,13 @@ if TEXTUAL_AVAILABLE:
 
             # TUI Mode State (plan mode, agent mode, refinement mode, override)
             self._mode_state = TuiModeState()
+            self._mode_state.analysis_config.include_previous_session_skills = bool(
+                self.coordination_display.default_load_previous_session_skills,
+            )
+            lifecycle_mode = str(self.coordination_display.default_skill_lifecycle_mode).strip().lower()
+            if lifecycle_mode not in {"create_new", "create_or_update", "consolidate"}:
+                lifecycle_mode = "create_or_update"
+            self._mode_state.analysis_config.skill_lifecycle_mode = lifecycle_mode
             if self.coordination_display.default_coordination_mode == "decomposition":
                 self._mode_state.coordination_mode = "decomposition"
             self._mode_bar: Optional[ModeBar] = None
@@ -2864,19 +2878,161 @@ if TEXTUAL_AVAILABLE:
                 else:
                     self._tab_bar.set_agent_subtasks({})
 
+        _BACKEND_PROVIDER_SLUGS: Dict[str, str] = {
+            "openai": "openai",
+            "codex": "openai",
+            "claude": "anthropic",
+            "claude_code": "anthropic",
+            "gemini": "google",
+            "grok": "xai",
+            "chatcompletion": "openai",
+            "azure_openai": "azure",
+            "openrouter": "openrouter",
+            "groq": "groq",
+            "together": "together",
+            "fireworks": "fireworks",
+            "cerebras": "cerebras",
+            "moonshot": "moonshot",
+            "qwen": "alibaba",
+            "nebius": "nebius",
+            "poe": "poe",
+            "lmstudio": "lmstudio",
+            "zai": "zai",
+            "vllm": "vllm",
+            "sglang": "sglang",
+            "inference": "inference",
+            "ag2": "ag2",
+            "uitars": "bytedance",
+        }
+
+        _PROVIDER_NAME_SLUGS: Dict[str, str] = {
+            "openai": "openai",
+            "azure openai": "azure",
+            "claude": "anthropic",
+            "claude code": "anthropic",
+            "anthropic": "anthropic",
+            "gemini": "google",
+            "google": "google",
+            "grok": "xai",
+            "xai": "xai",
+            "openrouter": "openrouter",
+            "chat completions (generic)": "openai",
+            "groq": "groq",
+            "together ai": "together",
+            "fireworks ai": "fireworks",
+            "cerebras ai": "cerebras",
+            "kimi (moonshot ai)": "moonshot",
+            "nebius ai studio": "nebius",
+            "qwen (alibaba cloud)": "alibaba",
+        }
+
+        _MODEL_PREFIX_PROVIDER_SLUGS: tuple[tuple[str, str], ...] = (
+            ("gpt-", "openai"),
+            ("o1-", "openai"),
+            ("o3-", "openai"),
+            ("o4-", "openai"),
+            ("claude-", "anthropic"),
+            ("gemini-", "google"),
+            ("grok-", "xai"),
+            ("qwen-", "alibaba"),
+            ("llama-", "meta"),
+            ("mistral-", "mistral"),
+            ("deepseek-", "deepseek"),
+        )
+
+        def _normalize_provider_slug(self, provider_hint: Optional[str]) -> Optional[str]:
+            """Normalize a backend/provider hint into a canonical slug."""
+            if not provider_hint:
+                return None
+            value = str(provider_hint).strip().lower()
+            if not value:
+                return None
+            if "/" in value:
+                value = value.split("/", 1)[0]
+
+            backend_key = value.replace(" ", "_").replace("-", "_")
+            if backend_key in self._BACKEND_PROVIDER_SLUGS:
+                return self._BACKEND_PROVIDER_SLUGS[backend_key]
+
+            name_key = value.replace("_", " ")
+            if name_key in self._PROVIDER_NAME_SLUGS:
+                return self._PROVIDER_NAME_SLUGS[name_key]
+
+            if value in self._PROVIDER_NAME_SLUGS:
+                return self._PROVIDER_NAME_SLUGS[value]
+
+            return None
+
+        def _infer_provider_slug_from_model(self, model_name: str) -> Optional[str]:
+            """Infer provider slug from common model naming prefixes."""
+            lowered_model = model_name.strip().lower()
+            if not lowered_model:
+                return None
+            for prefix, provider_slug in self._MODEL_PREFIX_PROVIDER_SLUGS:
+                if lowered_model.startswith(prefix):
+                    return provider_slug
+            return None
+
+        def _to_provider_model(self, model_name: str, provider_hint: Optional[str]) -> str:
+            """Format model names as provider/model for startup display."""
+            model = (model_name or "").strip()
+            if not model:
+                return ""
+
+            if "/" in model:
+                raw_provider, raw_model = model.split("/", 1)
+                provider_slug = self._normalize_provider_slug(raw_provider) or raw_provider.strip().lower()
+                normalized_model = raw_model.strip()
+                return f"{provider_slug}/{normalized_model}" if normalized_model else provider_slug
+
+            provider_slug = self._normalize_provider_slug(provider_hint) or self._infer_provider_slug_from_model(model)
+            if not provider_slug:
+                return model
+            return f"{provider_slug}/{model}"
+
+        def _build_welcome_agents_info(self) -> List[Dict[str, str]]:
+            """Build welcome-screen agent metadata with provider/model display names."""
+            agent_models = getattr(self.coordination_display, "agent_models", {}) or {}
+            provider_hints: Dict[str, str] = {}
+
+            orchestrator = getattr(self.coordination_display, "orchestrator", None)
+            orchestrator_agents = getattr(orchestrator, "agents", {}) if orchestrator else {}
+            for agent_id, agent in orchestrator_agents.items():
+                backend = getattr(agent, "backend", None)
+                if backend is None:
+                    continue
+
+                backend_type = getattr(backend, "backend_type", None)
+                if isinstance(backend_type, str) and backend_type.strip():
+                    provider_hints[agent_id] = backend_type
+                    continue
+
+                provider_name = None
+                get_provider_name = getattr(backend, "get_provider_name", None)
+                if callable(get_provider_name):
+                    try:
+                        provider_name = get_provider_name()
+                    except Exception:
+                        provider_name = None
+                if provider_name:
+                    provider_hints[agent_id] = str(provider_name)
+
+            agents_info_list: List[Dict[str, str]] = []
+            for agent_id in self.coordination_display.agent_ids:
+                raw_model = str(agent_models.get(agent_id, "") or "").strip()
+                provider_model = self._to_provider_model(raw_model, provider_hints.get(agent_id))
+                agents_info_list.append(
+                    {
+                        "id": agent_id,
+                        "model": provider_model,
+                    },
+                )
+            return agents_info_list
+
         def compose(self) -> ComposeResult:
             """Compose the UI layout with adaptive agent arrangement."""
             len(self.coordination_display.agent_ids)
-            agents_info_list = []
-            # Use agent_models dict passed at display creation time
-            agent_models = getattr(self.coordination_display, "agent_models", {})
-            for agent_id in self.coordination_display.agent_ids:
-                agent_info = agent_id
-                # Get model from agent_models dict (populated at display creation)
-                if agent_id in agent_models and agent_models[agent_id]:
-                    model = agent_models[agent_id]
-                    agent_info = f"{agent_id} ({model})"
-                agents_info_list.append(agent_info)
+            agents_info_list = self._build_welcome_agents_info()
 
             turn = getattr(self.coordination_display, "current_turn", 1)
             agent_ids = self.coordination_display.agent_ids
@@ -2886,17 +3042,19 @@ if TEXTUAL_AVAILABLE:
             # === BOTTOM DOCKED WIDGETS (yield order: last yielded = very bottom) ===
             # Input area container - dock: bottom
             with Container(id="input_area"):
-                # Input header with modes (left), plan status (right), vim indicator
-                with Horizontal(id="input_header"):
-                    # Mode bar - toggles for plan/agent/refinement modes (left side)
-                    self._mode_bar = ModeBar(id="mode_bar")
-                    yield self._mode_bar
-                    # Input hint - hidden by default, used only for vim mode hints
-                    self._input_hint = Static("", id="input_hint", classes="hidden")
-                    yield self._input_hint
-                    # Vim mode indicator (hidden by default)
-                    self._vim_indicator = Static("", id="vim_indicator")
-                    yield self._vim_indicator
+                # Input header with mode controls and compact vim/help hints.
+                with Vertical(id="input_header"):
+                    with Horizontal(id="input_modes_row"):
+                        # Mode bar - toggles for plan/agent/refinement modes
+                        self._mode_bar = ModeBar(id="mode_bar")
+                        yield self._mode_bar
+
+                        # Vim mode indicator (hidden by default)
+                        self._vim_indicator = Static("", id="vim_indicator")
+                        yield self._vim_indicator
+                        # Input hint - hidden by default, used only for vim mode hints
+                        self._input_hint = Static("", id="input_hint", classes="hidden")
+                        yield self._input_hint
 
                 # Execution bar - shown ONLY during coordination, replaces input
                 # Contains status text (left) and cancel button (right)
@@ -3059,7 +3217,9 @@ if TEXTUAL_AVAILABLE:
             self._update_theme_indicator()
             if self._mode_bar:
                 self._mode_bar.set_coordination_mode(self._mode_state.coordination_mode)
+                self._mode_bar.set_coordination_enabled(self._mode_state.agent_mode != "single")
                 self._mode_bar.set_parallel_personas_enabled(self._mode_state.parallel_personas_enabled)
+            self._refresh_skills_button_state()
             # Auto-focus input field on startup
             if self.question_input:
                 self.question_input.focus()
@@ -4165,20 +4325,20 @@ if TEXTUAL_AVAILABLE:
                     self._input_hint.update("")
                     self._input_hint.add_class("hidden")
             elif vim_normal:
-                # Normal mode - show vim hints in input_hint
-                self._vim_indicator.update(" NORMAL ")
+                # Normal mode - keep a compact inline hint on the right.
+                self._vim_indicator.update("")
                 self._vim_indicator.remove_class("vim-insert-indicator")
-                self._vim_indicator.add_class("vim-normal-indicator")
+                self._vim_indicator.remove_class("vim-normal-indicator")
                 if hasattr(self, "_input_hint"):
-                    self._input_hint.update("VIM: i/a insert • hjkl move • /vim off")
+                    self._input_hint.update("Normal • i/a insert • hjkl • /vim off")
                     self._input_hint.remove_class("hidden")
             else:
-                # Insert mode - show vim hints in input_hint
-                self._vim_indicator.update(" INSERT ")
+                # Insert mode - short actionable hint.
+                self._vim_indicator.update("")
                 self._vim_indicator.remove_class("vim-normal-indicator")
-                self._vim_indicator.add_class("vim-insert-indicator")
+                self._vim_indicator.remove_class("vim-insert-indicator")
                 if hasattr(self, "_input_hint"):
-                    self._input_hint.update("VIM: Esc normal • Enter submit • /vim off")
+                    self._input_hint.update("Insert • Esc normal • /vim off")
                     self._input_hint.remove_class("hidden")
 
             # Force refresh to ensure visual update
@@ -4225,6 +4385,7 @@ MODE BAR:
   Coordination    - Parallel (vote) or decomposition (independent subtasks)
   Personas        - Toggle parallel persona generation + convergence prep view
   Subtasks        - Define per-agent subtasks (decomposition mode)
+  Skills          - Open skills manager (source groups, custom/evolving toggles)
   Refine          - Keep iterative refinement/voting on or off
   ⋮               - Plan/analysis settings (depth, selector, profile, target)
   ?               - Open mode bar help
@@ -6650,9 +6811,12 @@ Type your question and press Enter to ask the agents.
             This is used by the CLI driver to align the mode bar with config defaults
             before the user explicitly changes the coordination toggle.
             """
+            if self._mode_state.agent_mode == "single" and mode == "decomposition":
+                mode = "parallel"
             self._mode_state.coordination_mode = mode
             if self._mode_bar:
                 self._mode_bar.set_coordination_mode(mode)
+                self._mode_bar.set_coordination_enabled(self._mode_state.agent_mode != "single")
                 self._mode_bar.set_parallel_personas_enabled(self._mode_state.parallel_personas_enabled)
             if self._tab_bar:
                 if mode == "decomposition":
@@ -6764,6 +6928,15 @@ Type your question and press Enter to ask the agents.
                 event.stop()
                 return
             self._show_subtasks_editor_modal()
+            event.stop()
+
+        def on_skills_clicked(self, event: SkillsClicked) -> None:
+            """Handle global skills manager button click."""
+            if self._mode_state.is_locked():
+                self.notify("Cannot change skill settings during execution.", severity="warning", timeout=2)
+                event.stop()
+                return
+            self._show_skills_modal()
             event.stop()
 
         def _show_subtasks_editor_modal(self) -> None:
@@ -6895,6 +7068,35 @@ Type your question and press Enter to ask the agents.
                 )
             event.stop()
 
+        def on_analysis_skill_lifecycle_changed(self, event: AnalysisSkillLifecycleChanged) -> None:
+            """Handle analysis skill lifecycle mode changes from the popover."""
+            tui_log(f"on_analysis_skill_lifecycle_changed: mode={event.mode}")
+
+            if self._mode_state.is_locked():
+                self.notify("Cannot change analysis skill lifecycle during execution.", severity="warning", timeout=2)
+                event.stop()
+                return
+
+            mode = str(event.mode or "").strip().lower()
+            if mode not in {"create_new", "create_or_update", "consolidate"}:
+                mode = "create_or_update"
+
+            self._mode_state.analysis_config.skill_lifecycle_mode = mode
+
+            popover_visible = hasattr(self, "_plan_options_popover") and "visible" in self._plan_options_popover.classes
+            if not popover_visible:
+                labels = {
+                    "create_new": "Create New",
+                    "create_or_update": "Create or Update",
+                    "consolidate": "Consolidate",
+                }
+                self.notify(
+                    f"Analysis skill lifecycle: {labels.get(mode, mode)}",
+                    severity="information",
+                    timeout=2,
+                )
+            event.stop()
+
         def on_analysis_target_changed(self, event: AnalysisTargetChanged) -> None:
             """Handle analysis target changes from the popover."""
             tui_log(f"on_analysis_target_changed: log_dir={event.log_dir}, turn={event.turn}")
@@ -6959,11 +7161,6 @@ Type your question and press Enter to ask the agents.
             self._show_text_modal(report_path, f"Analysis Report • {Path(event.log_dir).name} • turn_{event.turn}")
             event.stop()
 
-        def on_open_skills_requested(self, event: OpenSkillsRequested) -> None:
-            """Handle request to open the session skills manager."""
-            self._show_skills_modal()
-            event.stop()
-
         def _update_plan_options_popover_state(self) -> None:
             """Update the plan options popover internal state (without recompose)."""
             if not hasattr(self, "_plan_options_popover"):
@@ -6994,6 +7191,7 @@ Type your question and press Enter to ask the agents.
                     self._mode_state.analysis_config.selected_log_dir,
                     self._mode_state.analysis_config.selected_turn,
                 )
+                popover._analysis_skill_lifecycle_mode = self._mode_state.analysis_config.skill_lifecycle_mode
                 # Don't recompose - let the popover show with updated state
             except Exception as e:
                 tui_log(f"_update_plan_options_popover_state error: {e}")
@@ -7574,17 +7772,37 @@ Type your question and press Enter to ask the agents.
             self._mode_state.agent_mode = mode
 
             if mode == "single":
+                switched_from_decomposition = self._mode_state.coordination_mode == "decomposition"
+                if switched_from_decomposition:
+                    self._mode_state.coordination_mode = "parallel"
+                    self._mode_state.coordination_mode_user_set = False
                 # Select the currently active agent as the single agent
                 selected = self._active_agent_id or (self.coordination_display.agent_ids[0] if self.coordination_display.agent_ids else None)
                 self._mode_state.selected_single_agent = selected
+                if self._mode_bar:
+                    self._mode_bar.set_coordination_mode("parallel")
+                    self._mode_bar.set_coordination_enabled(False)
                 if self._tab_bar and selected:
                     self._tab_bar.set_single_agent_mode(True, selected)
+                    if self._mode_state.parallel_personas_enabled:
+                        self._tab_bar.set_agent_personas(self._runtime_parallel_personas)
+                    else:
+                        self._tab_bar.set_agent_subtasks({})
                 # Update agent panels with "in use" state
                 self._update_agent_panels_in_use_state(selected)
-                self.notify(f"Single-Agent Mode: {selected}", severity="information", timeout=3)
+                if switched_from_decomposition:
+                    self.notify(
+                        f"Single-Agent Mode: {selected} (decomposition disabled; using parallel)",
+                        severity="warning",
+                        timeout=3,
+                    )
+                else:
+                    self.notify(f"Single-Agent Mode: {selected}", severity="information", timeout=3)
             else:
                 # Multi-agent mode
                 self._mode_state.selected_single_agent = None
+                if self._mode_bar:
+                    self._mode_bar.set_coordination_enabled(True)
                 if self._tab_bar:
                     self._tab_bar.set_single_agent_mode(False)
                 # All panels are in use in multi-agent mode
@@ -7598,8 +7816,29 @@ Type your question and press Enter to ask the agents.
                 mode: "parallel" or "decomposition".
             """
             tui_log(f"_handle_coordination_mode_change: {mode}")
+            if mode == "decomposition" and self._mode_state.agent_mode == "single":
+                self._mode_state.coordination_mode = "parallel"
+                self._mode_state.coordination_mode_user_set = False
+                if self._mode_bar:
+                    self._mode_bar.set_coordination_mode("parallel")
+                    self._mode_bar.set_coordination_enabled(False)
+                if self._tab_bar:
+                    if self._mode_state.parallel_personas_enabled:
+                        self._tab_bar.set_agent_personas(self._runtime_parallel_personas)
+                    else:
+                        self._tab_bar.set_agent_subtasks({})
+                self.notify(
+                    "Decomposition requires Multi-Agent mode.",
+                    severity="warning",
+                    timeout=3,
+                )
+                return
+
             self._mode_state.coordination_mode = mode
             self._mode_state.coordination_mode_user_set = True
+            if self._mode_bar:
+                self._mode_bar.set_coordination_mode(mode)
+                self._mode_bar.set_coordination_enabled(self._mode_state.agent_mode != "single")
 
             if mode == "decomposition":
                 if self._tab_bar:
@@ -9297,56 +9536,100 @@ Type your question and press Enter to ask the agents.
                 normalized.append(cleaned)
             return normalized
 
-        def _collect_skill_inventory(self) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-            """Collect available skills grouped into default vs created lists."""
+        def _collect_skill_inventory(
+            self,
+            include_previous_session_skills: bool = True,
+        ) -> Dict[str, List[Dict[str, Any]]]:
+            """Collect available skills grouped by source location."""
             from massgen.filesystem_manager.skills_manager import scan_skills
             from massgen.logs_analyzer import get_logs_dir
 
             skills_dir = Path(".agent/skills")
             logs_dir = get_logs_dir()
-            all_skills = scan_skills(skills_dir, logs_dir=logs_dir if logs_dir.exists() else None)
+            logs_source = logs_dir if include_previous_session_skills and logs_dir.exists() else None
+            all_skills = scan_skills(skills_dir, logs_dir=logs_source)
 
-            # Keep first instance per name to avoid duplicates across sources.
-            deduped: List[Dict[str, Any]] = []
-            seen: Set[str] = set()
+            grouped: Dict[str, List[Dict[str, Any]]] = {
+                "builtin": [],
+                "project": [],
+                "user": [],
+                "previous_session": [],
+            }
             for skill in all_skills:
-                name = str(skill.get("name", "")).strip()
-                if not name:
-                    continue
-                key = name.lower()
-                if key in seen:
-                    continue
-                seen.add(key)
-                deduped.append(skill)
+                location = str(skill.get("location", "project"))
+                if location not in grouped:
+                    grouped[location] = []
+                grouped[location].append(skill)
 
-            default_skills = sorted(
-                [s for s in deduped if s.get("location") == "builtin"],
-                key=lambda s: str(s.get("name", "")).lower(),
-            )
-            created_skills = sorted(
-                [s for s in deduped if s.get("location") != "builtin"],
-                key=lambda s: str(s.get("name", "")).lower(),
-            )
-            return default_skills, created_skills
+            for location in grouped:
+                grouped[location] = sorted(
+                    grouped[location],
+                    key=lambda s: str(s.get("name", "")).lower(),
+                )
+            return grouped
+
+        @staticmethod
+        def _flatten_skill_inventory(
+            skills_by_location: Dict[str, List[Dict[str, Any]]],
+            include_previous_session_skills: bool,
+        ) -> List[Dict[str, Any]]:
+            """Flatten grouped skills into a single list with optional evolving exclusion."""
+            flattened: List[Dict[str, Any]] = []
+            for location, skills in skills_by_location.items():
+                if location == "previous_session" and not include_previous_session_skills:
+                    continue
+                flattened.extend(skills)
+            return flattened
+
+        def _refresh_skills_button_state(self) -> None:
+            """Show/hide mode-bar skills button based on discovered skill availability."""
+            if not self._mode_bar:
+                return
+            try:
+                inventory = self._collect_skill_inventory(
+                    include_previous_session_skills=False,
+                )
+                has_skills = any(bool(skills) for skills in inventory.values())
+                self._mode_bar.set_skills_available(has_skills)
+            except Exception as e:
+                tui_log(f"_refresh_skills_button_state error: {e}")
+                self._mode_bar.set_skills_available(False)
 
         def _show_skills_modal(self) -> None:
             """Show session skill manager modal."""
-            default_skills, created_skills = self._collect_skill_inventory()
+            include_previous = bool(
+                self._mode_state.analysis_config.include_previous_session_skills,
+            )
+            skills_by_location = self._collect_skill_inventory(
+                include_previous_session_skills=True,
+            )
             current_enabled = self._mode_state.analysis_config.get_enabled_skill_names()
 
             modal = SkillsModal(
-                default_skills=default_skills,
-                created_skills=created_skills,
+                skills_by_location=skills_by_location,
                 enabled_skill_names=current_enabled,
+                include_previous_session_skills=include_previous,
             )
 
-            def _on_skills_dismiss(result: Optional[List[str]]) -> None:
+            def _on_skills_dismiss(result: Optional[Dict[str, Any]]) -> None:
                 if result is None:
                     return
 
-                selected = self._normalize_skill_name_list(result)
+                selected = self._normalize_skill_name_list(
+                    result.get("enabled_skill_names", []),
+                )
+                include_previous_session_skills = bool(
+                    result.get("include_previous_session_skills", include_previous),
+                )
+                self._mode_state.analysis_config.include_previous_session_skills = include_previous_session_skills
                 discovered = self._normalize_skill_name_list(
-                    [str(s.get("name", "")) for s in default_skills + created_skills],
+                    [
+                        str(s.get("name", ""))
+                        for s in self._flatten_skill_inventory(
+                            skills_by_location,
+                            include_previous_session_skills=include_previous_session_skills,
+                        )
+                    ],
                 )
 
                 selected_set = {name.lower() for name in selected}
@@ -9360,6 +9643,7 @@ Type your question and press Enter to ask the agents.
                 else:
                     self._mode_state.analysis_config.enabled_skill_names = selected
                     self.notify(f"Skills enabled: {len(selected)}", severity="information", timeout=3)
+                self._refresh_skills_button_state()
 
             self.push_screen(modal, _on_skills_dismiss)
 
@@ -9391,13 +9675,20 @@ Type your question and press Enter to ask the agents.
                 self._mode_state.analysis_config._pre_analysis_skill_dirs = None
 
         def _harvest_skills_from_workspace(self) -> None:
-            """Copy new SKILL.md dirs from agent workspaces to .agent/skills/."""
-            import shutil
+            """Apply skill lifecycle updates from analysis outputs into .agent/skills/."""
 
+            from massgen.filesystem_manager.skills_manager import (
+                apply_analysis_skill_lifecycle,
+                consolidate_project_skills,
+                normalize_skill_lifecycle_mode,
+            )
             from massgen.logger_config import get_log_session_dir
 
             project_skills_root = Path(".agent") / "skills"
             pre_snapshot = self._mode_state.analysis_config._pre_analysis_skill_dirs or set()
+            lifecycle_mode = normalize_skill_lifecycle_mode(
+                self._mode_state.analysis_config.skill_lifecycle_mode,
+            )
 
             # Find SKILL.md files in agent workspaces
             log_dir = get_log_session_dir()
@@ -9406,54 +9697,64 @@ Type your question and press Enter to ask the agents.
                 tui_log("[SkillHarvest] No final/ directory found")
                 return
 
-            harvested: list[str] = []
-            for skill_md in final_dir.glob("agent_*/workspace/.agent/skills/*/SKILL.md"):
+            actions: list[Dict[str, Any]] = []
+            for skill_md in sorted(final_dir.glob("agent_*/workspace/.agent/skills/*/SKILL.md")):
                 skill_dir = skill_md.parent
-                skill_name = skill_dir.name
-
-                # Skip if it already existed before analysis
-                if skill_name in pre_snapshot:
-                    continue
-
-                dest = project_skills_root / skill_name
-                if dest.exists():
-                    # Don't overwrite existing project skills
-                    continue
 
                 try:
-                    project_skills_root.mkdir(parents=True, exist_ok=True)
-                    shutil.copytree(str(skill_dir), str(dest))
-                    harvested.append(skill_name)
-                    tui_log(f"[SkillHarvest] Copied {skill_name} to {dest}")
+                    result = apply_analysis_skill_lifecycle(
+                        skill_dir,
+                        project_skills_root,
+                        lifecycle_mode=lifecycle_mode,
+                        preexisting_skill_dirs=pre_snapshot,
+                    )
+                    actions.append(result)
+                    tui_log(f"[SkillHarvest] lifecycle={lifecycle_mode} result={result}")
                 except Exception as e:
-                    tui_log(f"[SkillHarvest] Failed to copy {skill_name}: {e}")
+                    tui_log(f"[SkillHarvest] Failed lifecycle apply for {skill_dir.name}: {e}")
 
-            if not harvested:
+            merges: list[Dict[str, str]] = []
+            if lifecycle_mode == "consolidate":
+                try:
+                    merges = consolidate_project_skills(project_skills_root)
+                    if merges:
+                        tui_log(f"[SkillHarvest] Consolidated {len(merges)} overlapping skills")
+                except Exception as e:
+                    tui_log(f"[SkillHarvest] Consolidation failed: {e}")
+
+            created_names = []
+            updated_names = []
+            for item in actions:
+                name = str(item.get("name", "") or "").strip()
+                if not name:
+                    continue
+                if item.get("action") == "created":
+                    created_names.append(name)
+                elif item.get("action") == "updated":
+                    updated_names.append(name)
+
+            created_names = self._normalize_skill_name_list(created_names)
+            updated_names = self._normalize_skill_name_list(updated_names)
+
+            if not created_names and not updated_names and not merges:
                 return
 
-            from massgen.filesystem_manager.skills_manager import parse_frontmatter
+            summary_parts = []
+            if created_names:
+                summary_parts.append(f"created {len(created_names)}")
+            if updated_names:
+                summary_parts.append(f"updated {len(updated_names)}")
+            if merges:
+                summary_parts.append(f"consolidated {len(merges)}")
 
-            display_names = []
-            for dirname in harvested:
-                skill_path = project_skills_root / dirname / "SKILL.md"
-                try:
-                    content = skill_path.read_text(encoding="utf-8")
-                    metadata = parse_frontmatter(content)
-                    display_names.append(metadata.get("name", dirname))
-                except Exception:
-                    display_names.append(dirname)
-
-            names_str = ", ".join(display_names)
-            self.notify(
-                f"Skill(s) installed: {names_str}",
-                severity="information",
-                timeout=5,
-            )
+            summary_text = ", ".join(summary_parts)
+            self.notify(f"Skills lifecycle applied: {summary_text}", severity="information", timeout=5)
 
             # Auto-add to enabled filter if one is active.
             enabled = self._mode_state.analysis_config.get_enabled_skill_names()
             if enabled is not None:
-                self._mode_state.analysis_config.enabled_skill_names = self._normalize_skill_name_list(enabled + display_names)
+                self._mode_state.analysis_config.enabled_skill_names = self._normalize_skill_name_list(enabled + created_names + updated_names)
+            self._refresh_skills_button_state()
 
         def _show_file_inspection_modal(self):
             """Display file inspection modal with tree view."""
@@ -9526,26 +9827,135 @@ Type your question and press Enter to ask the agents.
    ██║ ╚═╝ ██║ ██║  ██║ ███████║ ███████║ ╚██████╔╝ ███████╗ ██║ ╚████║
    ╚═╝     ╚═╝ ╚═╝  ╚═╝ ╚══════╝ ╚══════╝  ╚═════╝  ╚══════╝ ╚═╝  ╚═══╝"""
 
+        MASSGEN_LOGO_COMPACT = "MASSGEN"
+
         def __init__(self, agents_info: list = None):
             super().__init__(id="welcome_screen")
             self.agents_info = agents_info or []
+            self._logo_label: Optional[Label] = None
+            self._divider_label: Optional[Static] = None
+            self._agents_label: Optional[Label] = None
+            self._hint_label: Optional[Label] = None
+            self._cwd_hint_label: Optional[Static] = None
+            self._shortcuts_label: Optional[Static] = None
 
         def compose(self) -> ComposeResult:
-            yield Label(self.MASSGEN_LOGO, id="welcome_logo")
+            self._logo_label = Label(self.MASSGEN_LOGO, id="welcome_logo")
+            yield self._logo_label
             yield Label("Multi-Agent Collaboration System", id="welcome_tagline")
-            # Show agent list
-            if self.agents_info:
-                agents_list = "  •  ".join(self.agents_info)
-                yield Label(agents_list, id="welcome_agents")
-            else:
-                yield Label(f"Ready with {len(self.agents_info)} agents", id="welcome_agents")
-            yield Label("Type your question below to begin...", id="welcome_hint")
-            # CWD context hint - shows current mode, explains what it does
-            cwd = Path.cwd()
-            cwd_short = f"~/{cwd.name}" if len(str(cwd)) > 30 else str(cwd)
-            # Use fixed-width format: ○/● indicator + consistent text
-            yield Static(f"[dim]Ctrl+P file access to {cwd_short}  •  @ for other paths[/]", id="cwd_hint")
-            yield Static("[dim]Ctrl+G help  •  Ctrl+C quit[/]", id="shortcuts_hint")
+            self._divider_label = Static("", id="welcome_divider")
+            yield self._divider_label
+            with Container(id="welcome_agents_wrap"):
+                self._agents_label = Label("", id="welcome_agents")
+                yield self._agents_label
+            self._cwd_hint_label = Static("", id="cwd_hint")
+            yield self._cwd_hint_label
+            self._shortcuts_label = Static("", id="welcome_shortcuts_hint")
+            yield self._shortcuts_label
+            self._hint_label = Label("", id="welcome_hint")
+            yield self._hint_label
+
+        def on_mount(self) -> None:
+            """Apply responsive formatting once widget dimensions are known."""
+            self.call_after_refresh(self._refresh_for_size)
+
+        def on_resize(self, event: events.Resize) -> None:
+            """Reflow welcome content when terminal size changes."""
+            del event
+            self._refresh_for_size()
+
+        def _refresh_for_size(self) -> None:
+            """Keep welcome screen readable at narrow widths/heights."""
+            width = self.size.width or (self.app.size.width if self.app else 120)
+            height = self.size.height or (self.app.size.height if self.app else 40)
+
+            if self._logo_label:
+                logo = self.MASSGEN_LOGO_COMPACT if width < 110 or height < 26 else self.MASSGEN_LOGO
+                self._logo_label.update(logo)
+
+            if self._divider_label:
+                self._divider_label.update(self._build_divider(width))
+
+            if self._agents_label:
+                self._agents_label.update(self._build_agent_summary(width))
+
+            if self._hint_label:
+                if width < 84:
+                    self._hint_label.update("Type your question and press Enter.")
+                else:
+                    self._hint_label.update("Type your question below, then press Enter.")
+
+            if self._cwd_hint_label:
+                self._cwd_hint_label.update(self._build_cwd_hint(width))
+
+            if self._shortcuts_label:
+                if width < 84:
+                    self._shortcuts_label.update("[dim]Help Ctrl+G  •  Quit Ctrl+C[/]")
+                else:
+                    self._shortcuts_label.update("[dim]Help: Ctrl+G  •  Quit: Ctrl+C[/]")
+
+        def _build_divider(self, width: int) -> str:
+            """Return a balanced separator line for the welcome card."""
+            length = max(26, min(72, width - 18))
+            return "─" * length
+
+        def _build_agent_summary(self, width: int) -> str:
+            """Build a readable summary of ready agents and models."""
+            if not self.agents_info:
+                return "Ready: 0 agents"
+
+            entries: List[Tuple[str, str]] = []
+            for item in self.agents_info:
+                if isinstance(item, dict):
+                    agent_id = str(item.get("id", "") or "").strip()
+                    model = str(item.get("model", "") or "").strip()
+                else:
+                    agent_text = str(item).strip()
+                    if " (" in agent_text and agent_text.endswith(")"):
+                        agent_id, model = agent_text.rsplit(" (", 1)
+                        model = model[:-1]
+                    else:
+                        agent_id, model = agent_text, ""
+                    agent_id = agent_id.strip()
+                    model = model.strip()
+
+                if agent_id:
+                    entries.append((agent_id, model))
+
+            summary_lines = [f"Ready: {len(entries)} agents"]
+            agent_col_width = max((len(agent_id) for agent_id, _ in entries), default=0)
+
+            for agent_id, model in entries:
+                if not model:
+                    summary_lines.append(agent_id)
+                    continue
+
+                model_budget = max(12, width - agent_col_width - 8)
+                summary_lines.append(
+                    f"{agent_id.ljust(agent_col_width)} - {self._truncate_middle(model, model_budget)}",
+                )
+            return "\n".join(summary_lines)
+
+        @staticmethod
+        def _truncate_middle(value: str, max_length: int) -> str:
+            """Truncate long values while preserving start/end context."""
+            if len(value) <= max_length:
+                return value
+            if max_length <= 8:
+                return value[:max_length]
+            head = (max_length - 1) // 2
+            tail = max_length - head - 1
+            return f"{value[:head]}…{value[-tail:]}"
+
+        def _build_cwd_hint(self, width: int) -> str:
+            """Build a CWD hint that fits the available width."""
+            cwd = str(Path.cwd())
+            max_path_len = max(12, width - 58)
+            if len(cwd) > max_path_len:
+                cwd = f"...{cwd[-(max_path_len - 3):]}"
+            if width < 84:
+                return "[dim]Paths are not added yet: Ctrl+P browse  •  include with @path[/]"
+            return f"[dim]Paths are not added yet: Ctrl+P browse {cwd}  •  include with @path[/]"
 
     class HeaderWidget(Static):
         """Compact header widget showing minimal branding and session info."""

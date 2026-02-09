@@ -239,9 +239,10 @@ class SystemMessageBuilder:
             # Log what we found
             builtin_count = len([s for s in all_skills if s["location"] == "builtin"])
             project_count = len([s for s in all_skills if s["location"] == "project"])
+            user_count = len([s for s in all_skills if s["location"] == "user"])
             previous_count = len([s for s in all_skills if s["location"] == "previous_session"])
             logger.info(
-                f"[SystemMessageBuilder] Scanned skills: {builtin_count} builtin, " f"{project_count} project, {previous_count} previous_session",
+                f"[SystemMessageBuilder] Scanned skills: {builtin_count} builtin, " f"{project_count} project, {user_count} user, {previous_count} previous_session",
             )
             if enabled_skill_names is not None:
                 logger.info(

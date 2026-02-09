@@ -135,15 +135,18 @@ TUI:
 
 ## TDD Execution Contract
 
-For non-trivial feature work, use this sequence:
+**TDD is the default development methodology.** See `CLAUDE.md` § "Test-Driven Development (TDD)" for the authoritative contract with full tables for when TDD applies, test placement, and anti-patterns.
 
-1. Align with user on acceptance tests and failure conditions.
-2. Implement or update tests first.
-3. Run tests and confirm they fail for the intended reason.
-4. Implement code until tests pass.
-5. Keep tests committed as regression protection.
+The short version for every non-trivial change:
 
-This contract applies to backend logic, TUI behavior, WebUI behavior, and integration workflows.
+1. **Agree on acceptance tests** with the user — define pass/fail criteria before coding.
+2. **Write tests first** that express the desired behavior.
+3. **Confirm tests fail** for the right reason (missing feature, not test bug).
+4. **Implement minimum code** until the test suite passes.
+5. **Refactor under green** — clean up only while tests remain passing.
+6. **Commit tests alongside code** — tests are permanent regression protection, not scaffolding.
+
+This contract applies to backend logic, TUI behavior, WebUI behavior, config changes, and integration workflows. The only exception is trivial one-liner fixes where silent breakage is impossible.
 
 ## Instruction File Parity Hook
 
@@ -251,6 +254,35 @@ The synthetic replay workflow (`--tui` / `--tui-real`) is a strong candidate for
 3. generate follow-up debugging artifacts for testing and docs.
 
 This fits best as an end-of-testing workflow for learning, debugging, and reproducing UI behavior before deciding whether to update snapshots/goldens.
+
+## Integration Testing Across Backends
+
+When creating integration tests that involve backend functionality (hooks, tool execution, streaming, compression, etc.), **test across all 5 standard backends**:
+
+| Backend | Type | Model | API Style |
+|---------|------|-------|-----------|
+| Claude | `claude` | `claude-haiku-4-5-20251001` | anthropic |
+| OpenAI | `openai` | `gpt-4o-mini` | openai |
+| Gemini | `gemini` | `gemini-3-flash-preview` | gemini |
+| OpenRouter | `chatcompletion` | `openai/gpt-4o-mini` | openai |
+| Grok | `grok` | `grok-3-mini` | openai |
+
+**Reference scripts**:
+- `scripts/test_hook_backends.py` - Hook framework integration tests
+- `scripts/test_compression_backends.py` - Context compression tests
+
+**Integration test pattern**:
+```python
+BACKEND_CONFIGS = {
+    "claude": {"type": "claude", "model": "claude-haiku-4-5-20251001"},
+    "openai": {"type": "openai", "model": "gpt-4o-mini"},
+    "gemini": {"type": "gemini", "model": "gemini-3-flash-preview"},
+    "openrouter": {"type": "chatcompletion", "model": "openai/gpt-4o-mini", "base_url": "..."},
+    "grok": {"type": "grok", "model": "grok-3-mini"},
+}
+```
+
+Use `--verbose` flag to show detailed output (injection content, message formats, etc.).
 
 ## Pre-Commit vs Fast Lane
 
