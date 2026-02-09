@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 try:
     from textual.app import ComposeResult
     from textual.containers import Container, Horizontal, VerticalScroll
-    from textual.widgets import Button, Checkbox, Label, Static, TextArea
+    from textual.widgets import Button, Checkbox, Label, Static
 
     TEXTUAL_AVAILABLE = True
 except ImportError:
@@ -121,41 +121,5 @@ class SkillsModal(BaseModal):
             return
         if event.button.id == "skills_cancel_button":
             self.dismiss(None)
-            event.stop()
-            return
-
-
-class SkillConfirmModal(BaseModal):
-    """Modal asking user to confirm writing a generated skill to disk."""
-
-    def __init__(
-        self,
-        *,
-        skill_name: str,
-        skill_markdown: str,
-        target_path: str,
-    ) -> None:
-        super().__init__()
-        self._skill_name = skill_name
-        self._skill_markdown = skill_markdown
-        self._target_path = target_path
-
-    def compose(self) -> ComposeResult:
-        with Container(id="skill_confirm_container"):
-            yield Label("Create Skill from Analysis?", id="skill_confirm_header")
-            yield Static(f"[bold]Name:[/] {self._skill_name}", markup=True)
-            yield Static(f"[bold]Target:[/] {self._target_path}", markup=True)
-            yield TextArea(self._skill_markdown, read_only=True, id="skill_confirm_body")
-            with Horizontal(id="skill_confirm_actions"):
-                yield Button("Create Skill", id="confirm_skill_write_btn", variant="success")
-                yield Button("Cancel", id="skill_confirm_cancel_button")
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "confirm_skill_write_btn":
-            self.dismiss(True)
-            event.stop()
-            return
-        if event.button.id == "skill_confirm_cancel_button":
-            self.dismiss(False)
             event.stop()
             return

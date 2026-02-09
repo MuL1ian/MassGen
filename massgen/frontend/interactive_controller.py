@@ -509,8 +509,7 @@ class TextualInteractiveAdapter(UIAdapter):
                 analysis_profile = getattr(mode_state.analysis_config, "profile", "dev")
                 if analysis_profile == "user":
                     self._display._call_app_method(
-                        "_offer_skill_creation_from_analysis",
-                        result.answer_text,
+                        "_detect_new_skills_from_analysis",
                     )
 
         if result.was_cancelled:

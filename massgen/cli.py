@@ -702,6 +702,41 @@ USER'S REQUEST:
 """
 
 
+def _load_skill_creator_reference() -> str:
+    """Load the skill-creator SKILL.md for prompt inclusion."""
+    try:
+        path = Path(".agent") / "skills" / "skill-creator" / "SKILL.md"
+        return path.read_text(encoding="utf-8")
+    except Exception:
+        # Minimal fallback if file is missing
+        return "---\nname: descriptive-skill-name\n" "description: Clear explanation of what this workflow does\n---\n" "# Skill Name\n\n## Purpose\n## Workflow\n"
+
+
+def _get_log_session_original_query(log_dir: Optional[str]) -> Optional[str]:
+    """Extract the original user query from a log session's status.json.
+
+    Args:
+        log_dir: Path to the log session directory.
+
+    Returns:
+        The original query string, or None if not found.
+    """
+    if not log_dir:
+        return None
+    import json
+
+    log_path = Path(log_dir)
+    for status_path in sorted(log_path.glob("turn_*/attempt_*/status.json")):
+        try:
+            data = json.loads(status_path.read_text())
+            question = data.get("meta", {}).get("question", "")
+            if question:
+                return question.strip()
+        except Exception:
+            continue
+    return None
+
+
 def get_log_analysis_prompt_prefix(
     log_dir: Optional[str],
     turn: Optional[int],
@@ -721,16 +756,41 @@ def get_log_analysis_prompt_prefix(
     target_log = log_dir or "auto-select current/latest log session"
     target_turn = f"turn_{turn}" if turn is not None else "latest available turn"
 
+    original_query = _get_log_session_original_query(log_dir)
+    original_query_section = ""
+    if original_query:
+        original_query_section = f"""- Original task: {original_query}
+"""
+
     if normalized_profile == "user":
-        profile_section = """## Profile Focus: USER (skills-first)
+        skill_creator_ref = _load_skill_creator_reference()
+        profile_section = f"""## Profile Focus: USER (skills-first)
 
 Primary objective:
-- Understand what happened in this run and convert findings into reusable user-facing skills.
+- Read the logs from this run to understand what workflow was executed and how.
+- Distill the workflow into a single reusable skill that lets someone repeat or adapt it.
+
+IMPORTANT constraints:
+- Create exactly ONE skill unless the run covered genuinely distinct, unrelated tasks.
+- The skill must be about the DOMAIN TASK (the original query above), NOT about "analyzing logs" or "evaluating runs".
+- The skill should encode the workflow, techniques, prompt patterns, and tool usage that made this run effective.
+- Name the skill after what it DOES (e.g., "poem-workshop", "website-builder"), not after analysis.
 
 Required outputs:
-- If a reusable workflow is identified, include exactly one complete `SKILL.md` draft in a fenced markdown block.
-- The draft must include YAML frontmatter with at least `name` and `description`.
-- Keep recommendations concrete and action-oriented for end users.
+- Create a skill directory on disk: `.agent/skills/<skill-name>/SKILL.md` using filesystem tools.
+- The SKILL.md should capture the specific workflow, prompts, and patterns from the logs so someone else can reproduce or build on this work.
+
+## Skill Creation Reference
+
+<skill-creator-reference>
+{skill_creator_ref}
+</skill-creator-reference>
+
+When creating a skill from analysis findings:
+1. Choose a descriptive kebab-case name that reflects the domain task (NOT "log-analysis" or similar).
+2. Write the SKILL.md file directly to `.agent/skills/<name>/SKILL.md` using filesystem tools.
+3. Include proper YAML frontmatter with at least `name` and `description`.
+4. Focus the skill content on the actual workflow and techniques, not on meta-analysis.
 """
     else:
         profile_section = """## Profile Focus: DEV (internals-first)
@@ -750,7 +810,7 @@ You are in MassGen Textual analysis mode.
 Analysis target:
 - Log session: {target_log}
 - Turn: {target_turn}
-
+{original_query_section}
 {profile_section}
 
 General constraints:

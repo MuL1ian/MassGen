@@ -61,7 +61,6 @@ try:
         MCPStatusModal,
         MetricsModal,
         OrchestratorEventsModal,
-        SkillConfirmModal,
         SkillsModal,
         StructuredBroadcastPromptModal,
         SystemStatusModal,
@@ -7000,7 +6999,11 @@ Type your question and press Enter to ask the agents.
                 tui_log(f"_update_plan_options_popover_state error: {e}")
 
         def _get_available_log_sessions(self) -> List[Path]:
-            """Return available log session directories with current session prioritized."""
+            """Return available log session directories, excluding the current session.
+
+            The current running session's log dir is excluded because it's
+            actively being written to and not useful as an analysis target.
+            """
             log_dirs: List[Path] = []
             try:
                 from massgen.logger_config import get_log_session_root
@@ -7012,10 +7015,14 @@ Type your question and press Enter to ask the agents.
                     # Timestamp-based directory names sort correctly lexicographically.
                     log_dirs.sort(key=lambda p: p.name, reverse=True)
 
+                # Exclude the current running session — it's still being
+                # written to and isn't a meaningful analysis target.
                 current_root = get_log_session_root().resolve()
-                if current_root.exists() and current_root.is_dir() and current_root.name.startswith("log_"):
+                if current_root.exists() and current_root.is_dir():
                     log_dirs = [p for p in log_dirs if p != current_root]
-                    log_dirs.insert(0, current_root)
+
+                # Exclude sessions that never completed an attempt (no status.json).
+                log_dirs = [p for p in log_dirs if any(p.glob("turn_*/attempt_*/status.json"))]
             except Exception as e:
                 tui_log(f"_get_available_log_sessions error: {e}")
             return log_dirs
@@ -7066,11 +7073,32 @@ Type your question and press Enter to ask the agents.
             logs = self._get_available_log_sessions()
             selected = self._mode_state.analysis_config.selected_log_dir
             for path in logs:
-                label = path.name
+                query = self._get_log_session_query(path)
+                # Extract timestamp portion from dir name (e.g. "20260207_143026")
+                ts = path.name.removeprefix("log_").rsplit("_", 1)[0]
+                if query:
+                    label = f"{ts} — {query[:50]}"
+                else:
+                    label = path.name
                 if str(path) == selected:
                     label += " (selected)"
                 options.append((label, str(path)))
             return options
+
+        @staticmethod
+        def _get_log_session_query(log_dir: Path) -> Optional[str]:
+            """Extract the user query from the first status.json in a log session."""
+            import json
+
+            for status_path in sorted(log_dir.glob("turn_*/attempt_*/status.json")):
+                try:
+                    data = json.loads(status_path.read_text())
+                    question = data.get("meta", {}).get("question", "")
+                    if question:
+                        return question.strip()
+                except Exception:
+                    continue
+            return None
 
         def _build_analysis_turn_options(self) -> List[Tuple[str, str]]:
             """Build `(label, value)` options for analysis turn selection."""
@@ -7308,7 +7336,7 @@ Type your question and press Enter to ask the agents.
             """Enter execute mode and show plan selector if plans exist.
 
             Called from action_toggle_plan_mode when transitioning from plan → execute.
-            If no plans exist, stays in plan mode and shows a warning.
+            If no plans exist, skips to analysis mode so the user isn't stuck.
             """
             tui_log("_enter_execute_mode - START")
 
@@ -7320,16 +7348,9 @@ Type your question and press Enter to ask the agents.
                 tui_log(f"  -> found {len(plans)} plans")
 
                 if not plans:
-                    # No plans available - stay in plan mode
-                    # Revert mode bar if it was already set to "execute"
-                    if self._mode_bar:
-                        self._mode_bar.set_plan_mode("plan")
-                    self.notify(
-                        "No plans available. Create one first by submitting a query in Plan mode.",
-                        severity="warning",
-                        timeout=3,
-                    )
-                    tui_log("  -> no plans, staying in plan mode")
+                    # No plans available - skip execute and go straight to analysis
+                    tui_log("  -> no plans, skipping to analysis mode")
+                    self._enter_analysis_mode()
                     return
 
                 # Set execute mode
@@ -7469,6 +7490,11 @@ Type your question and press Enter to ask the agents.
                 Analysis request text to submit.
             """
             cleaned = (user_text or "").strip()
+
+            # Snapshot skill directories before analysis for new-skill detection.
+            if self._mode_state.analysis_config.profile == "user":
+                self._mode_state.analysis_config._pre_analysis_skill_dirs = self._snapshot_skill_dirs()
+
             if cleaned:
                 return cleaned
 
@@ -7477,7 +7503,7 @@ Type your question and press Enter to ask the agents.
 
             profile = self._mode_state.analysis_config.profile
             if profile == "user":
-                default_request = "Analyze this run for end-user outcomes. Explain what happened, " "surface reusable workflows, and propose skill-level improvements."
+                default_request = "Read the logs from this run, understand the workflow that was executed, and create a single reusable skill capturing that workflow."
             else:
                 default_request = "Analyze this run in depth. Explain what happened, identify likely " "root causes, and recommend concrete MassGen internal improvements."
 
@@ -7529,9 +7555,9 @@ Type your question and press Enter to ask the agents.
                 self.question_input.placeholder = "Enter to analyze selected log • or describe what to analyze • Shift+Enter newline • @ for files • ⋮ for analysis options"
             # Ensure default analysis target/profile are populated.
             self._ensure_analysis_defaults()
-            # If the options popover is already open (e.g., from execute mode),
-            # immediately recompose it to analysis controls to prevent stale UI.
-            if hasattr(self, "_plan_options_popover") and "visible" in self._plan_options_popover.classes:
+            # Always show the analysis options popover so the user can
+            # pick profile/log/turn immediately.
+            if hasattr(self, "_plan_options_popover"):
                 self._update_plan_options_popover_state()
                 self._plan_options_popover._initialized = False
                 self._plan_options_popover.refresh(recompose=True)
@@ -9338,93 +9364,58 @@ Type your question and press Enter to ask the agents.
             self.push_screen(modal, _on_skills_dismiss)
 
         @staticmethod
-        def _slugify_skill_name(name: str) -> str:
-            """Create a filesystem-safe skill directory name."""
-            slug = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
-            return slug or "skill-from-analysis"
+        def _snapshot_skill_dirs() -> set:
+            """Return set of directory names in .agent/skills/ that contain a SKILL.md."""
+            skills_root = Path(".agent") / "skills"
+            if not skills_root.is_dir():
+                return set()
+            return {d.name for d in skills_root.iterdir() if d.is_dir() and (d / "SKILL.md").is_file()}
 
-        @staticmethod
-        def _extract_skill_candidate_from_answer(answer_text: str) -> Optional[Tuple[str, str]]:
-            """Extract a SKILL.md candidate from an answer if present.
-
-            Returns:
-                Tuple of (skill_name, skill_markdown) when detected, otherwise None.
-            """
-            if not answer_text:
-                return None
-
-            def parse_skill_markdown(candidate: str) -> Optional[str]:
-                import yaml
-
-                cleaned = candidate.strip()
-                if not cleaned.startswith("---"):
-                    return None
-
-                match = re.match(r"^---\s*\n(.*?)\n---\s*(?:\n|$)", cleaned, re.DOTALL)
-                if not match:
-                    return None
-
-                try:
-                    metadata = yaml.safe_load(match.group(1)) or {}
-                except Exception:
-                    return None
-                if not isinstance(metadata, dict):
-                    return None
-
-                skill_name = str(metadata.get("name", "")).strip()
-                return skill_name or None
-
-            # Prefer fenced blocks so explanatory prose outside the block is ignored.
-            for fence in re.finditer(r"```(?:[a-zA-Z0-9_-]+)?\n(.*?)```", answer_text, re.DOTALL):
-                block = fence.group(1).strip()
-                skill_name = parse_skill_markdown(block)
-                if skill_name:
-                    return skill_name, block + "\n"
-
-            # Fallback: treat the entire answer as a candidate.
-            skill_name = parse_skill_markdown(answer_text)
-            if skill_name:
-                return skill_name, answer_text.strip() + "\n"
-
-            return None
-
-        def _offer_skill_creation_from_analysis(self, answer_text: str) -> None:
-            """Show a confirmation modal when a user-mode analysis returns SKILL.md content."""
+        def _detect_new_skills_from_analysis(self) -> None:
+            """Detect skills created during analysis by comparing pre/post snapshots."""
             if self._mode_state.plan_mode != "analysis":
                 return
             if self._mode_state.analysis_config.profile != "user":
                 return
 
-            candidate = self._extract_skill_candidate_from_answer(answer_text)
-            if not candidate:
+            pre_snapshot = self._mode_state.analysis_config._pre_analysis_skill_dirs
+            if pre_snapshot is None:
                 return
 
-            skill_name, skill_markdown = candidate
-            target_dir = Path(".agent") / "skills" / self._slugify_skill_name(skill_name)
-            target_path = target_dir / "SKILL.md"
-
-            modal = SkillConfirmModal(
-                skill_name=skill_name,
-                skill_markdown=skill_markdown,
-                target_path=str(target_path),
-            )
-
-            def _on_confirm(result: Optional[bool]) -> None:
-                if not result:
+            try:
+                post_snapshot = self._snapshot_skill_dirs()
+                new_dirs = post_snapshot - pre_snapshot
+                if not new_dirs:
                     return
-                try:
-                    target_dir.mkdir(parents=True, exist_ok=True)
-                    target_path.write_text(skill_markdown, encoding="utf-8")
-                    self.notify(f"Created skill: {target_path}", severity="information", timeout=4)
 
-                    # If a filter is active, include the newly created skill automatically.
-                    enabled = self._mode_state.analysis_config.get_enabled_skill_names()
-                    if enabled is not None:
-                        self._mode_state.analysis_config.enabled_skill_names = self._normalize_skill_name_list(enabled + [skill_name])
-                except Exception as e:
-                    self.notify(f"Failed to create skill: {e}", severity="error", timeout=4)
+                from massgen.filesystem_manager.skills_manager import parse_frontmatter
 
-            self.push_screen(modal, _on_confirm)
+                new_skill_names = []
+                for dirname in sorted(new_dirs):
+                    skill_path = Path(".agent") / "skills" / dirname / "SKILL.md"
+                    try:
+                        content = skill_path.read_text(encoding="utf-8")
+                        metadata = parse_frontmatter(content)
+                        name = metadata.get("name", dirname)
+                    except Exception:
+                        name = dirname
+                    new_skill_names.append(name)
+
+                # Notify user about created skills.
+                names_str = ", ".join(new_skill_names)
+                self.notify(
+                    f"New skill(s) created: {names_str}",
+                    severity="information",
+                    timeout=5,
+                )
+
+                # Auto-add to enabled filter if one is active.
+                enabled = self._mode_state.analysis_config.get_enabled_skill_names()
+                if enabled is not None:
+                    self._mode_state.analysis_config.enabled_skill_names = self._normalize_skill_name_list(enabled + new_skill_names)
+            finally:
+                # Clear snapshot after detection.
+                self._mode_state.analysis_config._pre_analysis_skill_dirs = None
 
         def _show_file_inspection_modal(self):
             """Display file inspection modal with tree view."""

@@ -6,7 +6,7 @@ and generates orchestrator overrides based on current mode settings.
 """
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Set
 
 if TYPE_CHECKING:
     from massgen.plan_storage import PlanSession
@@ -53,7 +53,7 @@ class AnalysisConfig:
     # Profile focus:
     # - "dev": internal MassGen debugging/improvement focus
     # - "user": reusable skill creation/refinement focus
-    profile: AnalysisProfile = "dev"
+    profile: AnalysisProfile = "user"
 
     # Selected analysis target. None means "auto-select current/latest".
     selected_log_dir: Optional[str] = None
@@ -61,6 +61,9 @@ class AnalysisConfig:
 
     # Session-only skill allowlist. None means "no filtering" (all discovered skills).
     enabled_skill_names: Optional[List[str]] = None
+
+    # Pre-analysis snapshot for detecting new skills. Internal state only.
+    _pre_analysis_skill_dirs: Optional[Set[str]] = field(default=None, repr=False)
 
     def get_enabled_skill_names(self) -> Optional[List[str]]:
         """Return normalized enabled skill names, or None if unfiltered."""

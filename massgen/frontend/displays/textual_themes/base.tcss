@@ -2371,6 +2371,7 @@ TaskPlanModal .close-button {
 
 #skill_confirm_actions {
     width: 100%;
+    height: auto;
     dock: bottom;
     align: left middle;
 }
