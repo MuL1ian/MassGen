@@ -948,7 +948,7 @@ For non-trivial feature work:
 
 ---
 
-## Implementation Status (as of 2026-02-08)
+## Implementation Status (as of 2026-02-09)
 
 ### Phase 1: Foundation
 
@@ -969,10 +969,10 @@ For non-trivial feature work:
 - [x] Layer 1 completion: helper-function coverage
   - [x] `massgen/tests/frontend/test_content_handlers_helpers.py`
   - [x] `massgen/tests/frontend/test_timeline_event_recorder.py`
-- [ ] Layer 2 widget tests (Textual Pilot)
+- [x] Layer 2 widget tests (Textual Pilot)
   - [x] Initial timeline widget coverage
   - [x] `massgen/tests/frontend/test_timeline_section_widget.py`
-- [ ] Layer 3 snapshot tests (`pytest-textual-snapshot`)
+- [x] Layer 3 snapshot tests (`pytest-textual-snapshot`)
   - [x] Plugin enabled (`pytest-textual-snapshot`)
   - [x] Initial SVG snapshot coverage
   - [x] Runtime Textual app snapshot coverage (full `TextualApp` layout)
@@ -982,7 +982,7 @@ For non-trivial feature work:
   - [x] `massgen/tests/frontend/__snapshots__/test_timeline_snapshot_scaffold/test_timeline_snapshot_final_presentation_lock_mode.svg`
   - [x] `massgen/tests/frontend/__snapshots__/test_timeline_snapshot_scaffold/test_timeline_snapshot_real_tui_round_view.svg`
   - [x] `massgen/tests/frontend/__snapshots__/test_timeline_snapshot_scaffold/test_timeline_snapshot_real_tui_final_presentation_lock_mode.svg`
-- [ ] Layer 4 golden transcript tests
+- [x] Layer 4 golden transcript tests
   - [x] Initial chronology golden coverage
   - [x] Expanded chronology coverage (restart, final-presentation round transition, cross-server non-batching)
   - [x] `massgen/tests/frontend/test_timeline_transcript_golden.py`
@@ -995,6 +995,7 @@ For non-trivial feature work:
 
 ### Phase 3: WebUI Testing
 
+- [ ] Postponed by team decision (2026-02-09)
 - [ ] Vitest + RTL setup
 - [ ] Store tests (`agentStore`, `wizardStore`)
 - [ ] Playwright smoke flows
