@@ -53,21 +53,22 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.49 - Coordination Quality: Fairness Gate & Persona Easing
+## 📋 v0.1.49 - Coordination Quality: Log Analysis TUI, Fairness Gate & Checklist Voting
 
 ### Features
 
-**1. Fairness Gate for Coordination** (@ncrispino)
+**1. Log Analysis Mode in TUI** (@ncrispino)
+- PR: [#869](https://github.com/massgen/MassGen/pull/869)
+- New "Analyzing" state in TUI mode bar (Normal → Planning → Executing → Analyzing)
+- Browse and select log directories and turns directly in the TUI
+- Configurable analysis profiles for different analysis depths
+- **Use Case**: Analyze runs without leaving the terminal
+
+**2. Fairness Gate for Coordination** (@ncrispino)
 - PR: [#869](https://github.com/massgen/MassGen/pull/869)
 - Prevents fast agents from dominating coordination rounds
 - Configurable `fairness_lead_cap_answers` and `max_midstream_injections_per_round`
 - **Use Case**: Balanced multi-agent participation regardless of agent speed
-
-**2. Persona Generation with Easing** (@ncrispino)
-- PR: [#869](https://github.com/massgen/MassGen/pull/869)
-- Auto-generated diverse agent personas that soften after seeing peer solutions
-- Expanded `persona_generator.py` with easing support
-- **Use Case**: Better convergence without losing creative diversity
 
 **3. Checklist Voting Tool** (@ncrispino)
 - PR: [#869](https://github.com/massgen/MassGen/pull/869)
@@ -75,29 +76,23 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - Binary pass/fail scoring for objective quality assessment
 - **Use Case**: Consistent, repeatable evaluation across coordination rounds
 
-**4. ROI-Based Iteration Framework** (@ncrispino)
-- PR: [#869](https://github.com/massgen/MassGen/pull/869)
-- 5-dimension rubric: correctness, depth, robustness, polish, testing
-- Budget-aware quality bars that adapt iteration depth to available resources
-- **Use Case**: Smarter iteration decisions based on expected quality improvement
-
-**5. Automated Testing Infrastructure** (@ncrispino)
+**4. Automated Testing Infrastructure** (@ncrispino)
 - PR: [#869](https://github.com/massgen/MassGen/pull/869)
 - CI/CD workflow (`tests.yml`), SVG snapshot baselines, 16+ new test files
 - **Use Case**: Continuous quality assurance and visual regression testing
 
-**6. Shadow Agent Bug Fix** (@MuL1ian)
+**5. Shadow Agent Bug Fix** (@MuL1ian)
 - PR: [#861](https://github.com/massgen/MassGen/pull/861)
 - Fixed "[No response generated]" errors caused by incorrect chunk type comparison
 - **Use Case**: Reliable shadow agent responses
 
 ### Success Criteria
 - ✅ Fairness gate prevents fast agents from dominating
-- ✅ Persona easing softens agent approaches after seeing peers
 - ✅ Checklist voting provides structured quality evaluation
 - ✅ ROI framework guides iteration decisions
 - ✅ CI/CD pipeline running with SVG snapshot baselines
 - ✅ Shadow agent responses working correctly
+- ✅ Persona easing accessible from TUI mode bar
 
 ---
 
@@ -785,10 +780,9 @@ These features are being actively developed on **separate parallel tracks** and 
 - Configurable `fairness_lead_cap_answers` and `max_midstream_injections_per_round`
 - **Status:** ✅ Completed in v0.1.49
 
-### Track: Persona Easing (@ncrispino, nickcrispino)
+### Track: Persona Easing TUI Integration (@ncrispino, nickcrispino)
 - PR: [#869](https://github.com/massgen/MassGen/pull/869)
-- Auto-generated diverse agent personas that soften after seeing peer solutions
-- Expanded persona generator with easing support
+- Persona easing toggle now accessible from TUI mode bar
 - **Status:** ✅ Completed in v0.1.49
 
 ### Track: Checklist Voting Tool (@ncrispino, nickcrispino)
@@ -797,10 +791,10 @@ These features are being actively developed on **separate parallel tracks** and 
 - Binary pass/fail scoring for objective quality assessment
 - **Status:** ✅ Completed in v0.1.49
 
-### Track: ROI-Based Iteration Framework (@ncrispino, nickcrispino)
+### Track: Log Analysis Mode in TUI (@ncrispino, nickcrispino)
 - PR: [#869](https://github.com/massgen/MassGen/pull/869)
-- 5-dimension rubric (correctness, depth, robustness, polish, testing) with budget-aware quality bars
-- Guides iteration decisions based on expected quality improvement
+- New "Analyzing" state in TUI mode bar for in-app run analysis
+- Configurable analysis profiles with log directory and turn selection
 - **Status:** ✅ Completed in v0.1.49
 
 ### Track: Automated Testing Infrastructure (@ncrispino, nickcrispino)

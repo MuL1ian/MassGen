@@ -157,9 +157,9 @@ Key Features
 Recent Releases
 ---------------
 
-**v0.1.49 (February 9, 2026)** - Coordination Quality: Fairness Gate & Persona Easing
+**v0.1.49 (February 9, 2026)** - Coordination Quality: Log Analysis TUI, Fairness Gate & Checklist Voting
 
-Fairness gate prevents fast agents from dominating coordination. Persona easing softens agent personas after seeing peer solutions. Checklist voting tool for structured quality evaluation. ROI-based iteration framework with budget-aware quality bars. Automated testing infrastructure with CI/CD and SVG snapshot baselines.
+Log analysis mode built into TUI mode bar for in-app run analysis. Fairness gate prevents fast agents from dominating coordination. Checklist voting tool for structured quality evaluation. Automated testing infrastructure with CI/CD and SVG snapshot baselines. Persona easing now accessible from TUI mode bar.
 
 **v0.1.48 (February 6, 2026)** - Decomposition Mode & Worktree Isolation
 

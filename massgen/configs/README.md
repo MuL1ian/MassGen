@@ -228,18 +228,18 @@ Most configurations use environment variables for API keys:so
 ## Release History & Examples
 
 ### v0.1.49 - Latest
-**New Features:** Fairness Gate, Persona Easing, Checklist Voting, ROI Framework, Testing Infrastructure
+**New Features:** Log Analysis TUI Mode, Fairness Gate, Checklist Voting, Testing Infrastructure
 
 **Key Features:**
+- **Log Analysis in TUI**: New "Analyzing" mode in TUI mode bar for in-app run analysis with configurable profiles
 - **Fairness Gate**: Prevents fast agents from dominating coordination with configurable lead caps
-- **Persona Easing**: Auto-generated personas that soften after seeing peer solutions
 - **Checklist Voting**: Structured quality evaluation with binary pass/fail scoring via MCP server
-- **ROI-Based Iteration**: 5-dimension rubric (correctness, depth, robustness, polish, testing) with budget-aware quality bars
 - **Skills Modal**: TUI modal for discovering and toggling skills in interactive mode
+- **Persona Easing in TUI**: Persona easing toggle now available in the TUI mode bar
 
 **Try It:**
 ```bash
-# Launch with fairness gate and persona easing enabled
+# Launch and cycle to Analysis mode via the TUI mode bar
 uv run massgen
 ```
 

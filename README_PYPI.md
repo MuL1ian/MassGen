@@ -159,11 +159,11 @@ This project started with the "threads of thought" and "iterative refinement" id
 **🎉 Released: February 9, 2026**
 
 **What's New in v0.1.49:**
+- **🔍 Log Analysis in TUI** - New "Analyzing" mode in the TUI mode bar for in-app run analysis with configurable profiles
 - **⚖️ Fairness Gate** - Prevents fast agents from dominating coordination with configurable lead caps
-- **🎭 Persona Easing** - Auto-generated personas that soften after seeing peer solutions for better convergence
 - **✅ Checklist Voting** - Structured quality evaluation with binary pass/fail scoring via MCP server
-- **📊 ROI-Based Iteration** - 5-dimension rubric with budget-aware quality bars for smarter iteration
 - **🧪 Testing Infrastructure** - CI/CD workflow, SVG snapshot baselines, 16+ new test files
+- **🎛️ Persona Easing in TUI** - Persona easing toggle now available in the TUI mode bar
 - **🐛 Bug Fixes** - Fixed shadow agent "[No response generated]" errors, round banner timing, hook injection
 
 **Try v0.1.49 Features:**
@@ -1227,29 +1227,28 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 **🎉 Released: February 9, 2026**
 
+#### Log Analysis Mode in TUI
+- **TUI Mode Bar**: New "Analyzing" state in the mode bar cycle (Normal → Planning → Executing → Analyzing)
+- **In-App Analysis**: Browse and select log directories and turns directly in the TUI
+- **Configurable Profiles**: Different analysis depths for different needs
+
 #### Fairness Gate for Coordination
 - **Balanced Participation**: Prevents fast agents from dominating coordination rounds
 - **Configurable Controls**: `fairness_lead_cap_answers` and `max_midstream_injections_per_round`
 - **Use Case**: Ensures all agents contribute meaningfully regardless of speed
-
-#### Persona Generation with Easing
-- **Diverse Personas**: Auto-generated agent personas via expanded `persona_generator.py`
-- **Easing Mechanism**: Personas soften after seeing peer solutions, reducing rigidity
-- **Quality Convergence**: Agents converge on quality without losing creative diversity
 
 #### Checklist Voting Tool
 - **MCP Server**: New `checklist_tools_server.py` for structured quality evaluation
 - **Binary Scoring**: Pass/fail scoring for objective quality assessment
 - **Consistency**: Repeatable evaluation across coordination rounds
 
-#### ROI-Based Iteration Framework
-- **5-Dimension Rubric**: Correctness, depth, robustness, polish, testing
-- **Budget-Aware**: Quality bars adapt to available budget and iteration count
-
 #### Automated Testing Infrastructure
 - **CI/CD Pipeline**: GitHub Actions workflow (`tests.yml`) for automated test execution
 - **SVG Snapshots**: Baseline testing for TUI visual regression
 - **Coverage**: 16+ new test files with comprehensive testing strategy
+
+#### Changed
+- **Persona Easing in TUI Mode Bar**: Persona easing toggle now accessible from the TUI mode bar
 
 #### Bug Fixes
 - **Shadow Agent Responses**: Fixed "[No response generated]" errors from chunk type comparison (PR #861)
