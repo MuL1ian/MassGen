@@ -1,0 +1,28 @@
+# MassGen Docker overlay image (standard / non-sudo)
+#
+# Purpose:
+# - Start from official MassGen runtime image
+# - Add Vercel Agent Browser runtime + skill
+# - Keep Playwright browser path pinned to the preinstalled image cache
+
+ARG BASE_IMAGE=ghcr.io/massgen/mcp-runtime:latest
+FROM ${BASE_IMAGE}
+
+# Ensure global npm install permissions.
+USER root
+RUN npm install -g agent-browser && \
+    (command -v openskills >/dev/null 2>&1 || npm install -g openskills)
+
+# Switch back to runtime user for user-scoped browser/skills setup.
+USER massgen
+
+# Keep Playwright browser binaries fixed to image-owned cache.
+ENV PLAYWRIGHT_BROWSERS_PATH="/home/massgen/.cache/ms-playwright"
+
+# Install Agent Browser browser bundle and corresponding skill package.
+RUN agent-browser install && \
+    cd /home/massgen && \
+    openskills install vercel-labs/agent-browser --universal -y
+
+WORKDIR /workspace
+CMD ["tail", "-f", "/dev/null"]

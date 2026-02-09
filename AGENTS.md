@@ -43,6 +43,20 @@ After implementing any feature that involves passing parameters through multiple
 
 MassGen is a multi-agent system that coordinates multiple AI agents to solve complex tasks through parallel processing, intelligence sharing, and consensus building. Agents work simultaneously, observe each other's progress, and vote to converge on the best solution.
 
+### Design Principles: The Quality Matrix
+
+MassGen's strength comes from two orthogonal dimensions working together:
+
+|                        | **Parallel** (same task, N agents) | **Decomposition** (subtasks, owned) |
+|------------------------|------------------------------------|-------------------------------------|
+| **Enforcing Refinement** | Agents iterate until quality is genuinely achieved, not just adequate | Each subtask owner refines until their piece meets quality gates |
+| **Ensuring Depth in Roles** | Strong personas give agents distinct creative visions, producing diverse high-quality attempts | Persona specialization ensures deep domain fit per subtask |
+
+- **Enforcing refinement** (currently: checklist-gated voting, gap analysis, improvements echo) = controls *how much* agents iterate and ensures each iteration is *worth it*. Multiple agents are key here: each round's evaluator sees all agents' prior answers, can identify unique strengths across them, and synthesizes the best elements into the next attempt. Without refinement, agents settle for "good enough."
+- **Ensuring depth in roles** = persona/role generation that gives agents strong opinionated visions. A bare user prompt is rarely enough for quality output — the persona fills in the creative direction. Consider using a preliminary MassGen call to generate rich personas/briefs before the main execution run.
+
+Neither dimension alone is sufficient. Refinement without strong roles produces polished mediocrity. Strong roles without refinement produces ambitious first drafts that never mature.
+
 ## Essential Commands
 
 All commands use `uv run` prefix:
@@ -92,7 +106,7 @@ cli.py → orchestrator.py → chat_agent.py → backend/*.py
 4. Add capabilities to `backend/capabilities.py`
 5. Update `config_validator.py`
 
-**MCP Integration** (`mcp_tools/`): Model Context Protocol for external tools. `client.py` handles multi-server connections, `security.py` validates operations.
+**MCP Integration** (`mcp_tools/`): Model Context Protocol for external tools. `client.py` handles multi-server connections, `security.py` validates operations. Some tools have dual paths: SDK (in-process, for ClaudeCode) and stdio (config.toml-based, for Codex). **Stdio MCP servers run inside Docker where `massgen` is NOT installed** — never import from `massgen` in stdio servers. Pre-compute any needed values in the orchestrator and pass via JSON specs files. Also note Codex sometimes sends tool args as JSON strings instead of dicts — always add a `json.loads()` fallback.
 
 **Streaming Buffer** (`backend/_streaming_buffer_mixin.py`): Tracks partial responses during streaming for compression recovery.
 

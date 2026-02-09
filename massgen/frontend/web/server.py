@@ -897,11 +897,14 @@ def create_app(
         # Find project skills (.agent/skills/ in current directory)
         add_skills_from_dir(Path.cwd() / ".agent" / "skills", "project")
 
+        from massgen.utils.skills_installer import check_skill_packages_installed
+
         return {
             "skills": skills,
             "builtin_count": len([s for s in skills if s["location"] == "builtin"]),
             "user_count": len([s for s in skills if s["location"] == "user"]),
             "project_count": len([s for s in skills if s["location"] == "project"]),
+            "packages": check_skill_packages_installed(),
         }
 
     @app.get("/api/skills/{skill_name}")
@@ -944,62 +947,64 @@ def create_app(
 
     @app.post("/api/skills/install")
     async def install_skill_package(request_data: dict):
-        """Install a skill package (anthropic or crawl4ai).
+        """Install a skill package.
 
         Request body:
         {
-            "package": "anthropic" | "crawl4ai"
+            "package": "anthropic" | "openai" | "vercel" | "agent_browser" | "crawl4ai"
         }
 
         Returns:
             {"success": true, "message": "..."} or {"error": "..."}
         """
         from massgen.utils.skills_installer import (
+            install_agent_browser_skill,
             install_anthropic_skills,
             install_crawl4ai_skill,
+            install_openai_skills,
             install_openskills_cli,
+            install_vercel_skills,
         )
 
         package_id = request_data.get("package")
 
-        if package_id == "anthropic":
-            # First ensure openskills CLI is installed
+        openskills_installers = {
+            "anthropic": (install_anthropic_skills, "Anthropic skills"),
+            "openai": (install_openai_skills, "OpenAI skills"),
+            "vercel": (install_vercel_skills, "Vercel agent skills"),
+            "agent_browser": (install_agent_browser_skill, "Vercel Agent Browser skill"),
+        }
+
+        if package_id in openskills_installers:
             if not install_openskills_cli():
                 return JSONResponse(
-                    {
-                        "error": "Failed to install openskills CLI. Ensure npm/Node.js is installed.",
-                    },
-                    status_code=500,
-                )
-            # Then install Anthropic skills
-            if install_anthropic_skills():
-                return {
-                    "success": True,
-                    "message": "Anthropic skills installed successfully",
-                }
-            else:
-                return JSONResponse(
-                    {"error": "Failed to install Anthropic skills"},
+                    {"error": "Failed to install openskills CLI. Ensure npm/Node.js is installed."},
                     status_code=500,
                 )
 
-        elif package_id == "crawl4ai":
+            installer, label = openskills_installers[package_id]
+            if installer():
+                return {"success": True, "message": f"{label} installed successfully"}
+            return JSONResponse(
+                {"error": f"Failed to install {label}"},
+                status_code=500,
+            )
+
+        if package_id == "crawl4ai":
             if install_crawl4ai_skill():
                 return {
                     "success": True,
                     "message": "Crawl4AI skill installed successfully",
                 }
-            else:
-                return JSONResponse(
-                    {"error": "Failed to install Crawl4AI skill"},
-                    status_code=500,
-                )
-
-        else:
             return JSONResponse(
-                {"error": f"Unknown package: {package_id}"},
-                status_code=400,
+                {"error": "Failed to install Crawl4AI skill"},
+                status_code=500,
             )
+
+        return JSONResponse(
+            {"error": f"Unknown package: {package_id}"},
+            status_code=400,
+        )
 
     @app.get("/api/providers")
     async def get_providers():

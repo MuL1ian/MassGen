@@ -257,13 +257,14 @@ uv run massgen --quickstart
 The `--setup` command will:
 - Configure your API keys (OpenAI, Anthropic, Google, xAI)
 - Offer to set up Docker images for code execution
-- Offer to install skills (openskills, Anthropic collection)
+- Offer to install skills (openskills, Anthropic/OpenAI/Vercel collections, Agent Browser skill, Crawl4AI)
 
 The `--quickstart` command will:
 - Ask how many agents you want (1-5, default 3)
 - Ask which backend/model for each agent
 - For GPT-5x models, ask for `reasoning.effort` (`low|medium|high`; Codex GPT-5 models also include `xhigh`)
 - Auto-detect Docker availability and configure execution mode
+- If Docker mode is selected, show a Skills step where you can choose package(s) (`openskills`-based Anthropic/OpenAI/Vercel/Agent Browser plus Crawl4AI) and install them in-place with live status
 - Create a ready-to-use config and launch into interactive TUI mode
 
 **🖥️ Textual TUI (Default Display Mode):**

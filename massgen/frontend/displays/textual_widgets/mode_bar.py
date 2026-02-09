@@ -2,7 +2,7 @@
 """
 Mode Bar Widget for MassGen TUI.
 
-Provides a horizontal bar with mode toggles for plan mode, agent mode,
+Provides a horizontal bar with mode toggles for plan/analyze mode, agent mode,
 coordination mode, refinement mode, and override functionality.
 """
 
@@ -25,7 +25,7 @@ class ModeChanged(Message):
         """Initialize the message.
 
         Args:
-            mode_type: The type of mode changed ("plan", "agent", "coordination", "refinement").
+            mode_type: The type of mode changed ("plan", "agent", "coordination", "refinement", "personas").
             value: The new value of the mode.
         """
         self.mode_type = mode_type
@@ -91,18 +91,20 @@ class ModeToggle(Static):
 
     # Icons for different modes - using radio indicators for clean look
     ICONS = {
-        "plan": {"normal": "○", "plan": "◉", "execute": "◉"},
+        "plan": {"normal": "○", "plan": "◉", "execute": "◉", "analysis": "◉"},
         "agent": {"multi": "◉", "single": "○"},
         "coordination": {"parallel": "◉", "decomposition": "○"},
         "refinement": {"on": "◉", "off": "○"},
+        "personas": {"off": "○", "on": "◉"},
     }
 
     # Labels for states - concise without redundant ON/OFF
     LABELS = {
-        "plan": {"normal": "Normal", "plan": "Planning", "execute": "Executing"},
+        "plan": {"normal": "Normal", "plan": "Planning", "execute": "Executing", "analysis": "Analyzing"},
         "agent": {"multi": "Multi-Agent", "single": "Single"},
         "coordination": {"parallel": "Parallel", "decomposition": "Decomposition"},
         "refinement": {"on": "Refine", "off": "Refine OFF"},
+        "personas": {"off": "Personas OFF", "on": "Personas"},
     }
 
     def __init__(
@@ -181,13 +183,15 @@ class ModeToggle(Static):
 
         _mode_log(f"ModeToggle.on_click: {self.mode_type} current={self._current_state}")
 
-        # For plan mode, cycle through: normal → plan → execute → normal
+        # For plan mode, cycle through: normal -> plan -> execute -> analysis -> normal
         if self.mode_type == "plan":
             if self._current_state == "normal":
                 new_state = "plan"
             elif self._current_state == "plan":
                 new_state = "execute"
             elif self._current_state == "execute":
+                new_state = "analysis"
+            elif self._current_state == "analysis":
                 new_state = "normal"
             else:
                 return
@@ -207,10 +211,11 @@ class ModeBar(Widget):
     """Horizontal bar with mode toggles positioned above the input area.
 
     Contains toggles for:
-    - Plan mode: normal → plan → execute
+    - Plan/analyze mode: normal → plan → execute → analysis
     - Agent mode: multi ↔ single
     - Refinement mode: on ↔ off
     - Coordination mode: parallel ↔ decomposition
+    - Personas toggle (parallel mode only)
     - Subtasks button (shown in decomposition mode)
     - Help button for mode bar explanations
     - Override button (shown when override is available)
@@ -234,6 +239,7 @@ class ModeBar(Widget):
         self._agent_toggle: Optional[ModeToggle] = None
         self._coordination_toggle: Optional[ModeToggle] = None
         self._refinement_toggle: Optional[ModeToggle] = None
+        self._persona_toggle: Optional[ModeToggle] = None
         self._subtasks_btn: Optional[Button] = None
         self._mode_help_btn: Optional[Button] = None
         self._override_btn: Optional[Button] = None
@@ -247,7 +253,7 @@ class ModeBar(Widget):
         self._plan_toggle = ModeToggle(
             mode_type="plan",
             initial_state="normal",
-            states=["normal", "plan", "execute"],
+            states=["normal", "plan", "execute", "analysis"],
             id="plan_toggle",
         )
         yield self._plan_toggle
@@ -278,6 +284,15 @@ class ModeBar(Widget):
             id="coordination_toggle",
         )
         yield self._coordination_toggle
+
+        # Parallel persona generation toggle (off by default)
+        self._persona_toggle = ModeToggle(
+            mode_type="personas",
+            initial_state="off",
+            states=["off", "on"],
+            id="persona_toggle",
+        )
+        yield self._persona_toggle
 
         # Subtasks editor button (decomposition mode only)
         self._subtasks_btn = Button("Subtasks", id="subtasks_btn", variant="default")
@@ -321,7 +336,7 @@ class ModeBar(Widget):
         """Set the plan mode state.
 
         Args:
-            mode: "normal", "plan", or "execute".
+            mode: "normal", "plan", "execute", or "analysis".
             plan_info: Optional plan info text (shown in execute mode).
         """
         if self._plan_toggle:
@@ -365,16 +380,27 @@ class ModeBar(Widget):
         """
         if self._coordination_toggle:
             self._coordination_toggle.set_state(mode)
-        self._update_subtasks_button(mode)
+        self._update_coordination_aux_controls(mode)
 
-    def _update_subtasks_button(self, mode: str) -> None:
-        """Show subtasks editor button only in decomposition mode."""
+    def set_parallel_personas_enabled(self, enabled: bool) -> None:
+        """Set the parallel persona toggle state."""
+        if self._persona_toggle:
+            self._persona_toggle.set_state("on" if enabled else "off")
+
+    def _update_coordination_aux_controls(self, mode: str) -> None:
+        """Update controls that depend on coordination mode."""
         if not self._subtasks_btn:
-            return
-        if mode == "decomposition":
+            pass
+        elif mode == "decomposition":
             self._subtasks_btn.remove_class("hidden")
         else:
             self._subtasks_btn.add_class("hidden")
+
+        if self._persona_toggle:
+            if mode == "parallel":
+                self._persona_toggle.remove_class("hidden")
+            else:
+                self._persona_toggle.add_class("hidden")
 
     def set_enabled(self, enabled: bool) -> None:
         """Enable or disable all mode toggles.
@@ -390,6 +416,8 @@ class ModeBar(Widget):
             self._coordination_toggle.set_enabled(enabled)
         if self._refinement_toggle:
             self._refinement_toggle.set_enabled(enabled)
+        if self._persona_toggle:
+            self._persona_toggle.set_enabled(enabled)
         if self._subtasks_btn:
             self._subtasks_btn.disabled = not enabled
 
@@ -408,6 +436,10 @@ class ModeBar(Widget):
     def get_refinement_enabled(self) -> bool:
         """Get current refinement mode."""
         return self._refinement_toggle.get_state() == "on" if self._refinement_toggle else True
+
+    def get_parallel_personas_enabled(self) -> bool:
+        """Get current parallel persona toggle state."""
+        return self._persona_toggle.get_state() == "on" if self._persona_toggle else False
 
     def set_plan_status(self, status: str) -> None:
         """Set the plan status text shown on the right side.
@@ -442,5 +474,5 @@ class ModeBar(Widget):
         """Let mode change messages bubble to parent."""
         _mode_log(f"ModeBar.on_mode_changed: {event.mode_type}={event.value}")
         if event.mode_type == "coordination":
-            self._update_subtasks_button(event.value)
+            self._update_coordination_aux_controls(event.value)
         # Don't stop - let it bubble to TextualApp

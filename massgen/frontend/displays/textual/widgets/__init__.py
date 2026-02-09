@@ -30,6 +30,8 @@ from .modals import (  # Browser modals; Status modals; Coordination modals; Con
     MCPStatusModal,
     MetricsModal,
     OrchestratorEventsModal,
+    SkillConfirmModal,
+    SkillsModal,
     StructuredBroadcastPromptModal,
     SystemStatusModal,
     TextContentModal,
@@ -73,6 +75,9 @@ __all__ = [
     "GitDiffReviewModal",
     # Shortcuts modal
     "KeyboardShortcutsModal",
+    # Skills modals
+    "SkillsModal",
+    "SkillConfirmModal",
     # Workspace modals
     "FileInspectionModal",
     # Agent output modal

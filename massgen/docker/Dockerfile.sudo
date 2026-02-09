@@ -68,7 +68,7 @@ RUN pip install --no-cache-dir ast-grep-cli
 # Install openskills CLI for skills management
 # Anthropic skills are installed manually beforehand and added as a volume at runtime
 # Also install any agent CLI tools
-RUN npm install -g openskills @openai/codex
+RUN npm install -g openskills @openai/codex agent-browser
 
 # Fix MCP filesystem server schema issue
 # The latest @modelcontextprotocol/server-filesystem (2025.8.21) has a Zod version conflict:
@@ -151,9 +151,17 @@ RUN useradd -m -u 1000 -s /bin/bash massgen && \
 # Switch to non-root user
 USER massgen
 
+# Keep Playwright browser binaries in the image-owned cache directory.
+ENV PLAYWRIGHT_BROWSERS_PATH="/home/massgen/.cache/ms-playwright"
+
 # Install Playwright browser binaries as massgen user
 # This puts browsers in /home/massgen/.cache/ms-playwright/ where the user can access them
 RUN python -m playwright install
+
+# Install Agent Browser browser bundle and default skill.
+RUN agent-browser install && \
+    cd /home/massgen && \
+    openskills install vercel-labs/agent-browser --universal -y
 
 # Install uv (modern Python package installer for optional serena skill)
 # Enables uvx for running tools like serena on-demand without permanent installation

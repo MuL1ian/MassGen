@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 # Type alias for plan depth
 PlanDepth = Literal["shallow", "medium", "deep"]
+AnalysisProfile = Literal["dev", "user"]
 
 
 @dataclass
@@ -46,6 +47,40 @@ class PlanConfig:
 
 
 @dataclass
+class AnalysisConfig:
+    """Configuration for log analysis mode behavior."""
+
+    # Profile focus:
+    # - "dev": internal MassGen debugging/improvement focus
+    # - "user": reusable skill creation/refinement focus
+    profile: AnalysisProfile = "dev"
+
+    # Selected analysis target. None means "auto-select current/latest".
+    selected_log_dir: Optional[str] = None
+    selected_turn: Optional[int] = None
+
+    # Session-only skill allowlist. None means "no filtering" (all discovered skills).
+    enabled_skill_names: Optional[List[str]] = None
+
+    def get_enabled_skill_names(self) -> Optional[List[str]]:
+        """Return normalized enabled skill names, or None if unfiltered."""
+        if self.enabled_skill_names is None:
+            return None
+        seen: set[str] = set()
+        normalized: List[str] = []
+        for name in self.enabled_skill_names:
+            cleaned = (name or "").strip()
+            if not cleaned:
+                continue
+            key = cleaned.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(cleaned)
+        return normalized
+
+
+@dataclass
 class TuiModeState:
     """Tracks TUI mode configuration.
 
@@ -57,7 +92,7 @@ class TuiModeState:
     - Override state: human override of final answer selection
     """
 
-    # Plan mode: "normal" | "plan" | "plan_and_execute" | "execute"
+    # Plan mode: "normal" | "plan" | "plan_and_execute" | "execute" | "analysis"
     # - "normal": Standard mode, no planning
     # - "plan": Planning mode, will show approval before execute
     # - "plan_and_execute": Planning mode, auto-execute without approval
@@ -66,6 +101,7 @@ class TuiModeState:
     plan_session: Optional["PlanSession"] = None
     pending_plan_approval: bool = False
     plan_config: PlanConfig = field(default_factory=PlanConfig)
+    analysis_config: AnalysisConfig = field(default_factory=AnalysisConfig)
 
     # Selected plan ID for execution (None = use latest, "new" = create new)
     selected_plan_id: Optional[str] = None
@@ -85,6 +121,9 @@ class TuiModeState:
     # - "parallel" -> orchestrator coordination_mode="voting"
     # - "decomposition" -> orchestrator coordination_mode="decomposition"
     coordination_mode: str = "parallel"
+    # Parallel persona generation toggle (off by default).
+    # When enabled (and coordination mode is parallel), runtime persona generation is used.
+    parallel_personas_enabled: bool = False
     # Set to True after the user explicitly changes the coordination toggle
     coordination_mode_user_set: bool = False
     # Optional per-agent subtask overrides for decomposition mode
@@ -266,6 +305,9 @@ class TuiModeState:
             parts.append("Plan: Creating")
         elif self.plan_mode == "execute":
             parts.append("Plan: Executing")
+        elif self.plan_mode == "analysis":
+            profile = self.analysis_config.profile.capitalize()
+            parts.append(f"Analyze: {profile}")
 
         # Agent mode
         if self.agent_mode == "single":
@@ -277,6 +319,8 @@ class TuiModeState:
         # Coordination mode
         if self.coordination_mode == "decomposition":
             parts.append("Coord: Decomposition")
+        elif self.parallel_personas_enabled:
+            parts.append("Personas: ON")
 
         # Refinement mode
         if not self.refinement_enabled:

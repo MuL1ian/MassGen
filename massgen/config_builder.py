@@ -3964,7 +3964,7 @@ class ConfigBuilder:
         their models.
 
         Returns:
-            Tuple of (filepath, question) or None if cancelled
+            Tuple of (filepath, question, interface_choice, install_skills_now) or None if cancelled
         """
         try:
             # Simple banner
@@ -4376,6 +4376,24 @@ class ConfigBuilder:
                     "[dim]To enable Docker mode, run: massgen --setup-docker[/dim]\n",
                 )
                 use_docker = False
+
+            install_skills_now = False
+            if use_docker:
+                console.print("\n[bold cyan]Skills Setup[/bold cyan]")
+                console.print(
+                    "[dim]Install quickstart skill packages now?[/dim]",
+                )
+                console.print(
+                    "[dim]Includes openskills + Anthropic/OpenAI/Vercel collections, Agent Browser skill, and Crawl4AI.[/dim]\n",
+                )
+                install_skills_now = questionary.confirm(
+                    "Install missing quickstart skill packages now?",
+                    default=True,
+                    style=questionary.Style([("question", "fg:cyan bold")]),
+                ).ask()
+
+                if install_skills_now is None:
+                    raise KeyboardInterrupt
 
             # Step 3b: Code Execution toggle (only when Docker is NOT enabled)
             # Providers like OpenAI/Claude have cloud-based code execution sandboxes
@@ -4893,10 +4911,10 @@ class ConfigBuilder:
 
             if example_prompt:
                 # Return with the selected example prompt as initial question
-                return (str(filepath), example_prompt, interface_choice)
+                return (str(filepath), example_prompt, interface_choice, bool(install_skills_now))
             else:
                 # Auto-launch into interactive mode (return empty string to signal interactive mode)
-                return (str(filepath), "", interface_choice)
+                return (str(filepath), "", interface_choice, bool(install_skills_now))
 
         except (KeyboardInterrupt, EOFError):
             console.print("\n\n[yellow]Quickstart cancelled[/yellow]\n")
@@ -4931,7 +4949,8 @@ class ConfigBuilder:
             coordination_settings: Shared coordination settings dict with keys like
                                   'coordination_mode', 'presenter_agent',
                                   'voting_sensitivity', 'answer_novelty_requirement',
-                                  'max_new_answers_per_agent', 'max_new_answers_global'
+                                  'max_new_answers_per_agent', 'max_new_answers_global',
+                                  and fairness controls
 
         Returns:
             Complete configuration dict
@@ -5050,6 +5069,10 @@ class ConfigBuilder:
                 "snapshot_storage": "snapshots",
                 "agent_temporary_workspace": "temp_workspaces",
                 "max_new_answers_per_agent": 5,
+                # Fairness defaults (enabled across all coordination modes)
+                "fairness_enabled": True,
+                "fairness_lead_cap_answers": 2,
+                "max_midstream_injections_per_round": 2,
                 # Multimodal tools enabled for all agents
                 "enable_multimodal_tools": True,
                 # Default generation backends (agents can override)
@@ -5072,6 +5095,10 @@ class ConfigBuilder:
                 "snapshot_storage": "snapshots",
                 "agent_temporary_workspace": "temp_workspaces",
                 "max_new_answers_per_agent": 5,
+                # Fairness defaults (enabled across all coordination modes)
+                "fairness_enabled": True,
+                "fairness_lead_cap_answers": 2,
+                "max_midstream_injections_per_round": 2,
                 # Multimodal tools enabled for all agents
                 "enable_multimodal_tools": True,
                 # Default generation backends (agents can override)
@@ -5126,6 +5153,12 @@ class ConfigBuilder:
             orchestrator_config["max_new_answers_per_agent"] = coordination_settings["max_new_answers_per_agent"]
         if coordination_settings.get("max_new_answers_global"):
             orchestrator_config["max_new_answers_global"] = coordination_settings["max_new_answers_global"]
+        if "fairness_enabled" in coordination_settings:
+            orchestrator_config["fairness_enabled"] = coordination_settings["fairness_enabled"]
+        if coordination_settings.get("fairness_lead_cap_answers") is not None:
+            orchestrator_config["fairness_lead_cap_answers"] = coordination_settings["fairness_lead_cap_answers"]
+        if coordination_settings.get("max_midstream_injections_per_round") is not None:
+            orchestrator_config["max_midstream_injections_per_round"] = coordination_settings["max_midstream_injections_per_round"]
         if coordination_settings.get("enable_subagents"):
             orchestrator_config["coordination"]["enable_subagents"] = True
             orchestrator_config["coordination"]["subagent_default_timeout"] = 300  # 5 minutes
