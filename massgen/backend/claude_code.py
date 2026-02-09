@@ -46,6 +46,7 @@ TODO:
 
 from __future__ import annotations
 
+import asyncio
 import atexit
 import json
 import os
@@ -546,12 +547,28 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         Reset Claude Code backend state.
 
         Properly disconnects and clears the current session and client connection to start fresh.
+
+        Note: The Claude Agent SDK's disconnect() closes its anyio task group, which
+        delivers cancellation to whatever asyncio task the cancel scope was bound to.
+        In our architecture, anyio binds to the event loop's root task (the coordination
+        task), so disconnect() inadvertently cancels the entire coordination. We reverse
+        this by uncancelling any affected tasks after disconnect.
         """
         if self._client is not None:
             try:
                 await self._client.disconnect()
+            except asyncio.CancelledError:
+                pass  # anyio cancel scope may raise CancelledError
             except Exception:
                 pass  # Ignore cleanup errors
+
+            # anyio's cancel scope propagation may have called task.cancel() on
+            # parent tasks during disconnect(). Reverse any pending cancellations
+            # to prevent killing the coordination loop.
+            for task in asyncio.all_tasks():
+                if not task.done() and task.cancelling() > 0:
+                    task.uncancel()
+
         self._client = None
         self._current_session_id = None
         self._tool_id_to_name.clear()
@@ -2199,9 +2216,15 @@ class ClaudeCodeBackend(NativeToolBackendMixin, StreamingBufferMixin, LLMBackend
         if self._client is not None:
             try:
                 await self._client.disconnect()
+            except asyncio.CancelledError:
+                pass  # anyio cancel scope may raise CancelledError
             except Exception:
                 pass  # Ignore cleanup errors
             finally:
+                # Reverse anyio cancel scope propagation (see reset_state docstring)
+                for task in asyncio.all_tasks():
+                    if not task.done() and task.cancelling() > 0:
+                        task.uncancel()
                 self._client = None
                 self._current_session_id = None
 

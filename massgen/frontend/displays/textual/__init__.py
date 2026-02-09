@@ -32,6 +32,8 @@ from .widgets import (  # Base classes; Browser modals; Status modals; Coordinat
     MCPStatusModal,
     MetricsModal,
     OrchestratorEventsModal,
+    SkillConfirmModal,
+    SkillsModal,
     StructuredBroadcastPromptModal,
     SystemStatusModal,
     TextContentModal,
@@ -75,6 +77,9 @@ __all__ = [
     "GitDiffReviewModal",
     # Shortcuts modal
     "KeyboardShortcutsModal",
+    # Skills modals
+    "SkillsModal",
+    "SkillConfirmModal",
     # Workspace modals
     "FileInspectionModal",
     # Agent output modal

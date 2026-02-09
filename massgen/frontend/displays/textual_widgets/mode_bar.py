@@ -2,7 +2,7 @@
 """
 Mode Bar Widget for MassGen TUI.
 
-Provides a horizontal bar with mode toggles for plan mode, agent mode,
+Provides a horizontal bar with mode toggles for plan/analyze mode, agent mode,
 coordination mode, refinement mode, and override functionality.
 """
 
@@ -91,7 +91,7 @@ class ModeToggle(Static):
 
     # Icons for different modes - using radio indicators for clean look
     ICONS = {
-        "plan": {"normal": "○", "plan": "◉", "execute": "◉"},
+        "plan": {"normal": "○", "plan": "◉", "execute": "◉", "analysis": "◉"},
         "agent": {"multi": "◉", "single": "○"},
         "coordination": {"parallel": "◉", "decomposition": "○"},
         "refinement": {"on": "◉", "off": "○"},
@@ -100,7 +100,7 @@ class ModeToggle(Static):
 
     # Labels for states - concise without redundant ON/OFF
     LABELS = {
-        "plan": {"normal": "Normal", "plan": "Planning", "execute": "Executing"},
+        "plan": {"normal": "Normal", "plan": "Planning", "execute": "Executing", "analysis": "Analyzing"},
         "agent": {"multi": "Multi-Agent", "single": "Single"},
         "coordination": {"parallel": "Parallel", "decomposition": "Decomposition"},
         "refinement": {"on": "Refine", "off": "Refine OFF"},
@@ -183,13 +183,15 @@ class ModeToggle(Static):
 
         _mode_log(f"ModeToggle.on_click: {self.mode_type} current={self._current_state}")
 
-        # For plan mode, cycle through: normal → plan → execute → normal
+        # For plan mode, cycle through: normal -> plan -> execute -> analysis -> normal
         if self.mode_type == "plan":
             if self._current_state == "normal":
                 new_state = "plan"
             elif self._current_state == "plan":
                 new_state = "execute"
             elif self._current_state == "execute":
+                new_state = "analysis"
+            elif self._current_state == "analysis":
                 new_state = "normal"
             else:
                 return
@@ -209,7 +211,7 @@ class ModeBar(Widget):
     """Horizontal bar with mode toggles positioned above the input area.
 
     Contains toggles for:
-    - Plan mode: normal → plan → execute
+    - Plan/analyze mode: normal → plan → execute → analysis
     - Agent mode: multi ↔ single
     - Refinement mode: on ↔ off
     - Coordination mode: parallel ↔ decomposition
@@ -251,7 +253,7 @@ class ModeBar(Widget):
         self._plan_toggle = ModeToggle(
             mode_type="plan",
             initial_state="normal",
-            states=["normal", "plan", "execute"],
+            states=["normal", "plan", "execute", "analysis"],
             id="plan_toggle",
         )
         yield self._plan_toggle
@@ -334,7 +336,7 @@ class ModeBar(Widget):
         """Set the plan mode state.
 
         Args:
-            mode: "normal", "plan", or "execute".
+            mode: "normal", "plan", "execute", or "analysis".
             plan_info: Optional plan info text (shown in execute mode).
         """
         if self._plan_toggle:

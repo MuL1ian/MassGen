@@ -702,6 +702,66 @@ USER'S REQUEST:
 """
 
 
+def get_log_analysis_prompt_prefix(
+    log_dir: Optional[str],
+    turn: Optional[int],
+    profile: str = "dev",
+) -> str:
+    """Generate the user prompt prefix for Textual analysis mode.
+
+    Args:
+        log_dir: Selected log session directory path, or None for auto/current.
+        turn: Selected turn number, or None for latest available turn.
+        profile: Analysis profile ("dev" or "user").
+
+    Returns:
+        Prefix instructions to prepend to the user's question.
+    """
+    normalized_profile = profile if profile in ("dev", "user") else "dev"
+    target_log = log_dir or "auto-select current/latest log session"
+    target_turn = f"turn_{turn}" if turn is not None else "latest available turn"
+
+    if normalized_profile == "user":
+        profile_section = """## Profile Focus: USER (skills-first)
+
+Primary objective:
+- Understand what happened in this run and convert findings into reusable user-facing skills.
+
+Required outputs:
+- If a reusable workflow is identified, include exactly one complete `SKILL.md` draft in a fenced markdown block.
+- The draft must include YAML frontmatter with at least `name` and `description`.
+- Keep recommendations concrete and action-oriented for end users.
+"""
+    else:
+        profile_section = """## Profile Focus: DEV (internals-first)
+
+Primary objective:
+- Diagnose runtime behavior, coordination quality, and implementation-level issues in MassGen.
+
+Required outputs:
+- Prioritize root causes, regressions, and concrete internal improvements.
+- Be specific about signals from logs/events, likely causes, and fix direction.
+"""
+
+    return f"""# LOG ANALYSIS MODE
+
+You are in MassGen Textual analysis mode.
+
+Analysis target:
+- Log session: {target_log}
+- Turn: {target_turn}
+
+{profile_section}
+
+General constraints:
+- Use the available skills and local log artifacts as the primary evidence source.
+- Focus on actionable conclusions, not generic summaries.
+- If evidence is incomplete, state exactly what is missing and why it matters.
+
+USER'S ANALYSIS REQUEST:
+"""
+
+
 # Global PromptSession instance (reused across prompts for better terminal handling)
 _prompt_session: Optional[PromptSession] = None
 
@@ -2438,6 +2498,8 @@ async def run_question_with_history(
         orchestrator_config.max_new_answers_per_agent = orchestrator_cfg["max_new_answers_per_agent"]
     if "max_new_answers_global" in orchestrator_cfg:
         orchestrator_config.max_new_answers_global = orchestrator_cfg["max_new_answers_global"]
+    if "checklist_require_gap_report" in orchestrator_cfg:
+        orchestrator_config.checklist_require_gap_report = orchestrator_cfg["checklist_require_gap_report"]
 
     # Apply answer novelty requirement if specified
     if "answer_novelty_requirement" in orchestrator_cfg:
@@ -3130,6 +3192,8 @@ async def run_single_question(
             orchestrator_config.max_new_answers_per_agent = orchestrator_cfg["max_new_answers_per_agent"]
         if "max_new_answers_global" in orchestrator_cfg:
             orchestrator_config.max_new_answers_global = orchestrator_cfg["max_new_answers_global"]
+        if "checklist_require_gap_report" in orchestrator_cfg:
+            orchestrator_config.checklist_require_gap_report = orchestrator_cfg["checklist_require_gap_report"]
 
         # Apply answer novelty requirement if specified
         if "answer_novelty_requirement" in orchestrator_cfg:
@@ -5302,6 +5366,95 @@ async def run_textual_interactive_mode(
         try:
             current_turn_num = session_info.get("current_turn", 0)
             sess_id = session_info.get("session_id")
+            mode_state = display.get_mode_state()
+
+            def _merge_readonly_context_path(config_dict: Dict[str, Any], path_str: str, description: str) -> bool:
+                """Add a read-only orchestrator context path if missing."""
+                if not path_str:
+                    return False
+
+                orchestrator_section = config_dict.setdefault("orchestrator", {})
+                existing = orchestrator_section.get("context_paths", [])
+                if not isinstance(existing, list):
+                    existing = []
+
+                normalized_target = str(Path(path_str).resolve())
+                normalized_existing = set()
+                for item in existing:
+                    item_path = item.get("path") if isinstance(item, dict) else item
+                    if not item_path:
+                        continue
+                    try:
+                        normalized_existing.add(str(Path(item_path).resolve()))
+                    except Exception:
+                        normalized_existing.add(str(item_path))
+
+                if normalized_target in normalized_existing:
+                    orchestrator_section["context_paths"] = existing
+                    return False
+
+                existing.append(
+                    {
+                        "path": normalized_target,
+                        "permission": "read",
+                        "description": description,
+                    },
+                )
+                orchestrator_section["context_paths"] = existing
+                return True
+
+            def _agents_have_context_path(current_agents: Optional[Dict[str, Any]], path_str: str) -> bool:
+                """Check whether all active agents already have a specific context path."""
+                if not current_agents:
+                    return False
+
+                target = str(Path(path_str).resolve())
+                for agent in current_agents.values():
+                    backend = getattr(agent, "backend", None)
+                    fm = getattr(backend, "filesystem_manager", None)
+                    ppm = getattr(fm, "path_permission_manager", None)
+                    if ppm is None:
+                        return False
+
+                    found = False
+                    for ctx in ppm.get_context_paths():
+                        ctx_path = ctx.get("path") if isinstance(ctx, dict) else None
+                        if not ctx_path:
+                            continue
+                        try:
+                            normalized_ctx = str(Path(ctx_path).resolve())
+                        except Exception:
+                            normalized_ctx = str(ctx_path)
+                        if normalized_ctx == target:
+                            found = True
+                            break
+                    if not found:
+                        return False
+                return True
+
+            analysis_context_path: Optional[str] = None
+            if mode_state and mode_state.plan_mode == "analysis":
+                selected_log_dir = getattr(mode_state.analysis_config, "selected_log_dir", None)
+                if selected_log_dir:
+                    resolved_log_dir = Path(selected_log_dir).resolve()
+                    if resolved_log_dir.exists():
+                        analysis_context_path = str(resolved_log_dir)
+                        if original_config:
+                            _merge_readonly_context_path(
+                                original_config,
+                                analysis_context_path,
+                                "Analysis target log session",
+                            )
+                        if isinstance(orchestrator_cfg, dict):
+                            _merge_readonly_context_path(
+                                {"orchestrator": orchestrator_cfg},
+                                analysis_context_path,
+                                "Analysis target log session",
+                            )
+                    else:
+                        logger.warning(
+                            f"[Textual] Analysis target log directory does not exist: {resolved_log_dir}",
+                        )
 
             # Handle deferred agent creation (agents may be None on first turn)
             if agents is None:
@@ -5312,6 +5465,12 @@ async def run_textual_interactive_mode(
                 from .path_handling import PromptParserError, parse_prompt_for_context
 
                 modified_config = original_config.copy()
+                if analysis_context_path:
+                    _merge_readonly_context_path(
+                        modified_config,
+                        analysis_context_path,
+                        "Analysis target log session",
+                    )
                 try:
                     parsed = parse_prompt_for_context(question)
                     if parsed.context_paths:
@@ -5384,6 +5543,47 @@ async def run_textual_interactive_mode(
                     logger.info(
                         f"[Textual] Execute mode - copied plan with {task_count} tasks to agent workspaces",
                     )
+
+            # Ensure analysis target logs are mounted as read-only context paths.
+            # Without this, agents in Docker cannot read host log artifacts.
+            if agents is not None and analysis_context_path and not _agents_have_context_path(agents, analysis_context_path):
+                logger.info(
+                    f"[Textual] Recreating agents with analysis log context path: {analysis_context_path}",
+                )
+
+                # Cleanup existing agents before recreating to avoid leaked containers.
+                for aid, ag in agents.items():
+                    if hasattr(ag, "backend") and hasattr(ag.backend, "filesystem_manager") and ag.backend.filesystem_manager:
+                        try:
+                            ag.backend.filesystem_manager.cleanup()
+                        except Exception as e:
+                            logger.warning(f"[Textual] Cleanup failed for {aid}: {e}")
+                    if hasattr(ag.backend, "__aexit__"):
+                        await ag.backend.__aexit__(None, None, None)
+
+                modified_config = original_config.copy()
+                _merge_readonly_context_path(
+                    modified_config,
+                    analysis_context_path,
+                    "Analysis target log session",
+                )
+                orch_cfg = modified_config.get("orchestrator", {})
+                enable_rate_limit = kwargs.get("enable_rate_limit", False)
+                new_agents = create_agents_from_config(
+                    modified_config,
+                    orch_cfg,
+                    debug=debug,
+                    enable_rate_limit=enable_rate_limit,
+                    config_path=config_path,
+                    memory_session_id=sess_id,
+                    filesystem_session_id=sess_id,
+                    session_storage_base=SESSION_STORAGE,
+                )
+                context.agents = new_agents
+                agents = new_agents
+                logger.info(
+                    f"[Textual] Recreated {len(agents)} agent(s) with analysis log context path",
+                )
 
             # Inject previous turn workspace as read-only context (same as Rich mode)
             if current_turn_num > 0 and original_config and orchestrator_cfg:
@@ -5533,6 +5733,8 @@ async def run_textual_interactive_mode(
                     orchestrator_config.max_new_answers_per_agent = orchestrator_cfg["max_new_answers_per_agent"]
                 if "max_new_answers_global" in orchestrator_cfg:
                     orchestrator_config.max_new_answers_global = orchestrator_cfg["max_new_answers_global"]
+                if "checklist_require_gap_report" in orchestrator_cfg:
+                    orchestrator_config.checklist_require_gap_report = orchestrator_cfg["checklist_require_gap_report"]
                 if "answer_novelty_requirement" in orchestrator_cfg:
                     orchestrator_config.answer_novelty_requirement = orchestrator_cfg["answer_novelty_requirement"]
                 if "fairness_enabled" in orchestrator_cfg:
@@ -5660,6 +5862,39 @@ async def run_textual_interactive_mode(
                             logger.info(
                                 f"[Textual] Plan mode: Captured {len(mode_state.planning_context_paths)} context paths for execution",
                             )
+                elif mode_state.plan_mode == "analysis":
+                    # In analysis mode, always keep skills enabled and optionally
+                    # apply a runtime skill allowlist selected in the TUI.
+                    if orchestrator_config.coordination_config is None:
+                        from .agent_config import CoordinationConfig
+
+                        orchestrator_config.coordination_config = CoordinationConfig()
+
+                    orchestrator_config.coordination_config.use_skills = True
+
+                    enabled_skill_names = mode_state.analysis_config.get_enabled_skill_names()
+                    setattr(
+                        orchestrator_config.coordination_config,
+                        "enabled_skill_names",
+                        enabled_skill_names,
+                    )
+
+                    analysis_profile = mode_state.analysis_config.profile
+                    analysis_log_dir = mode_state.analysis_config.selected_log_dir
+                    analysis_turn = mode_state.analysis_config.selected_turn
+                    question = (
+                        get_log_analysis_prompt_prefix(
+                            log_dir=analysis_log_dir,
+                            turn=analysis_turn,
+                            profile=analysis_profile,
+                        )
+                        + question
+                    )
+                    logger.info(
+                        "[Textual] Analysis mode: prepended analysis instructions "
+                        f"(profile={analysis_profile}, log_dir={analysis_log_dir}, turn={analysis_turn}, "
+                        f"skills_filter={'all' if enabled_skill_names is None else len(enabled_skill_names)})",
+                    )
 
             # Get generated personas from session info if persist_across_turns is enabled
             # (matching Rich terminal path setup)

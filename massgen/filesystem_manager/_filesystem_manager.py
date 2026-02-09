@@ -414,18 +414,27 @@ class FilesystemManager:
             extra_mount_paths = None
             if self.write_mode and self.write_mode != "legacy" and context_paths:
                 extra_mount_paths = []
+                preserved_context_paths = []
+                suppressed_repo_paths = []
                 for ctx_path_config in context_paths:
                     ctx_path = ctx_path_config.get("path", "")
                     git_dir = os.path.join(ctx_path, ".git")
                     if ctx_path and os.path.isdir(git_dir):
+                        suppressed_repo_paths.append(ctx_path)
                         extra_mount_paths.append((git_dir, git_dir, "rw"))
                         logger.info(
                             f"[FilesystemManager] write_mode: mounting .git/ dir for worktree refs: {git_dir}",
                         )
-                # Clear context_paths so originals are not mounted
-                context_paths = []
+                    else:
+                        # Preserve non-git context paths (e.g., log/session directories)
+                        # so agents can still read external artifacts in Docker.
+                        preserved_context_paths.append(ctx_path_config)
+                context_paths = preserved_context_paths
                 logger.info(
-                    "[FilesystemManager] write_mode: suppressed original context path mounts " f"(worktrees in workspace replace them), {len(extra_mount_paths)} .git/ mounts added",
+                    "[FilesystemManager] write_mode: suppressed {} repo context path mounts, preserved {} non-repo context paths, added {} .git/ mounts",
+                    len(suppressed_repo_paths),
+                    len(context_paths),
+                    len(extra_mount_paths),
                 )
 
             # Get session mount config if session manager is initialized
