@@ -7,7 +7,7 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.49, focused on Coordination Quality! 🚀 Log analysis mode now built into the TUI for in-app run analysis. Fairness gate prevents fast agents from dominating, and checklist voting brings structured quality evaluation. Plus: automated testing infrastructure, persona easing now in TUI mode bar, skills modal, and bug fixes.
+We're excited to release MassGen v0.1.49, focused on Coordination Quality! 🚀 Log analysis mode now built into the TUI for in-app run analysis. Fairness gate prevents fast agents from dominating, and checklist voting brings structured quality evaluation. Plus: automated testing infrastructure, persona generation now in TUI mode bar, skills modal, and bug fixes.
 
 ## Install
 
@@ -29,7 +29,7 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.49, focused on Coordination Quality! 🚀 Log analysis mode now built into the TUI for in-app run analysis. Fairness gate prevents fast agents from dominating, and checklist voting brings structured quality evaluation. Plus: automated testing infrastructure, persona easing now in TUI mode bar, and bug fixes.
+We're excited to release MassGen v0.1.49, focused on Coordination Quality! 🚀 Log analysis mode now built into the TUI for in-app run analysis. Fairness gate prevents fast agents from dominating, and checklist voting brings structured quality evaluation. Plus: automated testing infrastructure, persona generation now in TUI mode bar, and bug fixes.
 
 **Key Features:**
 
@@ -55,7 +55,7 @@ We're excited to release MassGen v0.1.49, focused on Coordination Quality! 🚀 
 - 16+ new test files with comprehensive testing strategy
 
 **Also in this release:**
-- Persona easing now accessible from the TUI mode bar
+- Persona generation now accessible from the TUI mode bar
 - Skills modal for discovering and toggling skills in interactive mode
 
 **Bug Fixes:**
