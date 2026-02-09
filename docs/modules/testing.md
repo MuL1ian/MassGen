@@ -54,6 +54,9 @@ Default policy is to skip gated categories unless explicitly enabled.
 - `--run-expensive` or `RUN_EXPENSIVE=1`
 - `--run-docker` or `RUN_DOCKER=1`
 
+Test log isolation:
+- Pytest sets `MASSGEN_LOG_BASE_DIR` to a temporary session directory so test-generated logs do not mix with user `.massgen/massgen_logs/` runs.
+
 ## Testing Strategy
 See `specs/002-testing-strategy/testing-strategy.md` for full information.
 

@@ -21,6 +21,7 @@ Log File Structure:
 """
 
 import inspect
+import os
 import subprocess
 import sys
 from datetime import datetime
@@ -67,6 +68,20 @@ _STREAMING_LOG_HANDLER_ID = None
 _EVENT_EMITTER: Optional["EventEmitter"] = None
 
 
+def _get_log_base_dir() -> Path:
+    """Get the base directory that stores timestamped log sessions.
+
+    Returns:
+        Path to the directory that will contain ``log_*`` session folders.
+        Defaults to ``.massgen/massgen_logs`` and can be overridden via
+        ``MASSGEN_LOG_BASE_DIR``.
+    """
+    override = os.getenv("MASSGEN_LOG_BASE_DIR")
+    if override:
+        return Path(override).expanduser()
+    return Path(".massgen") / "massgen_logs"
+
+
 def get_log_session_dir(turn: Optional[int] = None) -> Path:
     """Get the current log session directory, including attempt subdirectory if set.
 
@@ -94,7 +109,7 @@ def get_log_session_dir(turn: Optional[int] = None) -> Path:
             except Exception:
                 pass
 
-        log_base_dir = Path(".massgen") / "massgen_logs"
+        log_base_dir = _get_log_base_dir()
         log_base_dir.mkdir(parents=True, exist_ok=True)
 
         # Create timestamped session directory (with microseconds to prevent collisions)
@@ -215,7 +230,7 @@ def set_log_base_session_dir(log_dir: str) -> None:
         log_dir: Path to existing log directory (e.g., "log_20251101_151837")
     """
     global _LOG_BASE_SESSION_DIR, _LOG_SESSION_DIR
-    log_base_dir = Path(".massgen") / "massgen_logs"
+    log_base_dir = _get_log_base_dir()
     _LOG_BASE_SESSION_DIR = log_base_dir / log_dir
     _LOG_BASE_SESSION_DIR.mkdir(parents=True, exist_ok=True)
     _LOG_SESSION_DIR = None  # Force recreation with new base

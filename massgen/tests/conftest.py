@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -65,6 +66,38 @@ class _XfailEntry:
 
 
 _expired_xfails: List[_XfailEntry] = []
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_test_logs(tmp_path_factory: pytest.TempPathFactory):
+    """Route test-created logs to an isolated temp directory."""
+    log_base_dir = tmp_path_factory.mktemp("massgen_test_logs")
+    previous = os.environ.get("MASSGEN_LOG_BASE_DIR")
+    os.environ["MASSGEN_LOG_BASE_DIR"] = str(log_base_dir)
+
+    try:
+        import massgen.logger_config as logger_config
+
+        logger_config.reset_logging_session()
+    except Exception:
+        pass
+
+    try:
+        yield
+    finally:
+        try:
+            import massgen.logger_config as logger_config
+
+            logger_config.reset_logging_session()
+        except Exception:
+            pass
+
+        if previous is None:
+            os.environ.pop("MASSGEN_LOG_BASE_DIR", None)
+        else:
+            os.environ["MASSGEN_LOG_BASE_DIR"] = previous
+
+        shutil.rmtree(log_base_dir, ignore_errors=True)
 
 
 class MockLLMBackend:
