@@ -64,6 +64,35 @@ def _content_children(timeline: TimelineSection) -> list:
     return [child for child in timeline.children if child.id != "scroll_mode_indicator"]
 
 
+def test_final_card_winner_summary_and_vote_line_formatting():
+    card = FinalPresentationCard(
+        agent_id="agent_a",
+        vote_results={
+            "vote_counts": {"A1.2": 2, "B1.1": 1},
+            "winner": "A1.2",
+            "is_tie": False,
+        },
+        context_paths={},
+    )
+
+    assert card._build_winner_summary() == "🏅 Winner: A1.2 (2 votes)"
+    assert card._build_vote_summary() == "Votes: A1.2 (2) • B1.1 (1)"
+
+
+def test_final_card_winner_summary_marks_tie_breaker():
+    card = FinalPresentationCard(
+        agent_id="agent_a",
+        vote_results={
+            "vote_counts": {"A1.2": 2, "B1.1": 2},
+            "winner": "A1.2",
+            "is_tie": True,
+        },
+        context_paths={},
+    )
+
+    assert card._build_winner_summary() == "🏅 Winner: A1.2 (2 votes) · tie-breaker"
+
+
 @pytest.mark.asyncio
 async def test_deferred_round_banner_renders_before_first_round_content():
     app = _TimelineApp()

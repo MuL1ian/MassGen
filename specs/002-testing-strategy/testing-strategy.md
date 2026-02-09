@@ -948,7 +948,7 @@ For non-trivial feature work:
 
 ---
 
-## Implementation Status (as of 2026-02-07)
+## Implementation Status (as of 2026-02-08)
 
 ### Phase 1: Foundation
 
@@ -973,7 +973,24 @@ For non-trivial feature work:
   - [x] Initial timeline widget coverage
   - [x] `massgen/tests/frontend/test_timeline_section_widget.py`
 - [ ] Layer 3 snapshot tests (`pytest-textual-snapshot`)
+  - [x] Plugin enabled (`pytest-textual-snapshot`)
+  - [x] Initial SVG snapshot coverage
+  - [x] Runtime Textual app snapshot coverage (full `TextualApp` layout)
+  - [x] `massgen/tests/frontend/test_timeline_snapshot_scaffold.py`
+  - [x] `massgen/tests/frontend/__snapshots__/test_timeline_snapshot_scaffold/test_timeline_snapshot_baseline.svg`
+  - [x] `massgen/tests/frontend/__snapshots__/test_timeline_snapshot_scaffold/test_timeline_snapshot_batch_card.svg`
+  - [x] `massgen/tests/frontend/__snapshots__/test_timeline_snapshot_scaffold/test_timeline_snapshot_final_presentation_lock_mode.svg`
+  - [x] `massgen/tests/frontend/__snapshots__/test_timeline_snapshot_scaffold/test_timeline_snapshot_real_tui_round_view.svg`
+  - [x] `massgen/tests/frontend/__snapshots__/test_timeline_snapshot_scaffold/test_timeline_snapshot_real_tui_final_presentation_lock_mode.svg`
 - [ ] Layer 4 golden transcript tests
+  - [x] Initial chronology golden coverage
+  - [x] Expanded chronology coverage (restart, final-presentation round transition, cross-server non-batching)
+  - [x] `massgen/tests/frontend/test_timeline_transcript_golden.py`
+  - [x] `massgen/tests/frontend/golden/consecutive_mcp_batch.txt`
+  - [x] `massgen/tests/frontend/golden/different_servers_no_batch.txt`
+  - [x] `massgen/tests/frontend/golden/final_presentation_round_transition.txt`
+  - [x] `massgen/tests/frontend/golden/restart_deferred_banner.txt`
+  - [x] `massgen/tests/frontend/golden/text_breaks_batch_sequence.txt`
 - [ ] Layer 5 LLM-assisted terminal evaluation
 
 ### Phase 3: WebUI Testing
@@ -1120,3 +1137,6 @@ Quarterly review checklist:
 1. Re-check phase metrics against targets.
 2. Remove stale tests that no longer validate active behavior.
 3. Reprioritize backlog based on recent production defects.
+
+## Post Spec
+After this spec we will have the ability to test every aspect of MassGen well. Since we can test it well, that also means we can improve it better using agents. We can embrace **test-driven development** where we always create tests first. We can also create agent skills in `massgen/skills` to utilize the aspects of testing (e.g., integration tests for adding new features, TUI testing for improving the TUI both what we show and how we show it by getting visuals, webui similar). This will be very important to creating a more end-to-end working loop that starts to put less burden on the humans to evaluate what the agents made.

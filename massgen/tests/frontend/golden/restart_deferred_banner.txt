@@ -1,0 +1,3 @@
+[2] separator: Round 2
+[2] content-inline: resuming after restart
+[2] tool pending | filesystem/list_directory | id=t_restart | status=running | args={"path": "/tmp"}

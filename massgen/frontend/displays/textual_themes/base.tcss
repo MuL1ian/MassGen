@@ -6270,9 +6270,15 @@ FinalPresentationCard.completed #final_card_title {
     color: $success;
 }
 
+FinalPresentationCard #final_card_winner {
+    color: $success;
+    text-style: bold;
+    height: auto;
+}
+
 FinalPresentationCard #final_card_votes {
     color: $text-muted;
-    height: 1;
+    height: auto;
     border-bottom: solid $surface-lighten-1;
     padding-bottom: 1;
     margin-bottom: 1;

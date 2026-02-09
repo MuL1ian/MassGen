@@ -2672,6 +2672,7 @@ class FinalPresentationCard(Vertical):
         # Header section - compact single line
         with Vertical(id="final_card_header"):
             yield Label(self._build_title(), id="final_card_title")
+            yield Label(self._build_winner_summary(), id="final_card_winner")
             yield Label(self._build_vote_summary(), id="final_card_votes")
 
         # Body: horizontal container for content + file explorer
@@ -2737,8 +2738,8 @@ class FinalPresentationCard(Vertical):
         """Build the title with trophy icon."""
         return "🏆 FINAL ANSWER"
 
-    def _build_vote_summary(self) -> str:
-        """Build the vote summary line."""
+    def _build_winner_summary(self) -> str:
+        """Build the winner summary line with vote count when available."""
         if not self.vote_results:
             return ""
 
@@ -2746,14 +2747,30 @@ class FinalPresentationCard(Vertical):
         winner = self.vote_results.get("winner", "")
         is_tie = self.vote_results.get("is_tie", False)
 
+        winner_label = winner or self.agent_id
+        if not winner_label:
+            return ""
+
+        winner_votes = vote_counts.get(winner_label)
+        votes_suffix = ""
+        if isinstance(winner_votes, int):
+            votes_suffix = f" ({winner_votes} vote{'s' if winner_votes != 1 else ''})"
+
+        tie_suffix = " · tie-breaker" if is_tie else ""
+        return f"🏅 Winner: {winner_label}{votes_suffix}{tie_suffix}"
+
+    def _build_vote_summary(self) -> str:
+        """Build the vote summary line."""
+        if not self.vote_results:
+            return ""
+
+        vote_counts = self.vote_results.get("vote_counts", {})
+
         if not vote_counts:
             return ""
 
-        # Format: "Winner: agent_a | Votes: agent_a (2), agent_b (1)"
-        tie_note = " (tie-breaker)" if is_tie else ""
-        counts_str = ", ".join(f"{aid} ({count})" for aid, count in vote_counts.items())
-
-        return f"Winner: {winner}{tie_note} | Votes: {counts_str}"
+        counts_str = " • ".join(f"{aid} ({count})" for aid, count in vote_counts.items())
+        return f"Votes: {counts_str}"
 
     @classmethod
     def _limit_context_paths(cls, context_paths: Optional[Dict]) -> tuple[list[str], list[str], int]:

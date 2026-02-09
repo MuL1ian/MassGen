@@ -24,6 +24,11 @@ The target workflow is test-first: agree on tests with the user, implement tests
   - `test_content_handlers_helpers.py`
   - `test_timeline_event_recorder.py`
   - `test_timeline_section_widget.py`
+  - `test_timeline_transcript_golden.py`
+  - Golden transcript fixtures in `massgen/tests/frontend/golden/`
+  - `test_timeline_snapshot_scaffold.py`
+  - SVG snapshot fixtures in `massgen/tests/frontend/__snapshots__/`
+    - Includes both widget-scoped snapshots and full runtime app snapshots (`TextualApp` layout)
 - Deterministic non-API integration coverage has started in `massgen/tests/integration/`:
   - `test_orchestrator_voting.py`
   - `test_orchestrator_consensus.py`
@@ -165,6 +170,17 @@ uv run pytest massgen/tests --run-integration -m "not live_api and not docker an
 # Deterministic integration tests (non-costly)
 uv run pytest massgen/tests/integration -q
 
+# Timeline transcript goldens (Layer 4)
+uv run pytest massgen/tests/frontend/test_timeline_transcript_golden.py -q
+UPDATE_GOLDENS=1 uv run pytest massgen/tests/frontend/test_timeline_transcript_golden.py -q
+
+# Textual SVG snapshots (Layer 3)
+uv run pytest massgen/tests/frontend/test_timeline_snapshot_scaffold.py -q
+uv run pytest massgen/tests/frontend/test_timeline_snapshot_scaffold.py --snapshot-update -q
+
+# Force HTML report location for snapshot mismatches
+uv run pytest massgen/tests/frontend/test_timeline_snapshot_scaffold.py -q --snapshot-report snapshot_report.html
+
 # Live API integration tests (costly, explicit opt-in)
 uv run pytest massgen/tests -m "integration and live_api" --run-integration --run-live-api -q
 
@@ -174,6 +190,64 @@ cd webui && npm run test
 # WebUI E2E (after setup)
 cd webui && npx playwright test
 ```
+
+## Viewing Snapshot Output
+
+1. Run snapshot tests:
+   - `uv run pytest massgen/tests/frontend/test_timeline_snapshot_scaffold.py -q`
+2. If there is a mismatch, open the generated HTML report:
+   - `snapshot_report.html` (project root by default)
+3. In the HTML report, use `Show difference` carefully:
+   - `ON`: blend-difference overlay (can look purple/black and is not raw baseline colors).
+   - `OFF`: raw current and historical snapshots.
+4. Inspect committed baseline SVGs directly:
+   - `massgen/tests/frontend/__snapshots__/test_timeline_snapshot_scaffold/`
+5. After intentional UI changes, regenerate baselines:
+   - `uv run pytest massgen/tests/frontend/test_timeline_snapshot_scaffold.py --snapshot-update -q`
+6. Snapshot tests that validate runtime shell visuals force color-capable env in-test (`TERM=xterm-256color`, `COLORTERM=truecolor`, unset `NO_COLOR`) to avoid monochrome captures.
+7. If your tool cannot display `svg` directly, render with a browser engine (recommended):
+   - `npx playwright screenshot "file:///ABS/PATH/to/snapshot.svg" /tmp/snapshot.png`
+   - This preserves Textual styling and avoids conversion artifacts.
+   - Batch helper: `uv run python scripts/render_snapshot_svgs.py --real-tui-only`
+8. Avoid ImageMagick-based SVG conversion for Textual snapshots when checking typography/emoji fidelity; it can introduce mojibake-like artifacts that are not present in the source SVG.
+9. For highest-fidelity UI checks, prioritize:
+   - `test_timeline_snapshot_real_tui_round_view.svg`
+   - `test_timeline_snapshot_real_tui_final_presentation_lock_mode.svg`
+   These are full `TextualApp` shell snapshots, not widget-only scaffold captures.
+
+## Synthetic TUI Demo (No API Cost)
+
+To visually inspect a full timeline/final-presentation flow without calling any model APIs:
+
+1. Lightweight replay (`--tui`): quick timeline-focused UI (not full runtime shell).
+   - `uv run python scripts/dump_timeline_from_events.py --tui massgen/tests/frontend/fixtures/synthetic_tui_events.jsonl agent_a`
+2. Real runtime replay (`--tui-real`): boots actual `TextualApp` shell and replays synthetic events through it.
+   - `uv run python scripts/dump_timeline_from_events.py --tui-real massgen/tests/frontend/fixtures/synthetic_tui_events.jsonl agent_a`
+3. Exit replay with `q` (or `Ctrl+D`).
+4. Optional playback speed control for `--tui-real`:
+   - `MASSGEN_TUI_REPLAY_SPEED=8 uv run python scripts/dump_timeline_from_events.py --tui-real massgen/tests/frontend/fixtures/synthetic_tui_events.jsonl agent_a`
+
+Text-only replay (same events):
+- `uv run python scripts/dump_timeline_from_events.py massgen/tests/frontend/fixtures/synthetic_tui_events.jsonl agent_a`
+
+### Parity Notes (`--tui` vs `--tui-real`)
+
+- `--tui` uses a minimal `EventReplayApp` around `TimelineSection` for quick debugging; layout can differ and may include extra vertical space.
+- `--tui-real` runs the production `TextualApp` shell for high-fidelity visual checks without API cost.
+
+Remaining obstacle to perfect parity: some runtime-only orchestration state (status timers, winner/tab transitions, workspace/status metadata, animation timing) is not fully encoded in `events.jsonl`. Full equivalence for every frame requires richer replay metadata or a recorder that captures additional shell-state transitions.
+
+For regression gates, continue to rely on deterministic snapshot/golden tests in `massgen/tests/frontend/`.
+
+## Skill Candidate (Future)
+
+The synthetic replay workflow (`--tui` / `--tui-real`) is a strong candidate for a dedicated skill under `massgen/skills/` so contributors can quickly:
+
+1. replay real run logs without API cost,
+2. inspect timeline/render behavior in a consistent way,
+3. generate follow-up debugging artifacts for testing and docs.
+
+This fits best as an end-of-testing workflow for learning, debugging, and reproducing UI behavior before deciding whether to update snapshots/goldens.
 
 ## Pre-Commit vs Fast Lane
 
