@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from massgen.coordination_tracker import AgentAnswer
 from massgen.mcp_tools.hooks import HookType
 from massgen.subagent.models import SubagentResult
 
@@ -63,6 +64,12 @@ async def test_mid_stream_hook_injects_new_answers_after_first_restart(mock_orch
     state.restart_pending = True
     state.injection_count = 1
     orchestrator.agent_states[peer_id].answer = "New answer from peer"
+
+    # Register the answer revision in coordination_tracker so
+    # _get_agent_answer_revision_count returns > 0 for the peer.
+    peer_answer = AgentAnswer(agent_id=peer_id, content="New answer from peer", timestamp=time.time())
+    peer_answer.label = "B1.1"
+    orchestrator.coordination_tracker.answers_by_agent.setdefault(peer_id, []).append(peer_answer)
 
     monkeypatch.setattr(
         orchestrator,
