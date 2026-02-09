@@ -1,8 +1,8 @@
-# MassGen v0.1.49 Roadmap
+# MassGen v0.1.50 Roadmap
 
 ## Overview
 
-Version 0.1.49 focuses on enhanced log analysis capabilities and worktree isolation improvements.
+Version 0.1.50 focuses on log analysis improvements and worktree isolation enhancements.
 
 - **Log Analysis Model Selector** (Required): Allow users to choose which model to use for log analysis
 - **Git Worktree Isolation for Agent Changes** (Required): Worktree isolation improvements for agent file changes
@@ -83,16 +83,16 @@ Version 0.1.49 focuses on enhanced log analysis capabilities and worktree isolat
 
 ## Timeline
 
-**Target Release**: February 9, 2026
+**Target Release**: February 11, 2026
 
-### Phase 1 (Feb 7-8)
+### Phase 1 (Feb 9-10)
 - CLI Interface Design (Milestone 1.1)
 - Backend Configuration (Milestone 1.2)
 - Isolation Improvements (Milestone 2.1)
 
-### Phase 2 (Feb 8-9)
+### Phase 2 (Feb 10-11)
 - Integration with Log Analysis (Milestone 1.3)
-- Testing & Validation (Milestone 1.4, 2.2)
+- Testing & Validation (Milestones 1.4, 2.2)
 
 ---
 
@@ -119,8 +119,9 @@ Version 0.1.49 focuses on enhanced log analysis capabilities and worktree isolat
 
 This release builds on previous work:
 - **v0.1.35**: Enhanced logging with `massgen logs analyze` (#683, #761)
-- **v0.1.48**: OpenAI Responses /compact Endpoint (#739), Decomposition Mode (#858), Worktree Isolation (#857)
+- **v0.1.48**: Decomposition Mode (#858), Worktree Isolation (#857)
+- **v0.1.49**: Fairness Gate, Persona Easing, Checklist Voting, ROI Framework (#869)
 
 And sets the foundation for:
-- **v0.1.50**: Refactor ask_others for targeted queries (#809), curated quickstart models (#840)
-- **v0.1.51**: TUI screenshot support (#831), multi-turn round/log fixes (#848)
+- **v0.1.51**: Targeted agent queries (#809), quickstart model curation (#840)
+- **v0.1.52**: TUI screenshot support (#831), multi-turn round/log fixes (#848)
