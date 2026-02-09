@@ -9372,50 +9372,88 @@ Type your question and press Enter to ask the agents.
             return {d.name for d in skills_root.iterdir() if d.is_dir() and (d / "SKILL.md").is_file()}
 
         def _detect_new_skills_from_analysis(self) -> None:
-            """Detect skills created during analysis by comparing pre/post snapshots."""
+            """Harvest skills from agent workspaces and copy to project .agent/skills/.
+
+            After an analysis run with the "user" profile, agents may have created
+            SKILL.md files inside their workspace (e.g. final/agent_*/workspace/.agent/skills/*/).
+            This method copies those to the project-root skills directory so they
+            are discoverable by future runs.
+            """
             if self._mode_state.plan_mode != "analysis":
                 return
             if self._mode_state.analysis_config.profile != "user":
                 return
 
-            pre_snapshot = self._mode_state.analysis_config._pre_analysis_skill_dirs
-            if pre_snapshot is None:
-                return
-
             try:
-                post_snapshot = self._snapshot_skill_dirs()
-                new_dirs = post_snapshot - pre_snapshot
-                if not new_dirs:
-                    return
-
-                from massgen.filesystem_manager.skills_manager import parse_frontmatter
-
-                new_skill_names = []
-                for dirname in sorted(new_dirs):
-                    skill_path = Path(".agent") / "skills" / dirname / "SKILL.md"
-                    try:
-                        content = skill_path.read_text(encoding="utf-8")
-                        metadata = parse_frontmatter(content)
-                        name = metadata.get("name", dirname)
-                    except Exception:
-                        name = dirname
-                    new_skill_names.append(name)
-
-                # Notify user about created skills.
-                names_str = ", ".join(new_skill_names)
-                self.notify(
-                    f"New skill(s) created: {names_str}",
-                    severity="information",
-                    timeout=5,
-                )
-
-                # Auto-add to enabled filter if one is active.
-                enabled = self._mode_state.analysis_config.get_enabled_skill_names()
-                if enabled is not None:
-                    self._mode_state.analysis_config.enabled_skill_names = self._normalize_skill_name_list(enabled + new_skill_names)
+                self._harvest_skills_from_workspace()
             finally:
                 # Clear snapshot after detection.
                 self._mode_state.analysis_config._pre_analysis_skill_dirs = None
+
+        def _harvest_skills_from_workspace(self) -> None:
+            """Copy new SKILL.md dirs from agent workspaces to .agent/skills/."""
+            import shutil
+
+            from massgen.logger_config import get_log_session_dir
+
+            project_skills_root = Path(".agent") / "skills"
+            pre_snapshot = self._mode_state.analysis_config._pre_analysis_skill_dirs or set()
+
+            # Find SKILL.md files in agent workspaces
+            log_dir = get_log_session_dir()
+            final_dir = log_dir / "final"
+            if not final_dir.exists():
+                tui_log("[SkillHarvest] No final/ directory found")
+                return
+
+            harvested: list[str] = []
+            for skill_md in final_dir.glob("agent_*/workspace/.agent/skills/*/SKILL.md"):
+                skill_dir = skill_md.parent
+                skill_name = skill_dir.name
+
+                # Skip if it already existed before analysis
+                if skill_name in pre_snapshot:
+                    continue
+
+                dest = project_skills_root / skill_name
+                if dest.exists():
+                    # Don't overwrite existing project skills
+                    continue
+
+                try:
+                    project_skills_root.mkdir(parents=True, exist_ok=True)
+                    shutil.copytree(str(skill_dir), str(dest))
+                    harvested.append(skill_name)
+                    tui_log(f"[SkillHarvest] Copied {skill_name} to {dest}")
+                except Exception as e:
+                    tui_log(f"[SkillHarvest] Failed to copy {skill_name}: {e}")
+
+            if not harvested:
+                return
+
+            from massgen.filesystem_manager.skills_manager import parse_frontmatter
+
+            display_names = []
+            for dirname in harvested:
+                skill_path = project_skills_root / dirname / "SKILL.md"
+                try:
+                    content = skill_path.read_text(encoding="utf-8")
+                    metadata = parse_frontmatter(content)
+                    display_names.append(metadata.get("name", dirname))
+                except Exception:
+                    display_names.append(dirname)
+
+            names_str = ", ".join(display_names)
+            self.notify(
+                f"Skill(s) installed: {names_str}",
+                severity="information",
+                timeout=5,
+            )
+
+            # Auto-add to enabled filter if one is active.
+            enabled = self._mode_state.analysis_config.get_enabled_skill_names()
+            if enabled is not None:
+                self._mode_state.analysis_config.enabled_skill_names = self._normalize_skill_name_list(enabled + display_names)
 
         def _show_file_inspection_modal(self):
             """Display file inspection modal with tree view."""
