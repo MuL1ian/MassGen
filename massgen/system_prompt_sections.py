@@ -925,6 +925,7 @@ class WorkspaceStructureSection(SystemPromptSection):
         worktree_paths: Optional[Dict[str, str]] = None,
         branch_name: Optional[str] = None,
         other_branches: Optional[Dict[str, str]] = None,
+        branch_diff_summaries: Optional[Dict[str, str]] = None,
     ):
         super().__init__(
             title="Workspace Structure",
@@ -938,6 +939,7 @@ class WorkspaceStructureSection(SystemPromptSection):
         self.worktree_paths = worktree_paths  # {worktree_path: original_path}
         self.branch_name = branch_name  # This agent's current branch
         self.other_branches = other_branches  # {anon_id: branch_name}
+        self.branch_diff_summaries = branch_diff_summaries  # {anon_id: diff_summary}
 
     def build_content(self) -> str:
         """Build workspace structure documentation."""
@@ -952,12 +954,10 @@ class WorkspaceStructureSection(SystemPromptSection):
         # Worktree-based workspace (new unified model) takes precedence
         if self.worktree_paths:
             for wt_path in self.worktree_paths:
-                content_parts.append("### Project Checkout\n")
-                content_parts.append(f"The project is checked out at `{wt_path}`. Full read/write access.\n")
-                content_parts.append("**Scratch Space**: `.massgen_scratch/` inside the checkout")
-                content_parts.append("- For experiments, eval scripts, notes")
-                content_parts.append("- Git-excluded, invisible to reviewers")
-                content_parts.append("- Can import from project naturally (e.g., `from src.foo import bar`)\n")
+                content_parts.append("## Project Workspace\n")
+                content_parts.append(f"Your project code is at `{wt_path}`. **All code changes must be made here.**")
+                content_parts.append(f"Run `cd {wt_path}` before starting any code work.\n")
+                content_parts.append(f"Scratch space: `{wt_path}/.massgen_scratch/` (git-excluded, for experiments)\n")
 
                 content_parts.append("### Code Branches\n")
                 if self.branch_name:
@@ -966,12 +966,23 @@ class WorkspaceStructureSection(SystemPromptSection):
                     content_parts.append("All changes are auto-committed when your turn ends.\n")
 
                 if self.other_branches:
-                    content_parts.append("**Other agents' branches:**")
-                    for label, branch in self.other_branches.items():
-                        content_parts.append(f"- {label}: `{branch}`")
-                    content_parts.append("\nUse `git diff <branch>` to compare, `git merge <branch>` to incorporate.\n")
-
-                content_parts.append("**Previous scratch files**: Check `.scratch_archive/` in your workspace for experiments from prior rounds.\n")
+                    if self.branch_diff_summaries:
+                        content_parts.append("**Other agents' code changes:**")
+                        for label, branch in self.other_branches.items():
+                            summary = self.branch_diff_summaries.get(label, "")
+                            if summary:
+                                # First line is the stats, second line (indented) is the file list
+                                summary_lines = summary.split("\n", 1)
+                                content_parts.append(f"- {label} (`{branch}`) — {summary_lines[0]}")
+                                if len(summary_lines) > 1:
+                                    content_parts.append(f"  {summary_lines[1].strip()}")
+                            else:
+                                content_parts.append(f"- {label}: `{branch}`")
+                    else:
+                        content_parts.append("**Other agents' branches:**")
+                        for label, branch in self.other_branches.items():
+                            content_parts.append(f"- {label}: `{branch}`")
+                    content_parts.append("\nUse `git diff <branch>` for full details, `git merge <branch>` to incorporate.\n")
 
         # Legacy two-tier workspace (deprecated, skipped when worktree_paths set)
         elif self.use_two_tier_workspace:

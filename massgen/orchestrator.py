@@ -306,7 +306,8 @@ class Orchestrator(ChatAgent):
         self._active_tasks: Dict = {}
 
         # Per-round worktree tracking: {agent_id: branch_name}
-        # Each agent has exactly ONE branch alive at a time (one-branch-per-agent invariant)
+        # Tracks the LATEST branch for each agent. Old branches accumulate
+        # across rounds (not deleted mid-session) for cross-agent diff visibility.
         self._agent_current_branches: Dict[str, str] = {}
         # Per-round isolation managers: {agent_id: IsolationContextManager}
         self._round_isolation_managers: Dict[str, "IsolationContextManager"] = {}
@@ -2977,6 +2978,24 @@ Your answer:"""
                 "has_context": conversation_context is not None,
             },
         )
+
+        # Clean up orphaned massgen/* branches from previous crashed sessions
+        coordination_config = getattr(self.config, "coordination_config", None)
+        _wm = getattr(coordination_config, "write_mode", None) if coordination_config else None
+        if _wm and _wm != "legacy":
+            from .filesystem_manager import IsolationContextManager
+
+            for agent_id_cleanup, agent_cleanup in self.agents.items():
+                if hasattr(agent_cleanup, "backend") and hasattr(agent_cleanup.backend, "filesystem_manager") and agent_cleanup.backend.filesystem_manager:
+                    ppm = agent_cleanup.backend.filesystem_manager.path_permission_manager
+                    ctx_paths = ppm.get_context_paths() if ppm else []
+                    for ctx_config in ctx_paths:
+                        ctx_path = ctx_config.get("path", "")
+                        if ctx_path:
+                            cleaned = IsolationContextManager.cleanup_orphaned_branches(ctx_path)
+                            if cleaned:
+                                logger.info(f"[Orchestrator] Cleaned {cleaned} orphaned branches in {ctx_path}")
+                            break  # Only need to clean once per repo
 
         # Generate and inject personas if enabled (happens once per session)
         if (
@@ -6254,13 +6273,11 @@ Your answer:"""
 
                 workspace_path = str(agent.backend.filesystem_manager.get_current_workspace())
                 round_suffix = secrets.token_hex(4)
-                previous_branch = self._agent_current_branches.get(agent_id)
 
                 round_isolation_mgr = IsolationContextManager(
                     session_id=f"{self.session_id}-{round_suffix}",
                     write_mode=write_mode,
                     workspace_path=workspace_path,
-                    previous_branch=previous_branch,
                 )
 
                 # Check for explicit context paths to create worktrees for
@@ -6358,6 +6375,14 @@ Your answer:"""
             _branch_agent_mapping = self.coordination_tracker.get_reverse_agent_mapping()
             other_agent_branches = {_branch_agent_mapping.get(aid, aid): branch for aid, branch in self._agent_current_branches.items() if aid != agent_id and branch}
 
+            # Generate diff summaries for other agents' branches (passive code visibility)
+            branch_diff_summaries = None
+            if other_agent_branches and agent_id in self._round_isolation_managers:
+                round_iso = self._round_isolation_managers[agent_id]
+                branch_diff_summaries = round_iso.generate_branch_summaries(other_agent_branches)
+                if branch_diff_summaries:
+                    logger.info(f"[Orchestrator] Generated diff summaries for {agent_id}: {list(branch_diff_summaries.keys())}")
+
             system_message = self._get_system_message_builder().build_coordination_message(
                 agent=agent,
                 agent_id=agent_id,
@@ -6380,6 +6405,7 @@ Your answer:"""
                 worktree_paths=round_worktree_paths,
                 branch_name=agent_branch,
                 other_branches=other_agent_branches if other_agent_branches else None,
+                branch_diff_summaries=branch_diff_summaries,
             )
 
             # Inject phase-appropriate persona if enabled
