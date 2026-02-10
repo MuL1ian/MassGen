@@ -242,3 +242,7 @@ $checkbox-selected-border: #40a02b;
 $panel-border: #bcc0cc;
 $panel-border-separator: #ccd0da;
 $panel-border-light: #ccd0da;
+
+/* Toast Notification Colors */
+$toast-bg: #eef2f9;
+$toast-border: #bcc0cc;

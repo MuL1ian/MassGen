@@ -3049,12 +3049,12 @@ if TEXTUAL_AVAILABLE:
                         self._mode_bar = ModeBar(id="mode_bar")
                         yield self._mode_bar
 
-                        # Vim mode indicator (hidden by default)
-                        self._vim_indicator = Static("", id="vim_indicator")
-                        yield self._vim_indicator
-                        # Input hint - hidden by default, used only for vim mode hints
-                        self._input_hint = Static("", id="input_hint", classes="hidden")
-                        yield self._input_hint
+                        # Right-side status panel: Vim status + CWD/context line.
+                        with Vertical(id="input_meta_panel"):
+                            self._vim_indicator = Static("", id="vim_indicator")
+                            yield self._vim_indicator
+                            self._input_hint = Static("", id="input_hint")
+                            yield self._input_hint
 
                 # Execution bar - shown ONLY during coordination, replaces input
                 # Contains status text (left) and cancel button (right)
@@ -3215,11 +3215,15 @@ if TEXTUAL_AVAILABLE:
                 )
             self._update_safe_indicator()
             self._update_theme_indicator()
+            self._refresh_welcome_context_hint()
             if self._mode_bar:
                 self._mode_bar.set_coordination_mode(self._mode_state.coordination_mode)
                 self._mode_bar.set_coordination_enabled(self._mode_state.agent_mode != "single")
                 self._mode_bar.set_parallel_personas_enabled(self._mode_state.parallel_personas_enabled)
             self._refresh_skills_button_state()
+            # Re-run once after the first layout pass so width-dependent hint
+            # truncation can use settled regions.
+            self.call_after_refresh(self._refresh_welcome_context_hint)
             # Auto-focus input field on startup
             if self.question_input:
                 self.question_input.focus()
@@ -3544,6 +3548,13 @@ if TEXTUAL_AVAILABLE:
                 main_container.remove_class("hidden")
             except Exception as e:
                 tui_log(f"[TextualDisplay] {e}")
+
+            # Refresh right-side hint now that welcome-only context is gone.
+            if hasattr(self, "question_input") and self.question_input:
+                vim_normal = None
+                if self.question_input.vim_mode:
+                    vim_normal = bool(getattr(self.question_input, "_vim_normal", False))
+                self._update_vim_indicator(vim_normal)
 
         def on_key(self, event: events.Key) -> None:
             """Handle key events for agent shortcuts and @ autocomplete.
@@ -4316,30 +4327,26 @@ if TEXTUAL_AVAILABLE:
             if not hasattr(self, "_vim_indicator"):
                 return
 
+            path_context = self._build_welcome_context_hint_text()
+            if hasattr(self, "_input_hint"):
+                self._input_hint.update(path_context)
+                self._input_hint.remove_class("hidden")
+
             if vim_normal is None:
-                # Vim mode off - hide indicator and input hint (hint is now in placeholder)
-                self._vim_indicator.update("")
+                # Vim mode off - keep explicit mode affordance.
+                self._vim_indicator.update("Vim off • /vim on")
                 self._vim_indicator.remove_class("vim-normal-indicator")
                 self._vim_indicator.remove_class("vim-insert-indicator")
-                if hasattr(self, "_input_hint"):
-                    self._input_hint.update("")
-                    self._input_hint.add_class("hidden")
             elif vim_normal:
-                # Normal mode - keep a compact inline hint on the right.
-                self._vim_indicator.update("")
+                # Normal mode line (top row in right panel).
+                self._vim_indicator.update("Normal • i/a insert • hjkl • /vim off")
                 self._vim_indicator.remove_class("vim-insert-indicator")
-                self._vim_indicator.remove_class("vim-normal-indicator")
-                if hasattr(self, "_input_hint"):
-                    self._input_hint.update("Normal • i/a insert • hjkl • /vim off")
-                    self._input_hint.remove_class("hidden")
+                self._vim_indicator.add_class("vim-normal-indicator")
             else:
-                # Insert mode - short actionable hint.
-                self._vim_indicator.update("")
+                # Insert mode line (top row in right panel).
+                self._vim_indicator.update("Insert • Esc normal • /vim off")
                 self._vim_indicator.remove_class("vim-normal-indicator")
-                self._vim_indicator.remove_class("vim-insert-indicator")
-                if hasattr(self, "_input_hint"):
-                    self._input_hint.update("Insert • Esc normal • /vim off")
-                    self._input_hint.remove_class("hidden")
+                self._vim_indicator.add_class("vim-insert-indicator")
 
             # Force refresh to ensure visual update
             self._vim_indicator.refresh(layout=True)
@@ -7760,7 +7767,11 @@ Type your question and press Enter to ask the agents.
                 self._plan_options_popover._initialized = False
                 self._plan_options_popover.refresh(recompose=True)
                 self.call_later(self._plan_options_popover.show)
-            self.notify("Analysis Mode: ON - Dev/User profile and log target in ⋮", severity="information", timeout=3)
+            self.notify(
+                "Analysis Mode: ON - Dev/User profile and log target in settings menu",
+                severity="information",
+                timeout=3,
+            )
 
         def _handle_agent_mode_change(self, mode: str) -> None:
             """Handle agent mode toggle.
@@ -8585,7 +8596,8 @@ Type your question and press Enter to ask the agents.
         def on_status_bar_cwd_clicked(self, event: StatusBarCwdClicked) -> None:
             """Handle CWD mode change from status bar click."""
             self._cwd_context_mode = event.mode
-            # No toast - the visual update in the hint/status bar is enough
+            self._update_cwd_hint()
+            self._notify_cwd_context_change(event.mode, event.cwd)
 
         def on_status_bar_theme_clicked(self, event: StatusBarThemeClicked) -> None:
             """Handle theme toggle from status bar click."""
@@ -8619,24 +8631,46 @@ Type your question and press Enter to ask the agents.
                 except Exception as e:
                     tui_log(f"[TextualDisplay] {e}")
 
-            # Update welcome screen hint if showing
+            # Update right-side hint text if shown
             self._update_cwd_hint()
+            self._notify_cwd_context_change(self._cwd_context_mode, str(cwd))
+
+        def _notify_cwd_context_change(self, mode: str, cwd: str) -> None:
+            """Show a toast when CWD context visibility/mode changes."""
+            mode_label = {
+                "off": "hidden",
+                "read": "read-only",
+                "write": "read+write",
+            }.get(mode, mode)
+
+            if mode == "off":
+                message = f"Ctrl+P: CWD context {mode_label} ({cwd})"
+            else:
+                message = f"Ctrl+P: CWD context {mode_label} ({cwd})"
+
+            self.notify(message, severity="information", timeout=3)
+
+        def _build_welcome_context_hint_text(self) -> str:
+            """Build compact Ctrl+P context hint for the right-side status panel."""
+            mode_label = {
+                "off": "hidden",
+                "read": "read-only",
+                "write": "read+write",
+            }.get(self._cwd_context_mode, "hidden")
+            return f"Ctrl+P: Paths {mode_label} • @path include • Ctrl+C quit"
+
+        def _refresh_welcome_context_hint(self) -> None:
+            """Refresh right-side vim/path panel when layout or mode changes."""
+            if not hasattr(self, "question_input") or not self.question_input:
+                return
+            vim_normal: bool | None = None
+            if self.question_input.vim_mode:
+                vim_normal = bool(getattr(self.question_input, "_vim_normal", False))
+            self._update_vim_indicator(vim_normal)
 
         def _update_cwd_hint(self) -> None:
-            """Update the CWD hint display on welcome screen."""
-            try:
-                cwd = Path.cwd()
-                cwd_short = f"~/{cwd.name}" if len(str(cwd)) > 30 else str(cwd)
-                hint_widget = self.query_one("#cwd_hint", Static)
-                at_hint = "  •  @ for other paths"
-                if self._cwd_context_mode == "read":
-                    hint_widget.update(f"[green]● Ctrl+P: File access to {cwd_short} \\[r][/][dim]{at_hint}[/]")
-                elif self._cwd_context_mode == "write":
-                    hint_widget.update(f"[green]● Ctrl+P: File access to {cwd_short} \\[rw][/][dim]{at_hint}[/]")
-                else:
-                    hint_widget.update(f"[dim]○ Ctrl+P: File access to {cwd_short}{at_hint}[/]")
-            except Exception as e:
-                tui_log(f"[TextualDisplay] {e}")
+            """Update compact path/help hint display."""
+            self._refresh_welcome_context_hint()
 
         def _update_status_bar_restart_info(self) -> None:
             """Update StatusBar to show restart count."""
@@ -9811,9 +9845,12 @@ Type your question and press Enter to ask the agents.
 
             debounce_time = 0.15 if self.coordination_display._terminal_type in ("vscode", "windows_terminal") else 0.05
             try:
-                self._resize_debounce_handle = self.set_timer(debounce_time, lambda: self.refresh(layout=True))
+                self._resize_debounce_handle = self.set_timer(
+                    debounce_time,
+                    lambda: (self.refresh(layout=True), self.call_later(self._refresh_welcome_context_hint)),
+                )
             except Exception:
-                self.call_later(lambda: self.refresh(layout=True))
+                self.call_later(lambda: (self.refresh(layout=True), self._refresh_welcome_context_hint()))
 
     # Widget implementations
     class WelcomeScreen(Container):
@@ -9836,8 +9873,6 @@ Type your question and press Enter to ask the agents.
             self._divider_label: Optional[Static] = None
             self._agents_label: Optional[Label] = None
             self._hint_label: Optional[Label] = None
-            self._cwd_hint_label: Optional[Static] = None
-            self._shortcuts_label: Optional[Static] = None
 
         def compose(self) -> ComposeResult:
             self._logo_label = Label(self.MASSGEN_LOGO, id="welcome_logo")
@@ -9848,10 +9883,6 @@ Type your question and press Enter to ask the agents.
             with Container(id="welcome_agents_wrap"):
                 self._agents_label = Label("", id="welcome_agents")
                 yield self._agents_label
-            self._cwd_hint_label = Static("", id="cwd_hint")
-            yield self._cwd_hint_label
-            self._shortcuts_label = Static("", id="welcome_shortcuts_hint")
-            yield self._shortcuts_label
             self._hint_label = Label("", id="welcome_hint")
             yield self._hint_label
 
@@ -9884,15 +9915,6 @@ Type your question and press Enter to ask the agents.
                     self._hint_label.update("Type your question and press Enter.")
                 else:
                     self._hint_label.update("Type your question below, then press Enter.")
-
-            if self._cwd_hint_label:
-                self._cwd_hint_label.update(self._build_cwd_hint(width))
-
-            if self._shortcuts_label:
-                if width < 84:
-                    self._shortcuts_label.update("[dim]Help Ctrl+G  •  Quit Ctrl+C[/]")
-                else:
-                    self._shortcuts_label.update("[dim]Help: Ctrl+G  •  Quit: Ctrl+C[/]")
 
         def _build_divider(self, width: int) -> str:
             """Return a balanced separator line for the welcome card."""
@@ -9946,16 +9968,6 @@ Type your question and press Enter to ask the agents.
             head = (max_length - 1) // 2
             tail = max_length - head - 1
             return f"{value[:head]}…{value[-tail:]}"
-
-        def _build_cwd_hint(self, width: int) -> str:
-            """Build a CWD hint that fits the available width."""
-            cwd = str(Path.cwd())
-            max_path_len = max(12, width - 58)
-            if len(cwd) > max_path_len:
-                cwd = f"...{cwd[-(max_path_len - 3):]}"
-            if width < 84:
-                return "[dim]Paths are not added yet: Ctrl+P browse  •  include with @path[/]"
-            return f"[dim]Paths are not added yet: Ctrl+P browse {cwd}  •  include with @path[/]"
 
     class HeaderWidget(Static):
         """Compact header widget showing minimal branding and session info."""

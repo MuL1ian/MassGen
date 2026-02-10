@@ -598,6 +598,12 @@ ModeBar.compact-layout #mode_row_secondary {
     width: 100%;
 }
 
+/* Add breathing room between stacked rows so underline borders don't visually
+ * collide in compact mode. */
+ModeBar.compact-layout #mode_row_secondary {
+    margin-top: 1;
+}
+
 /* Mode Toggle buttons - underline style
  * Uses semantic variables: $mode-toggle-border, $mode-toggle-active-color, $mode-toggle-inactive-color
  * These are defined per-theme in palette files for proper visibility in both light and dark modes
@@ -1194,12 +1200,31 @@ SuggestionRow.selected {
     layout: horizontal;
     width: 100%;
     height: auto;
-    align: left bottom;
+    align: left top;
     padding: 0 1;
 }
 
 #input_meta_spacer {
     width: 1fr;
+}
+
+#input_meta_panel {
+    layout: vertical;
+    width: auto;
+    min-width: 0;
+    max-width: 100%;
+    height: auto;
+    align: right middle;
+    margin-left: 1;
+    padding: 0;
+    overflow-x: hidden;
+    overflow-y: hidden;
+}
+
+#input_meta_panel Static {
+    width: auto;
+    min-width: 0;
+    text-align: right;
 }
 
 /* Theme-class based separator colors for dynamic switching */
@@ -1211,34 +1236,34 @@ SuggestionRow.selected {
     border-top: solid #30363d;
 }
 
-/* Input hint text - shown at right when vim mode is active */
+/* Input hint text - right panel second line (CWD/context/help) */
 #input_hint {
     height: 1;
     width: auto;
-    max-width: 34;
+    min-width: 0;
+    max-width: 100%;
     color: $text-muted;
-    text-style: none;
+    text-style: italic;
     padding: 0;
     background: $background;
-    margin-left: 1;
+    margin-left: 0;
 }
 
-/* Vim mode indicator - hidden by default */
+/* Vim mode indicator - right panel first line */
 #vim_indicator {
-    display: none;
+    display: block;
     height: 1;
     width: auto;
     min-width: 0;
     padding: 0;
-    margin-left: 1;
+    margin-left: 0;
     background: transparent;
     color: $text-muted;
-    text-style: bold;
+    text-style: none;
 }
 
-/* Vim mode indicator - shown when active (compact inline badge) */
+/* Vim mode indicator states */
 #input_header #vim_indicator.vim-normal-indicator {
-    display: block !important;
     height: 1;
     width: auto;
     min-width: 1;
@@ -1249,7 +1274,6 @@ SuggestionRow.selected {
 }
 
 #input_header #vim_indicator.vim-insert-indicator {
-    display: block !important;
     height: 1;
     width: auto;
     min-width: 1;
@@ -5019,7 +5043,7 @@ AgentStatusRibbon #round_selector.final-answer-view:hover {
 /* Dropdown overlay for plan mode configuration */
 PlanOptionsPopover {
     layer: overlay;
-    dock: right;
+    dock: left;
     width: 84;
     min-width: 64;
     max-width: 92;
@@ -5029,7 +5053,7 @@ PlanOptionsPopover {
     border: solid $primary;
     padding: 1 2;
     margin-bottom: 3;
-    margin-right: 1;
+    margin-left: 1;
     display: none;
 }
 
@@ -5200,29 +5224,30 @@ PlanOptionsPopover #close_btn:hover {
 /* === Toast Notifications === */
 ToastRack {
     margin-bottom: 8;  /* Push up above tab bar and input */
+    padding-left: 0;
+    padding-right: 1;
+    align: right bottom;
+}
+
+ToastHolder {
+    align-horizontal: right;
 }
 
 /* Base toast styling - theme-class-based for dynamic switching */
-/* Override Textual's "outer" border which renders outside the box */
+/* Keep toast visually distinct from timeline backgrounds in all themes. */
 Toast {
-    background: $background;
-    border: solid transparent;
-    border-left: none;
+    width: auto;
+    min-width: 36;
+    max-width: 68;
+    height: auto;
+    background: $toast-bg;
+    border: solid $toast-border;
+    border-left: tall $primary;
+    color: $text;
+    padding: 0 1;
+    margin-top: 1;
+    text-wrap: wrap;
     overflow: hidden;
-}
-
-/* Light theme toast - matches light background, subtle border */
-.theme-light Toast {
-    background: #ffffff;
-    border: solid #d0d7de;
-    border-left: tall #0969da;
-}
-
-/* Dark theme toast - matches dark background, subtle border */
-.theme-dark Toast {
-    background: #0d1117;
-    border: solid #21262d;
-    border-left: tall #58a6ff;
 }
 
 /* Severity-specific left accent colors (override the theme defaults) */

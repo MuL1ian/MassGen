@@ -145,7 +145,7 @@ class PlanOptionsPopover(Widget):
     DEFAULT_CSS = """
     PlanOptionsPopover {
         layer: overlay;
-        dock: right;
+        dock: left;
         width: 84;
         min-width: 64;
         max-width: 92;
@@ -155,7 +155,7 @@ class PlanOptionsPopover(Widget):
         border: solid $primary;
         padding: 1 2;
         margin-bottom: 3;
-        margin-right: 1;
+        margin-left: 1;
         display: none;
     }
 
