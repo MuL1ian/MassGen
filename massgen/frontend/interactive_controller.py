@@ -505,6 +505,12 @@ class TextualInteractiveAdapter(UIAdapter):
                 logger.info("[TextualAdapter] Triggering plan approval flow")
                 self._trigger_plan_approval(result, mode_state)
                 return
+            if mode_state.plan_mode == "analysis" and result.answer_text and not result.was_cancelled and not result.error:
+                analysis_profile = getattr(mode_state.analysis_config, "profile", "dev")
+                if analysis_profile == "user":
+                    self._display._call_app_method(
+                        "_detect_new_skills_from_analysis",
+                    )
 
         if result.was_cancelled:
             self.notify("Turn cancelled", "warning")
@@ -693,6 +699,7 @@ class SlashCommandDispatcher:
    /timeline, /t        - Show coordination timeline
    /files, /w           - Browse workspace files from answers
    /browser, /u         - Unified browser (Answers/Votes/Workspace/Timeline tabs)
+   /skills, /k          - Open skills manager (session skill toggles)
    /vim                 - Toggle vim mode (hjkl navigation, i to insert)
 
 💡 Input:
@@ -771,6 +778,8 @@ class SlashCommandDispatcher:
             return self._handle_files()
         elif cmd in ("/browser", "/u"):
             return self._handle_browser()
+        elif cmd in ("/skills", "/k"):
+            return self._handle_skills()
         elif cmd == "/vim":
             return self._handle_vim()
         # TODO: Re-enable /theme command when additional themes are ready
@@ -1029,6 +1038,13 @@ class SlashCommandDispatcher:
             ui_action="show_browser",
         )
 
+    def _handle_skills(self) -> CommandResult:
+        """Handle /skills command - open skills manager modal."""
+        return CommandResult(
+            message="Opening skills manager...",
+            ui_action="show_skills",
+        )
+
     def _handle_vim(self) -> CommandResult:
         """Handle /vim command - toggle vim mode in input."""
         return CommandResult(
@@ -1225,6 +1241,13 @@ class InteractiveSessionController:
                 self._adapter.request_cancel_turn()
             else:
                 self._adapter.notify("Cancel is only available during an active turn in Textual mode.")
+        elif result.ui_action == "show_skills":
+            if is_textual and isinstance(self._adapter, TextualInteractiveAdapter):
+                display = getattr(self._adapter, "_display", None)
+                if display:
+                    display._call_app_method("_show_skills_modal")
+            else:
+                self._adapter.notify("Skills manager is available in Textual mode.")
 
         if result.should_exit:
             self._adapter.request_exit()

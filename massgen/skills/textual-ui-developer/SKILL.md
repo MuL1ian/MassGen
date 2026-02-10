@@ -1,264 +1,154 @@
 ---
 name: textual-ui-developer
-description: Develop and improve the MassGen Textual TUI by running it in a browser via textual-serve and using Claude's browser tool for visual feedback.
+description: Develop and debug the MassGen Textual TUI with deterministic replay, snapshot regression tests, and targeted runtime checks.
 ---
 
 # Textual UI Developer
 
-This skill provides a workflow for developing and improving the MassGen Textual TUI with visual feedback.
+Use this skill to improve the MassGen Textual UI while minimizing flaky reproduction and API cost.
 
-## Purpose
+## Use This Skill When
 
-Use this skill when you need to:
-- Debug or improve the Textual TUI display
-- Add new widgets or features to the TUI
-- Fix styling or layout issues
-- Test the TUI visually in a browser
+- You need to debug timeline rendering or ordering issues.
+- You need to verify layout/styling changes in the real Textual shell.
+- You need to update or add TUI regression tests (snapshot/golden/transcript).
+- You need to reproduce UI behavior from `events.jsonl` deterministically.
 
-## For MassGen Agents
+## Default Strategy
 
-When running via MassGen, do NOT use `execute_command` for
-long-running servers like textual-serve. The `execute_command` tool blocks
-until completion and will timeout.
+Prefer deterministic workflows before live model runs:
 
-Instead, use background shell tools:
+1. Reproduce from recorded/synthetic events (`events.jsonl`) with no API calls.
+2. Confirm behavior in the real shell using `--tui-real`.
+3. Encode findings into tests (unit, transcript golden, snapshot).
+4. Use live `massgen --display textual` or `--textual-serve` only when needed.
 
-```python
-# Start the server in background
-result = start_background_shell("uv run massgen --textual-serve")
-shell_id = result["shell_id"]
-
-# Check if it's running
-status = get_background_shell_status(shell_id)
-
-# When done, kill it
-kill_background_shell(shell_id)
-```
-
-Available background shell tools:
-- `start_background_shell(command)` - Start a long-running command
-- `get_background_shell_status(shell_id)` - Check if still running
-- `get_background_shell_output(shell_id)` - Get stdout/stderr
-- `kill_background_shell(shell_id)` - Terminate the process
-- `list_background_shells()` - List all background shells
-
-## Setup (Claude Code)
-
-### Step 1: Ensure textual-serve is available
-
-The `textual-serve` package should already be installed. If not:
+## Quick Commands
 
 ```bash
-uv pip install textual-serve
-```
+# Full frontend/TUI test suite
+uv run pytest massgen/tests/frontend -q
 
-### Step 2: Start Claude with Browser Access
+# Timeline transcript goldens
+uv run pytest massgen/tests/frontend/test_timeline_transcript_golden.py -q
+UPDATE_GOLDENS=1 uv run pytest massgen/tests/frontend/test_timeline_transcript_golden.py -q
 
-Claude Code must be running with Chrome integration:
+# Snapshot scaffold tests
+uv run pytest massgen/tests/frontend/test_timeline_snapshot_scaffold.py -q
+uv run pytest massgen/tests/frontend/test_timeline_snapshot_scaffold.py --snapshot-update -q
+uv run pytest massgen/tests/frontend/test_timeline_snapshot_scaffold.py -q --snapshot-report snapshot_report.html
+uv run python scripts/render_snapshot_svgs.py --real-tui-only
 
-```bash
-claude --chrome
-```
+# Event replay (no API cost)
+uv run python scripts/dump_timeline_from_events.py /path/to/events.jsonl [agent_id]
+uv run python scripts/dump_timeline_from_events.py --tui /path/to/events.jsonl [agent_id]
+uv run python scripts/dump_timeline_from_events.py --tui-real /path/to/events.jsonl [agent_id]
 
-### Step 3: Start the Textual TUI Server
-
-Run in background so you can continue working:
-
-```bash
-uv run massgen --textual-serve &
-```
-
-Or with a specific config:
-
-```bash
-uv run massgen --textual-serve --config massgen/configs/basic/three_haiku_default.yaml
+# Example synthetic fixture
+uv run python scripts/dump_timeline_from_events.py --tui-real massgen/tests/frontend/fixtures/synthetic_tui_events.jsonl agent_a
 ```
 
 ## Workflow
 
-### Visual Development Loop
+### 1) Reproduce with Event Replay (No API Cost)
 
-1. **Start the server** in background (with optional test prompt):
-   ```bash
-   # Without prompt (shows welcome screen first)
-   uv run massgen --textual-serve &
-
-   # With prompt (auto-submits when launched - faster testing!)
-   uv run massgen --textual-serve "What is 2+2?" &
-   ```
-
-2. **Open in browser** using browser tools:
-   - First call `tabs_context_mcp` to get browser context
-   - Navigate to `http://localhost:8000`
-   - Click on the landing page card to launch the TUI
-   - Wait 2-3 seconds for the app to fully load
-   - If you used a prompt, agents will start working immediately!
-
-3. **Take screenshots** at key points:
-   - Welcome screen (initial state)
-   - After submitting a question (agent panels visible)
-   - After agents complete (final state)
-   - Modals (press 's', 'o', 'v' to open Status, Events, Votes)
-
-4. **Make changes** to the Textual code:
-   - Widget files: `massgen/frontend/displays/textual_widgets/`
-   - Main display: `massgen/frontend/displays/textual_terminal_display.py`
-   - Themes: `massgen/frontend/displays/textual_themes/`
-
-5. **IMPORTANT - Restart server after changes**:
-   CSS and Python changes require restarting the server:
-   ```bash
-   pkill -f "massgen --textual-serve" && pkill -f "massgen --display textual"
-   sleep 2
-   uv run massgen --textual-serve &
-   ```
-   Then open a NEW browser tab to test changes.
-
-### Key Files
-
-| File | Description |
-|------|-------------|
-| `massgen/frontend/displays/textual_terminal_display.py` | Main Textual app and display logic |
-| `massgen/frontend/displays/textual_widgets/` | Custom widgets (tab bar, tool cards, etc.) |
-| `massgen/frontend/displays/textual_widgets/tab_bar.py` | Agent tab switching widget |
-| `massgen/frontend/displays/textual_widgets/tool_card.py` | Tool call display cards |
-| `massgen/frontend/displays/textual_themes/dark.tcss` | Dark theme CSS |
-| `massgen/frontend/displays/textual_themes/light.tcss` | Light theme CSS |
-
-### Key Classes in textual_terminal_display.py
-
-| Class | Purpose |
-|-------|---------|
-| `TextualApp` | Main Textual application, handles compose, keyboard bindings, modals |
-| `TextualTerminalDisplay` | Bridge between orchestrator and TextualApp |
-| `HeaderWidget` | Top status bar showing agents, turn, question |
-| `AgentPanel` | Scrollable panel for agent output with tool cards |
-| `WelcomeScreen` | Initial splash screen with logo |
-| `BaseModal` | Base class for all modal dialogs |
-| `VoteResultsModal`, `OrchestratorEventsModal`, `SystemStatusModal` | Various info modals |
-
-### Commands Reference
+Start with transcript replay to verify timeline semantics quickly:
 
 ```bash
-# Start TUI server (default port 8000)
-uv run massgen --textual-serve
-
-# Start with a pre-filled prompt (auto-submits when TUI launches!)
-uv run massgen --textual-serve "What is 2+2?"
-
-# Start with specific config
-uv run massgen --textual-serve --config path/to/config.yaml
-
-# Start with config AND prompt
-uv run massgen --textual-serve --config massgen/configs/basic/three_haiku_agents.yaml "Write a haiku"
-
-# Start on different port
-uv run massgen --textual-serve --textual-serve-port 9000
-
-# Run TUI directly in terminal (no browser)
-uv run massgen --display textual
-
-# Kill all TUI processes
-pkill -f "massgen --textual-serve" && pkill -f "massgen --display textual"
-```
-
-**Pro tip**: Using `--textual-serve "prompt"` auto-submits the question when you click the landing page card, saving time during iterative testing!
-
-## Keyboard Shortcuts
-
-When the TUI is running:
-- `s` - Open System Status modal
-- `o` - Open Orchestrator Events modal
-- `v` - Open Voting Breakdown modal
-- `q` - Quit the application
-- `1-9` - Switch to agent by number
-- `Tab` / `Shift+Tab` - Cycle through agents
-- `Ctrl+P` - Open command palette
-- `ESC` - Close modals (may require clicking Close button in browser)
-
-## Tips
-
-1. **Hot reload limitations**: textual-serve spawns new instances per connection, but Python code changes require server restart.
-
-2. **CSS changes**: Both `dark.tcss` and `light.tcss` need updating for theme consistency.
-
-3. **Check the console**: The terminal running textual-serve shows Python errors and tracebacks.
-
-4. **Browser limitations**: Some keyboard shortcuts (like ESC) may not work properly in textual-serve browser mode. The Close button always works.
-
-5. **High CPU warning**: Complex tasks with many tool calls can cause high CPU usage. Use simple test prompts like "What is 2+2?" for quick UI testing.
-
-6. **Test prompts**:
-   - Simple: "What is 2+2?" (no tools, fast)
-   - With tools: "Create a poem and write it to a file" (uses filesystem tools)
-   - Complex: "Search the web for X" (longer running)
-
-7. **Tab switching**: Click directly on agent tabs or use number keys (1, 2, 3...) to switch between agents.
-
-## Common Issues
-
-### Server not reflecting changes
-**Solution**: Kill and restart the server, then open a new browser tab.
-
-### ESC key not closing modals
-**Cause**: Browser captures ESC before textual-serve.
-**Solution**: Click the "Close (ESC)" button instead.
-
-### Agents stuck on "Waiting for agent..."
-**Cause**: MCP server initialization can take time.
-**Solution**: Wait 5-10 seconds, or check terminal for errors.
-
-### High CPU usage
-**Cause**: Complex tool-using tasks or busy loops.
-**Solution**: Use `pkill -9 -f "massgen"` to force kill, then restart.
-
-## Event Replay & Timeline Debugging
-
-When debugging TUI display issues (missing banners, duplicate content, wrong ordering), use the dump script to see exactly what the TUI renders from an events.jsonl log:
-
-```bash
-# Dump timeline transcript (auto-detects agents, applies same filtering as live TUI)
-uv run python scripts/dump_timeline_from_events.py /path/to/events.jsonl
-
-# Filter to a specific agent
 uv run python scripts/dump_timeline_from_events.py /path/to/events.jsonl agent_a
 ```
 
-The dump script uses `TimelineEventRecorder`, which wraps the real `TimelineEventAdapter` with mock widgets. This means all TUI filtering is applied:
-- Agent ID filtering (only events for known agents)
-- Round banner deduplication
-- "Evaluation complete" status suppression
-- Tool batching logic
-
-### Visual replay
-
-For visual inspection, use the `--tui` flag to replay with real Textual widgets:
+Then inspect visually:
 
 ```bash
-uv run python scripts/dump_timeline_from_events.py --tui /path/to/events.jsonl [agent_id]
+# Lightweight timeline-focused view
+uv run python scripts/dump_timeline_from_events.py --tui /path/to/events.jsonl agent_a
+
+# Full runtime TextualApp shell
+uv run python scripts/dump_timeline_from_events.py --tui-real /path/to/events.jsonl agent_a
 ```
 
-### Live transcript capture
-
-Set this env var before a run to capture the transcript in real-time:
+Optional speed control for real replay:
 
 ```bash
-MASSGEN_TUI_TIMELINE_TRANSCRIPT=/path/to/output.txt uv run massgen ...
+MASSGEN_TUI_REPLAY_SPEED=8 uv run python scripts/dump_timeline_from_events.py --tui-real /path/to/events.jsonl agent_a
 ```
 
-### Key files
+Exit replay with `q`.
 
-| File | Description |
-|------|-------------|
-| `scripts/dump_timeline_from_events.py` | Dump timeline from events.jsonl |
-| `scripts/dump_timeline_from_events.py --tui` | Visual TUI replay mode |
-| `massgen/frontend/displays/timeline_event_recorder.py` | Mock-based recorder (wraps TimelineEventAdapter) |
-| `massgen/frontend/displays/tui_event_pipeline.py` | Real TUI event adapter (source of truth for filtering) |
-| `massgen/frontend/displays/content_processor.py` | Shared event→content parsing |
+### 2) Convert Findings into Tests
 
-## Textual Resources
+Pick the narrowest layer that captures the bug:
 
-- **Textual Docs**: https://textual.textualize.io/
-- **Widget Gallery**: https://textual.textualize.io/widget_gallery/
-- **CSS Reference**: https://textual.textualize.io/css_types/
-- **textual-serve Repo**: https://github.com/Textualize/textual-serve
+- Unit logic: `test_tool_batch_tracker.py`, `test_content_processor.py`, helpers.
+- Transcript/golden behavior: `test_timeline_transcript_golden.py` + `massgen/tests/frontend/golden/`.
+- Widget/shell snapshots: `test_timeline_snapshot_scaffold.py` + `massgen/tests/frontend/__snapshots__/`.
+- Replay script behavior: `test_dump_timeline_from_events_script.py`.
+
+### Final Presentation Focus Loop
+
+When iterating specifically on final-answer visualization:
+
+1. Validate header semantics in unit tests (winner line, tie-break markers, vote line formatting) in `test_timeline_section_widget.py`.
+2. Regenerate only final-presentation snapshots if intended UI changed:
+   - `uv run pytest massgen/tests/frontend/test_timeline_snapshot_scaffold.py --snapshot-update -q`
+3. Verify runtime shell appearance with no API cost:
+   - `uv run python scripts/dump_timeline_from_events.py --tui-real massgen/tests/frontend/fixtures/synthetic_tui_events.jsonl agent_a`
+4. Run full frontend suite before finalizing:
+   - `uv run pytest massgen/tests/frontend -q`
+
+### 3) Snapshot Workflow
+
+If snapshot tests mismatch:
+
+1. Open `snapshot_report.html`.
+2. Check `Show difference` toggle interpretation:
+   - ON = blend-diff overlay (can look purple/black).
+   - OFF = raw current vs historical snapshots.
+3. If change is intentional, regenerate with `--snapshot-update`.
+4. Re-run the frontend suite to confirm stability.
+
+### 3.1) Mandatory Screenshot Review
+
+For visual/UI tasks, do not rely on test pass/fail alone. You must read screenshots directly before finalizing:
+
+1. Review the snapshot images in `snapshot_report.html` (current vs historical).
+2. Keep `Show difference` OFF first to verify raw rendering; then optionally use ON for pixel-level drift.
+3. If screenshots are provided in chat/task context, inspect those images directly and compare against expected runtime appearance.
+4. If your viewer cannot open `.svg`, render via browser engine:
+   - `npx playwright screenshot "file:///ABS/PATH/to/snapshot.svg" /tmp/snapshot.png`
+   - Batch all (or real-TUI-only): `uv run python scripts/render_snapshot_svgs.py [--real-tui-only]`
+   - Prefer this over ImageMagick conversion for Textual snapshots to avoid false artifacts.
+5. Call out any mismatch between rendered snapshots and expected real TUI look, even if tests pass.
+6. Only conclude "visual change verified" after explicit screenshot review.
+
+### 4) Optional Live Visual Validation
+
+Use live runs only after deterministic checks pass:
+
+```bash
+# Native terminal TUI
+uv run massgen --display textual
+
+# Browser-hosted Textual
+uv run massgen --textual-serve
+```
+
+## Key Files
+
+- `scripts/dump_timeline_from_events.py`: text replay, `--tui`, and `--tui-real` modes.
+- `massgen/frontend/displays/textual_terminal_display.py`: `TextualApp`, shell layout, runtime event routing.
+- `massgen/frontend/displays/tui_event_pipeline.py`: timeline event adapter and filtering logic.
+- `massgen/frontend/displays/timeline_event_recorder.py`: deterministic text transcript recorder.
+- `massgen/tests/frontend/test_timeline_snapshot_scaffold.py`: snapshot scaffold (widget + real shell states).
+- `massgen/tests/frontend/test_timeline_transcript_golden.py`: transcript golden regressions.
+- `docs/modules/testing.md`: canonical testing commands and parity notes.
+
+## Done Criteria
+
+A TUI change is complete when:
+
+1. Relevant deterministic tests were added or updated first.
+2. `uv run pytest massgen/tests/frontend -q` passes.
+3. Snapshot/golden updates are intentional and reviewed.
+4. `--tui-real` replay confirms expected real-shell behavior for the target scenario.

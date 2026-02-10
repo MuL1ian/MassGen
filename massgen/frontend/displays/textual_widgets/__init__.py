@@ -45,10 +45,14 @@ from .path_suggestion import PathSuggestion, PathSuggestionDropdown
 from .phase_indicator_bar import PhaseIndicatorBar
 from .plan_approval_modal import PlanApprovalModal, PlanApprovalResult
 from .plan_options import (
+    AnalysisProfileChanged,
+    AnalysisTargetChanged,
     BroadcastModeChanged,
+    OpenSkillsRequested,
     PlanDepthChanged,
     PlanOptionsPopover,
     PlanSelected,
+    ViewAnalysisRequested,
     ViewPlanRequested,
 )
 from .queued_input_banner import QueuedInputBanner
@@ -91,6 +95,10 @@ __all__ = [
     "PlanDepthChanged",
     "BroadcastModeChanged",
     "ViewPlanRequested",
+    "AnalysisProfileChanged",
+    "AnalysisTargetChanged",
+    "ViewAnalysisRequested",
+    "OpenSkillsRequested",
     # Tab bar
     "AgentTab",
     "AgentTabBar",

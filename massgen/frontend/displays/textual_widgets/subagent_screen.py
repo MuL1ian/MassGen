@@ -1357,7 +1357,6 @@ class SubagentView(Container):
         try:
             if adapter.final_answer and not getattr(card, "_final_content", []):
                 card.append_chunk(adapter.final_answer)
-            card.complete()
         except Exception as e:
             tui_log(f"[SubagentScreen] {e}")
 
@@ -1365,6 +1364,7 @@ class SubagentView(Container):
         try:
             timeline.lock_to_final_answer(card_id or "final_presentation_card")
             card.set_locked_mode(True)
+            card.complete()
         except Exception as e:
             tui_log(f"[SubagentScreen] {e}")
 

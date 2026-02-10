@@ -451,6 +451,9 @@ class TestQuickstartDecompositionSettings:
         assert orch["max_new_answers_per_agent"] == 2
         assert orch["max_new_answers_global"] == 9
         assert orch["answer_novelty_requirement"] == "balanced"
+        assert orch["fairness_enabled"] is True
+        assert orch["fairness_lead_cap_answers"] == 2
+        assert orch["max_midstream_injections_per_round"] == 2
 
     def test_decomposition_overrides_respected(self, builder):
         """Explicit decomposition settings should override defaults."""
@@ -473,8 +476,8 @@ class TestQuickstartDecompositionSettings:
         assert orch["max_new_answers_global"] == 12
         assert orch["answer_novelty_requirement"] == "strict"
 
-    def test_parallel_defaults_unchanged(self, builder):
-        """Parallel/voting quickstart defaults should remain unchanged."""
+    def test_parallel_defaults_include_fairness(self, builder):
+        """Parallel/voting quickstart defaults include fairness controls."""
         config = builder._generate_quickstart_config(
             agents_config=self._agents(),
             use_docker=False,
@@ -482,6 +485,9 @@ class TestQuickstartDecompositionSettings:
 
         orch = config["orchestrator"]
         assert orch["max_new_answers_per_agent"] == 5
+        assert orch["fairness_enabled"] is True
+        assert orch["fairness_lead_cap_answers"] == 2
+        assert orch["max_midstream_injections_per_round"] == 2
         assert "coordination_mode" not in orch
         assert "presenter_agent" not in orch
         assert "max_new_answers_global" not in orch

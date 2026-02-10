@@ -91,8 +91,9 @@ class TestExecutionTraceWriter:
         markdown = writer.to_markdown()
 
         assert "### Reasoning" in markdown
-        # Full reasoning preserved (not truncated)
-        assert reasoning in markdown
+        # Full reasoning preserved (not truncated). Trailing whitespace is
+        # normalized by writer formatting, so compare without right padding.
+        assert reasoning.rstrip() in markdown
 
     def test_answer_submission(self):
         """Answer submissions are recorded."""

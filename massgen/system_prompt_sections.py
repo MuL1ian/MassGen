@@ -19,6 +19,432 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
+# ---------------------------------------------------------------------------
+# ROI evaluation shared helpers
+#
+# Design principles:
+#   1. Threshold changes the EVALUATION LENS, not just a gate on a fixed score.
+#      Low threshold -> high quality bar -> agent is more critical -> iterates more.
+#      High threshold -> low quality bar -> agent is more lenient -> iterates less.
+#   2. Remaining budget (answer slots) scales willingness to iterate.
+#      More slots left -> slightly lower bar -> more willing to spend a slot.
+# ---------------------------------------------------------------------------
+
+_ROI_RUBRIC = """\
+- Correctness & completeness — requirements met, edge cases handled?
+- Depth & insight — thorough or surface-level?
+- Robustness — error handling, validation, defensive coding (if code)?
+- Polish & style — clarity, readability, documentation, formatting?
+- Testing & verification — claims verified, code tested?
+
+Be a tough grader. A first draft that merely works is a 6. A polished, production-ready answer is a 9."""
+
+
+def _threshold_to_quality_bar(threshold: int) -> float:
+    """Map a voting threshold (0-100) to a quality bar (1-10 scale).
+
+    Low threshold  -> high bar -> iterate more.
+    High threshold -> low bar  -> iterate less.
+
+    Examples:
+        threshold  5 -> bar 9.8  (perfectionist)
+        threshold 15 -> bar 9.2  (high standard)
+        threshold 30 -> bar 8.5  (solid)
+        threshold 60 -> bar 7.0  (good enough)
+        threshold 90 -> bar 5.5  (only fix obvious problems)
+    """
+    return round(max(5.0, min(10.0, 10.0 - (threshold / 20))), 1)
+
+
+def _build_budget_line(
+    quality_bar: float,
+    answers_used: int,
+    answer_cap: Optional[int],
+) -> tuple[float, str]:
+    """Compute effective quality bar + budget text given remaining answer slots.
+
+    Returns (effective_bar, budget_text).  budget_text is empty when cap is None.
+    """
+    if answer_cap is None:
+        return quality_bar, ""
+    remaining = max(0, answer_cap - answers_used)
+    budget_fraction = remaining / answer_cap if answer_cap > 0 else 0
+    budget_bonus = round(budget_fraction * 0.5, 1)  # up to 0.5 bar reduction
+    effective_bar = round(quality_bar - budget_bonus, 1)
+    text = (
+        f"\n\n**Budget:** You have used {answers_used} of "
+        f"{answer_cap} answer slots ({remaining} remaining). "
+        f"With {remaining} slots left, your effective quality bar is "
+        f"**{effective_bar}/10** (base {quality_bar} adjusted for remaining budget)."
+    )
+    return effective_bar, text
+
+
+def build_roi_decision_block(
+    threshold: int,
+    answers_used: int = 0,
+    answer_cap: Optional[int] = None,
+    *,
+    iterate_action: str = "new_answer",
+    satisfied_action: str = "vote",
+    satisfied_detail: str = "for the best existing answer",
+) -> str:
+    """Build the complete ROI rubric + decision rule block.
+
+    Used by both EvaluationSection (vote/new_answer) and
+    DecompositionSection (stop/new_answer).
+    """
+    quality_bar = _threshold_to_quality_bar(threshold)
+    quality_bar, budget_line = _build_budget_line(quality_bar, answers_used, answer_cap)
+
+    return f"""**Step 1: Rate the best existing answer on ALL dimensions (1-10 each):**
+{_ROI_RUBRIC}
+
+**Step 2: Check against the quality bar.**
+Your quality bar is **{quality_bar}/10**. If ANY dimension scores below this bar, you SHOULD iterate.
+
+**Decision Rule:**
+- Any dimension < {quality_bar} -> `{iterate_action}` (improve the weakest dimensions)
+- All dimensions >= {quality_bar} -> `{satisfied_action}` {satisfied_detail}
+
+A good first draft is rarely perfect. Look for what can be *better*, not just what is *wrong*.{budget_line}"""
+
+
+# ---------------------------------------------------------------------------
+# Checklist evaluation shared helpers
+#
+# Design principles (see docs/dev_notes/iteration_decision_design.md):
+#   1. Threshold changes propensity to iterate (P1).
+#   2. Remaining budget scales willingness to iterate (P2).
+#   3. Good unique content triggers synthesis (P3).
+#
+# Two modes share this infrastructure:
+#   - checklist:        binary TRUE/FALSE, visible required_true
+#   - checklist_scored: 0-100% confidence, visible cutoff + required_true
+# ---------------------------------------------------------------------------
+
+_CHECKLIST_ITEMS = [
+    "The best answer comprehensively addresses all important aspects of the question.",
+    "The best answer achieves a high level of quality, depth, and polish — not just adequacy.",
+    "I cannot identify specific, concrete improvements that would make the answer meaningfully better.",
+    "The best answer would genuinely impress the person who asked — they would not wish it were better.",
+    "Any remaining ideas for improvement are truly minor or cosmetic, not substantive.",
+]
+
+
+def _checklist_budget_context(remaining: int, total: int) -> str:
+    """Generate budget context string for checklist modes."""
+    if total <= 0:
+        return "Budget is exhausted."
+    ratio = remaining / total
+    if remaining <= 1:
+        return "This is your last answer slot. Only use new_answer if the improvement would be substantial."
+    elif remaining <= 2:
+        return f"Budget is very tight ({remaining}/{total} slots remain). Set a high bar for new_answer."
+    elif ratio <= 0.4:
+        return f"Budget is limited ({remaining}/{total} slots remain). Be judicious about using new_answer."
+    elif ratio >= 0.7:
+        return f"Budget is ample ({remaining}/{total} slots remain). Don't hesitate to use new_answer if warranted."
+    else:
+        return f"Budget is moderate ({remaining}/{total} slots remain)."
+
+
+def _checklist_effective_threshold(T: int, remaining: int, total: int) -> int:
+    """Compute budget-adjusted effective threshold (0-10)."""
+    et = T
+    if total > 0:
+        ratio = remaining / total
+        if remaining <= 2:
+            et += 2
+        elif ratio <= 0.4:
+            et += 1
+        if ratio >= 0.7:
+            et -= 1
+    return max(0, min(10, et))
+
+
+def _checklist_required_true(effective_threshold: int, num_items: int = 5) -> int:
+    """How many TRUE items needed to justify vote/stop.
+
+    Always requires all items to pass. The only lever is the confidence
+    cutoff, which gets easier as threshold increases.
+    """
+    return num_items
+
+
+def _checklist_confidence_cutoff(effective_threshold: int) -> int:
+    """Minimum confidence % for a score to count as TRUE."""
+    return max(40, 95 - effective_threshold * 5)
+
+
+def _build_checklist_analysis() -> str:
+    """Build analysis section for checklist modes.
+
+    The analysis prompt handles both N=1 and N>1 in a single template.
+    Per-Answer Assessment naturally works for 1+ answers. The Ideal Version
+    and Gap Analysis sections force agents to establish an excellence
+    reference point before scoring.
+    """
+    return """## Comparative Analysis
+
+Complete your full analysis before reading the Decision section below. Do not let
+the decision criteria influence your assessment.
+
+### Per-Answer Assessment
+
+For each answer, assess:
+- Quality and completeness
+- Approach taken and its strengths/weaknesses
+
+### Best Answer Identification
+
+Which answer is strongest overall, and why?
+
+### Unique Content Audit
+
+This is the most important section. For each non-best answer:
+- Does it contain valuable content, insights, approaches, or coverage that the
+  best answer LACKS?
+- Be specific. Reference what you found.
+- "Worse overall" does not mean "has nothing to offer." Look carefully.
+
+If no answer has meaningful unique content beyond the best, say so explicitly.
+
+*If there is only one answer, evaluate it on its own merits — consider whether a
+different approach or additional depth would meaningfully improve it.*
+
+### The Ideal Version
+
+Before evaluating whether the current answer is "good enough," first establish what
+**excellent** looks like. Step back from the existing answers entirely.
+
+Given the original question, describe in concrete bullet points what the **best
+possible answer** would include. Be ambitious — think about:
+- What features, content, depth, or capabilities would make a user genuinely impressed?
+- What dimensions of quality (interactivity, visual polish, accessibility, edge-case
+  handling, depth) would distinguish an outstanding answer from a merely adequate one?
+- What would a user *wish* the answer included?
+
+Do not limit yourself to what the existing answers have attempted. Describe the ideal
+as if designing a spec for it.
+
+### Gap Analysis
+
+Now compare the current best answer against your ideal:
+- What specific elements from your ideal are missing or under-delivered?
+- How large is the gap between current and ideal — minor polish, or meaningful substance?
+- If you were to produce a `new_answer`, what specifically would it add or improve?
+
+*If there is only one answer, the gap analysis is especially important — the first
+attempt is rarely the best possible version.*
+
+If the current best genuinely matches your ideal with only cosmetic gaps remaining,
+say so — but be rigorous. "Good enough" is not the same as "excellent.\""""
+
+
+def _build_checklist_decision(
+    threshold: int,
+    remaining: int,
+    total: int,
+    checklist_items: list,
+    terminate_action: str = "vote",
+    iterate_action: str = "new_answer",
+) -> str:
+    """Build checklist decision section (binary T/F, visible threshold)."""
+    effective_t = _checklist_effective_threshold(threshold, remaining, total)
+    required = _checklist_required_true(effective_t)
+    budget = _checklist_budget_context(remaining, total)
+
+    # Build numbered checklist
+    numbered = "\n".join(f"  T{i+1}. {item}  → **TRUE** / **FALSE**" for i, item in enumerate(checklist_items))
+
+    force_terminate = ""
+    if remaining <= 0:
+        force_terminate = f"\n\nIf budget remaining == 0 → call `{terminate_action}` regardless."
+
+    return f"""---
+
+## Decision
+
+Now decide: call `{iterate_action}` or `{terminate_action}`.
+
+- `{iterate_action}`: produce an improved answer (synthesizing across answers if multiple exist).
+- `{terminate_action}`: select the best existing answer and stop.
+
+The default is `{iterate_action}`. To justify `{terminate_action}`, you must demonstrate that nothing
+of value would be lost — that the best answer already captures everything worth
+keeping. If you cannot confidently make that case, choose `{iterate_action}`.
+
+### Threshold
+
+Your threshold is **{threshold}** on a 0-10 scale. This controls how strong your
+case for `{terminate_action}` must be:
+- 0: only `{terminate_action}` if answers are virtually identical — any unique content
+  justifies `{iterate_action}`.
+- 5: `{terminate_action}` if the best answer is solid and any remaining gaps or unique content
+  in other answers is minor.
+- 10: `{terminate_action}` as long as the best answer is adequate, even if improvements are
+  possible.
+
+### Budget
+
+{budget}
+
+### Termination Checklist
+
+To justify `{terminate_action}`, assess each of the following. You need enough of these to
+be TRUE to clear the bar set by your threshold and budget.
+
+{numbered}
+
+### Decision Rule
+
+Effective threshold (budget-adjusted): **{effective_t}**
+Required TRUE count to `{terminate_action}`: **{required}**
+
+If TRUE count >= {required} → `{terminate_action}`.
+Otherwise → `{iterate_action}` (if budget remaining > 0).{force_terminate}
+
+Reason through each checklist item, state your TRUE/FALSE verdict, count the TRUEs,
+then apply the decision rule above."""
+
+
+def _build_checklist_scored_decision(
+    threshold: int,
+    remaining: int,
+    total: int,
+    checklist_items: list,
+    terminate_action: str = "vote",
+    iterate_action: str = "new_answer",
+) -> str:
+    """Build checklist_scored decision section (0-100% confidence, visible cutoff)."""
+    effective_t = _checklist_effective_threshold(threshold, remaining, total)
+    required = _checklist_required_true(effective_t)
+    cutoff = _checklist_confidence_cutoff(effective_t)
+    budget = _checklist_budget_context(remaining, total)
+
+    # Build numbered checklist with confidence instructions
+    numbered = "\n".join(f"  T{i+1}. {item}  → **___% confidence**" for i, item in enumerate(checklist_items))
+
+    force_terminate = ""
+    if remaining <= 0:
+        force_terminate = f"\n\nIf budget remaining == 0 → call `{terminate_action}` regardless."
+
+    return f"""---
+
+## Decision
+
+Now decide: call `{iterate_action}` or `{terminate_action}`.
+
+- `{iterate_action}`: produce an improved answer (synthesizing across answers if multiple exist).
+- `{terminate_action}`: select the best existing answer and stop.
+
+The default is `{iterate_action}`. To justify `{terminate_action}`, you must demonstrate that nothing
+of value would be lost — that the best answer already captures everything worth
+keeping. If you cannot confidently make that case, choose `{iterate_action}`.
+
+### Threshold
+
+Your threshold is **{threshold}** on a 0-10 scale. This controls how strong your
+case for `{terminate_action}` must be:
+- 0: only `{terminate_action}` if answers are virtually identical — any unique content
+  justifies `{iterate_action}`.
+- 5: `{terminate_action}` if the best answer is solid and any remaining gaps or unique content
+  in other answers is minor.
+- 10: `{terminate_action}` as long as the best answer is adequate, even if improvements are
+  possible.
+
+### Budget
+
+{budget}
+
+### Confidence Assessment
+
+Based on your analysis, rate your confidence (0-100%) in each of the following
+statements. 0% = completely disagree, 100% = fully agree, no reservations.
+
+{numbered}
+
+### Decision Rule
+
+Effective threshold (budget-adjusted): **{effective_t}**
+Confidence cutoff: **{cutoff}%**
+Required TRUE count to `{terminate_action}`: **{required}**
+
+A score >= {cutoff}% counts as TRUE.
+If TRUE count >= {required} → `{terminate_action}`.
+Otherwise → `{iterate_action}` (if budget remaining > 0).{force_terminate}
+
+Rate your confidence on each item, count how many meet the {cutoff}% cutoff,
+then apply the decision rule above."""
+
+
+def _build_checklist_gated_decision(
+    checklist_items: list,
+    terminate_action: str = "vote",
+    iterate_action: str = "new_answer",
+) -> str:
+    """Build checklist_gated decision section (tool-gated, hidden threshold).
+
+    Unlike checklist/checklist_scored, this mode hides the threshold, cutoff,
+    and required count from the agent. The agent rates confidence honestly,
+    submits scores via the submit_checklist MCP tool, and follows the verdict.
+    """
+    numbered = "\n".join(f"  T{i+1}. {item}  → **___% confidence**" for i, item in enumerate(checklist_items))
+
+    return f"""---
+
+## Decision
+
+Now decide: call `{iterate_action}` or `{terminate_action}`.
+
+- `{iterate_action}`: produce an improved answer (synthesizing across answers if multiple exist).
+- `{terminate_action}`: select the best existing answer and stop.
+
+### Confidence Assessment
+
+Your goal is **excellence**, not minimum viability. The question is not "does this
+satisfy the bare requirements?" but "is this the best version we can produce?"
+Depth, features, polish, and richness all count — they are never "beyond scope" or
+"unnecessary." If the answer can be meaningfully better, it should be.
+
+Rate your confidence (0-100%) in each of the following statements.
+0% = completely disagree, 100% = fully agree, no reservations.
+Be honest — do not inflate or deflate your scores.
+
+{numbered}
+
+### Submit Your Scores
+
+Call `submit_checklist` with per-item reasoning and an improvements summary.
+Each score entry MUST include `"reasoning"` explaining why you gave that score —
+reference specific evidence from your analysis.
+
+**Important**: Do not hedge your improvements with language like "optional", "not
+required", "could include", or "nice-to-have". If you identify something that would
+make the answer better, state it as something that **should** be done. If the verdict
+tells you to iterate, you are expected to implement what you identified.
+
+  submit_checklist(
+    scores={{
+      "T1": {{"score": <0-100>, "reasoning": "<why — cite specific evidence>"}},
+      "T2": {{"score": <0-100>, "reasoning": "<why>"}},
+      "T3": {{"score": <0-100>, "reasoning": "<why>"}},
+      "T4": {{"score": <0-100>, "reasoning": "<why>"}},
+      "T5": {{"score": <0-100>, "reasoning": "<why>"}}
+    }},
+    improvements="<specific gaps from your Ideal Version / Gap Analysis that would make the answer substantially better>"
+  )
+
+The tool will evaluate your scores and return a verdict telling you whether
+to call `{terminate_action}` or `{iterate_action}`. Follow the verdict.
+
+**If the verdict is `{iterate_action}`**: your new answer MUST be **obviously and
+substantially better** — not just marginally different. A user should immediately
+notice the improvement. Do NOT simply copy or resubmit the same content with minor
+tweaks. Use your improvements analysis to guide what to build differently, and
+implement the changes you identified — not just acknowledge them."""
+
 
 class Priority(IntEnum):
     """
@@ -1713,6 +2139,9 @@ class EvaluationSection(SystemPromptSection):
         answer_novelty_requirement: str = "lenient",
         vote_only: bool = False,
         round_number: int = 1,
+        voting_threshold: Optional[int] = None,
+        answers_used: int = 0,
+        answer_cap: Optional[int] = None,
     ):
         super().__init__(
             title="MassGen Coordination",
@@ -1723,6 +2152,9 @@ class EvaluationSection(SystemPromptSection):
         self.answer_novelty_requirement = answer_novelty_requirement
         self.vote_only = vote_only
         self.round_number = round_number
+        self.voting_threshold = voting_threshold
+        self.answers_used = answers_used
+        self.answer_cap = answer_cap
 
     def build_content(self) -> str:
         # Vote-only mode: agent has exhausted their answer limit
@@ -1790,28 +2222,58 @@ Critically examine existing answers against these criteria:
 
 If you CAN improve the answer's alignment, accuracy, or completeness, produce a `new_answer`."""
         elif effective_sensitivity.startswith("roi"):
-            threshold = 15
-            if effective_sensitivity == "roi_conservative":
+            if self.voting_threshold is not None:
+                threshold = self.voting_threshold
+            elif effective_sensitivity == "roi_conservative":
                 threshold = 30
             elif effective_sensitivity == "roi_aggressive":
                 threshold = 5
+            else:
+                threshold = 15
 
-            evaluation_section = f"""**ROI-BASED EVALUATION (DELTA vs COST)**
+            roi_block = build_roi_decision_block(
+                threshold,
+                answers_used=self.answers_used,
+                answer_cap=self.answer_cap,
+                iterate_action="new_answer",
+                satisfied_action="vote",
+                satisfied_detail="for the best existing answer",
+            )
 
-Evaluate the **Marginal Utility (Delta)** of providing a new answer against the **Cost (Compute/Wait Time)** of another round.
+            evaluation_section = f"""**ROI-BASED EVALUATION**
 
-**Step 1: Assess Current Quality**
-Rate the best existing answer: 0-100%
+Your goal is to iteratively refine answers until they meet the quality bar.
 
-**Step 2: Estimate Improvement Potential**
-How much better (% improvement) would YOUR new answer be?
-- Consider: New insights, better tools, or logic corrections.
+{roi_block}"""
+        elif effective_sensitivity in ("checklist", "checklist_scored"):
+            remaining = max(0, (self.answer_cap or 5) - self.answers_used)
+            total = self.answer_cap or 5
+            threshold = self.voting_threshold if self.voting_threshold is not None else 5
 
-**Decision Framework:**
-- If Potential Improvement > {threshold}% OR fixes a critical failure -> `new_answer`
-- If Potential Improvement < {threshold}% (cosmetic/minor) -> `vote`
+            analysis = _build_checklist_analysis()
+            if effective_sensitivity == "checklist":
+                decision = _build_checklist_decision(
+                    threshold,
+                    remaining,
+                    total,
+                    _CHECKLIST_ITEMS,
+                )
+            else:
+                decision = _build_checklist_scored_decision(
+                    threshold,
+                    remaining,
+                    total,
+                    _CHECKLIST_ITEMS,
+                )
+            evaluation_section = f"""{analysis}
 
-Prioritize \"Good Enough\" and timely delivery over perfectionism unless the task is mission-critical."""
+{decision}"""
+        elif effective_sensitivity == "checklist_gated":
+            analysis = _build_checklist_analysis()
+            decision = _build_checklist_gated_decision(_CHECKLIST_ITEMS)
+            evaluation_section = f"""{analysis}
+
+{decision}"""
         elif effective_sensitivity == "adversarial":
             evaluation_section = """**ADVERSARIAL EVALUATION (INTERNAL RED-TEAMING)**
 
@@ -1890,7 +2352,10 @@ CRITICAL: New answers must be SUBSTANTIALLY different from existing answers.
 Different agents may have different builtin tools and capabilities.
 {phase_context}{evaluation_section}
 Otherwise, digest existing answers, combine their strengths, and do additional work to address their weaknesses,
-then use the `new_answer` tool to record a better answer to the ORIGINAL MESSAGE.{novelty_section}
+then use the `new_answer` tool to record a better answer to the ORIGINAL MESSAGE.
+Each iteration costs time and resources. When you produce a `new_answer`, the result must be
+**obviously and substantially better** — a user should immediately see the improvement.
+Identify concrete improvements, then actually implement them — do not just acknowledge gaps.{novelty_section}
 Make sure you actually call `vote` or `new_answer` (in tool call format).
 
 *Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d")}**."""
@@ -1910,13 +2375,83 @@ class DecompositionSection(SystemPromptSection):
         subtask: The agent's assigned subtask description (if any)
     """
 
-    def __init__(self, subtask: Optional[str] = None):
+    def __init__(self, subtask: Optional[str] = None, voting_threshold: Optional[int] = None, voting_sensitivity: str = "roi", answers_used: int = 0, answer_cap: Optional[int] = None):
         super().__init__(
             title="MassGen Decomposition Coordination",
             priority=2,  # Same slot as EvaluationSection
             xml_tag="massgen_coordination",
         )
         self.subtask = subtask
+        self.voting_threshold = voting_threshold
+        self.voting_sensitivity = voting_sensitivity
+        self.answers_used = answers_used
+        self.answer_cap = answer_cap
+
+    def _build_decision_block(self) -> str:
+        """Build the new_answer vs stop decision block, threshold-aware if set."""
+        if self.voting_threshold is not None:
+            remaining = max(0, (self.answer_cap or 5) - self.answers_used)
+            total = self.answer_cap or 5
+
+            if self.voting_sensitivity in ("checklist", "checklist_scored"):
+                analysis = _build_checklist_analysis()
+                if self.voting_sensitivity == "checklist":
+                    decision = _build_checklist_decision(
+                        self.voting_threshold,
+                        remaining,
+                        total,
+                        _CHECKLIST_ITEMS,
+                        terminate_action="stop",
+                        iterate_action="new_answer",
+                    )
+                else:
+                    decision = _build_checklist_scored_decision(
+                        self.voting_threshold,
+                        remaining,
+                        total,
+                        _CHECKLIST_ITEMS,
+                        terminate_action="stop",
+                        iterate_action="new_answer",
+                    )
+                return f"""**CHOOSING THE RIGHT TOOL — `new_answer` vs `stop`:**
+Both are terminal actions that end your round.
+
+{analysis}
+
+{decision}"""
+            elif self.voting_sensitivity == "checklist_gated":
+                analysis = _build_checklist_analysis()
+                decision = _build_checklist_gated_decision(
+                    _CHECKLIST_ITEMS,
+                    terminate_action="stop",
+                    iterate_action="new_answer",
+                )
+                return f"""**CHOOSING THE RIGHT TOOL — `new_answer` vs `stop`:**
+Both are terminal actions that end your round.
+
+{analysis}
+
+{decision}"""
+            else:
+                # roi (default) and roi_* variants
+                roi_block = build_roi_decision_block(
+                    self.voting_threshold,
+                    answers_used=self.answers_used,
+                    answer_cap=self.answer_cap,
+                    iterate_action="new_answer",
+                    satisfied_action="stop",
+                    satisfied_detail="(your subtask is done)",
+                )
+
+                return f"""**CHOOSING THE RIGHT TOOL — `new_answer` vs `stop`:**
+Both are terminal actions that end your round.
+
+{roi_block}"""
+        else:
+            return """**CHOOSING THE RIGHT TOOL — `new_answer` vs `stop`:**
+Both are terminal actions that end your round. Choose based on whether you produced new work:
+- `new_answer`: You did work this round — wrote code, updated files, made improvements. Use this to **share your work** with other agents and the presenter.
+- `stop`: You reviewed everything and are satisfied — no further changes needed from you. This signals completion without sharing new work."""
 
     def build_content(self) -> str:
         subtask_section = ""
@@ -1929,9 +2464,14 @@ class DecompositionSection(SystemPromptSection):
 
         return f"""You are working as part of a decomposed team. Each agent owns a specific subtask of a larger project.
 {subtask_section}
-**CRITICAL: STAY IN YOUR LANE.** You MUST only work on YOUR assigned subtask above.
-Do NOT implement other agents' subtasks — other team members are handling those. Focus exclusively on delivering your piece.
-There may be overlap with what other agents already did near your area; you may review/refine/integrate that overlap, but do NOT take over unrelated subtasks.
+**CRITICAL: OWNERSHIP-FIRST EXECUTION.**
+You own one primary subtask. Keep roughly 80% of your effort on that scope.
+Use up to roughly 20% for adjacent integration work only when needed (interfaces, contracts, shared styles/tests, wiring).
+Do NOT take over unrelated domains owned by other agents.
+There may be overlap near your boundaries; you may refine/integrate that overlap, but do NOT expand into unrelated subtasks.
+
+Team fairness policy is active to prevent runaway iteration loops. It does NOT mean reducing quality or stopping early.
+Aim for similar effort bands across agents while maintaining a strong quality bar in your own area.
 
 **HOW DECOMPOSITION MODE WORKS:**
 
@@ -1941,14 +2481,13 @@ There may be overlap with what other agents already did near your area; you may 
 
 3. **Selective integration**: Integrate parts that touch your subtask — adapt interfaces, align contracts, resolve conflicts. For parts outside your area, maintain awareness but don't redo their work.
 
-4. **Dual-purpose new_answer**: Submit `new_answer` when you have meaningful improvements — from self-refinement, integration insights, or both.
+4. **Quality bar for `new_answer`**: When you submit `new_answer`, include concrete deliverables in your scope, validation evidence (tests/checks/manual verification), and boundary integration notes.
 
-5. **Completion**: Call `stop` when you have reviewed the current state of work (yours and others') and are satisfied that your subtask is done. This ends your execution for this round.
+5. **Dual-purpose new_answer**: Submit `new_answer` when you have meaningful improvements — from self-refinement, integration insights, or both.
 
-**CHOOSING THE RIGHT TOOL — `new_answer` vs `stop`:**
-Both are terminal actions that end your round. Choose based on whether you produced new work:
-- `new_answer`: You did work this round — wrote code, updated files, made improvements. Use this to **share your work** with other agents and the presenter.
-- `stop`: You reviewed everything and are satisfied — no further changes needed from you. This signals completion without sharing new work.
+6. **Completion**: Call `stop` when you have reviewed the current state of work (yours and others') and are satisfied that your subtask is done. This ends your execution for this round.
+
+{self._build_decision_block()}
 
 **IMPORTANT:** If you improved or updated your deliverable work this round (fixed bugs, updated code, aligned interfaces), \
 use `new_answer` to share those changes. It's fine to call `stop` if you only ran tests or created scratch files \
@@ -2763,7 +3302,13 @@ When evaluating your own or others' work, use prompts that look for **flaws**:
 - Audio: mp3, wav, m4a, ogg, flac, aac
 - Video: mp4, mov, avi, mkv, webm
 
-A beautiful screenshot means nothing if buttons don't work. Test functionality, then verify visuals with a critical eye."""
+A beautiful screenshot means nothing if buttons don't work. Test functionality, then verify visuals with a critical eye.
+
+### Image Sourcing Fallback
+If you encounter legal restrictions when trying to use or reference existing photographs
+(e.g., celebrity photos, copyrighted images), **generate original images** using
+`generate_media` instead of leaving the content without visuals. A custom-generated
+image is always better than a placeholder or missing visual."""
 
 
 class TaskContextSection(SystemPromptSection):

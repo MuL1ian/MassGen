@@ -6,11 +6,14 @@ Falls back to scanning the workspace directory when no explicit context_paths ar
 """
 
 import os
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from textual.containers import Vertical
 from textual.widgets import Static, Tree
+
+from ..shared.tui_debug import tui_debug_enabled, tui_log
 
 
 class FileExplorerPanel(Vertical):
@@ -34,6 +37,12 @@ class FileExplorerPanel(Vertical):
         self.workspace_path = workspace_path
         self._all_paths: Dict[str, str] = {}  # display path -> status ("new"/"modified"/"workspace")
         self._path_lookup: Dict[str, str] = {}  # display path -> absolute path
+        self._timing_debug = tui_debug_enabled() and os.environ.get("MASSGEN_TUI_TIMING_DEBUG", "").lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
 
         # Populate from explicit context_paths first, but cap entries for responsiveness.
         context_entries: List[tuple[str, str]] = []
@@ -46,10 +55,6 @@ class FileExplorerPanel(Vertical):
             remaining = len(context_entries) - max_entries
             if remaining > 0:
                 self._add_path(f"... ({remaining} more files)", "workspace", absolute_path="")
-
-        # If no context_paths but workspace exists, scan it
-        if not self._all_paths and self.workspace_path:
-            self._scan_workspace()
 
     def _add_path(self, display_path: str, status: str, absolute_path: Optional[str] = None) -> None:
         """Track a path for display and lookup."""
@@ -98,13 +103,14 @@ class FileExplorerPanel(Vertical):
 
     def _scan_workspace(self) -> None:
         """Scan workspace directory and populate _all_paths with found files."""
+        started = time.perf_counter()
         ws = Path(self.workspace_path)
         if not ws.exists() or not ws.is_dir():
             return
         self._clear_workspace_entries()
+        added = 0
+        truncated = False
         try:
-            added = 0
-            truncated = False
             # Use os.walk with pruning so large ignored dirs don't block the TUI.
             for root, dirs, files in os.walk(ws, topdown=True):
                 root_path = Path(root)
@@ -141,6 +147,11 @@ class FileExplorerPanel(Vertical):
                 self._add_path("... (more files)", "workspace", absolute_path="")
         except Exception:
             pass
+        finally:
+            if self._timing_debug:
+                tui_log(
+                    "[TIMING] FileExplorerPanel._scan_workspace " f"{(time.perf_counter() - started) * 1000.0:.1f}ms " f"files={added} truncated={truncated} root={ws}",
+                )
 
     @classmethod
     def _is_binary_file(cls, filepath: Path) -> bool:

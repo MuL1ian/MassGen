@@ -359,12 +359,19 @@ def test_docker_capture_stdout(manager, docker_container):
         container=docker_container,
     )
 
-    # Wait for command to complete and output to be captured
-    time.sleep(1.5)
+    # Docker output capture is asynchronous and can lag behind process exit.
+    # Poll for a short window to avoid timing flakes.
+    deadline = time.time() + 5.0
+    stdout = ""
+    while time.time() < deadline:
+        output = manager.get_output(shell_id)
+        stdout = output["stdout"]
+        if "Docker Line 1" in stdout or "Line 1" in stdout:
+            break
+        time.sleep(0.2)
 
-    output = manager.get_output(shell_id)
-    # Docker output may have stream headers, check content is there
-    assert "Docker Line 1" in output["stdout"] or "Line 1" in output["stdout"]
+    # Docker output may include stream headers; assert on substring presence.
+    assert "Docker Line 1" in stdout or "Line 1" in stdout
 
 
 @pytest.mark.skipif(not DOCKER_AVAILABLE, reason="Docker not available")

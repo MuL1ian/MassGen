@@ -84,6 +84,36 @@ class SystemMessageBuilder:
         self.session_id = session_id
         self.agent_temporary_workspace = agent_temporary_workspace
 
+    @staticmethod
+    def _filter_skills_by_enabled_names(
+        all_skills: List[Dict[str, Any]],
+        enabled_skill_names: Optional[List[str]],
+    ) -> List[Dict[str, Any]]:
+        """Filter discovered skills using an optional runtime allowlist.
+
+        Args:
+            all_skills: All discovered skills from scan_skills().
+            enabled_skill_names: Optional list of enabled skill names. If None,
+                no filtering is applied and all discovered skills are returned.
+
+        Returns:
+            Filtered list preserving original order.
+        """
+        if enabled_skill_names is None:
+            return all_skills
+
+        enabled = {(name or "").strip().lower() for name in enabled_skill_names}
+        enabled = {name for name in enabled if name}
+        if not enabled:
+            return []
+
+        filtered: List[Dict[str, Any]] = []
+        for skill in all_skills:
+            skill_name = str(skill.get("name", "")).strip().lower()
+            if skill_name in enabled:
+                filtered.append(skill)
+        return filtered
+
     def build_coordination_message(
         self,
         agent,  # ChatAgent
@@ -98,6 +128,9 @@ class SystemMessageBuilder:
         vote_only: bool = False,
         agent_mapping: Optional[Dict[str, str]] = None,
         voting_sensitivity_override: Optional[str] = None,
+        voting_threshold: Optional[int] = None,
+        answers_used: int = 0,
+        answer_cap: Optional[int] = None,
         coordination_mode: str = "voting",
         agent_subtask: Optional[str] = None,
         worktree_paths: Optional[Dict[str, str]] = None,
@@ -168,7 +201,8 @@ class SystemMessageBuilder:
 
         # PRIORITY 1 (CRITICAL): MassGen Coordination - vote/new_answer or decomposition primitives
         if coordination_mode == "decomposition":
-            builder.add_section(DecompositionSection(subtask=agent_subtask))
+            decomp_sensitivity = voting_sensitivity_override or self.message_templates._voting_sensitivity
+            builder.add_section(DecompositionSection(subtask=agent_subtask, voting_threshold=voting_threshold, voting_sensitivity=decomp_sensitivity, answers_used=answers_used, answer_cap=answer_cap))
         else:
             # Use per-agent override if provided, otherwise fall back to orchestrator default
             voting_sensitivity = voting_sensitivity_override or self.message_templates._voting_sensitivity
@@ -180,6 +214,9 @@ class SystemMessageBuilder:
                     answer_novelty_requirement=answer_novelty_requirement,
                     vote_only=vote_only,
                     round_number=round_number,
+                    voting_threshold=voting_threshold,
+                    answers_used=answers_used,
+                    answer_cap=answer_cap,
                 ),
             )
 
@@ -199,6 +236,8 @@ class SystemMessageBuilder:
                 logger.info(f"[SystemMessageBuilder] Will scan logs_dir: {logs_dir}")
 
             all_skills = scan_skills(skills_dir, logs_dir=logs_dir)
+            enabled_skill_names = getattr(self.config.coordination_config, "enabled_skill_names", None)
+            all_skills = self._filter_skills_by_enabled_names(all_skills, enabled_skill_names)
 
             # Log what we found
             builtin_count = len([s for s in all_skills if s["location"] == "builtin"])
@@ -207,6 +246,10 @@ class SystemMessageBuilder:
             logger.info(
                 f"[SystemMessageBuilder] Scanned skills: {builtin_count} builtin, " f"{project_count} project, {previous_count} previous_session",
             )
+            if enabled_skill_names is not None:
+                logger.info(
+                    f"[SystemMessageBuilder] Runtime skill filter active: {len(all_skills)} enabled",
+                )
 
             # Log details for each skill
             for skill in all_skills:

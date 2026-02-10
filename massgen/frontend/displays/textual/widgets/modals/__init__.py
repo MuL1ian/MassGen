@@ -41,6 +41,7 @@ from .input_modals import (
 )
 from .review_modal import GitDiffReviewModal
 from .shortcuts_modal import KeyboardShortcutsModal
+from .skills_modals import SkillsModal
 from .status_modals import (
     CostBreakdownModal,
     MCPStatusModal,
@@ -79,6 +80,8 @@ __all__ = [
     "GitDiffReviewModal",
     # Shortcuts modal
     "KeyboardShortcutsModal",
+    # Skills modals
+    "SkillsModal",
     # Workspace modals
     "FileInspectionModal",
     # Agent output modal

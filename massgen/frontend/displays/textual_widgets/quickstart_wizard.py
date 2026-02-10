@@ -6,6 +6,9 @@ Provides an interactive wizard for creating a MassGen configuration.
 This replaces the questionary-based CLI quickstart with a Textual TUI experience.
 """
 
+import asyncio
+import contextlib
+import io
 import string
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -14,6 +17,8 @@ import yaml
 from textual.app import ComposeResult
 from textual.containers import Container, VerticalScroll
 from textual.widgets import (
+    Button,
+    Checkbox,
     Input,
     Label,
     OptionList,
@@ -888,6 +893,264 @@ class ExecutionModeStep(StepComponent):
                 self._option_list.highlighted = idx
 
 
+class SkillsInstallStep(StepComponent):
+    """Step for selecting and installing quickstart skill packages."""
+
+    def __init__(
+        self,
+        wizard_state: WizardState,
+        *,
+        id: Optional[str] = None,
+        classes: Optional[str] = None,
+    ) -> None:
+        super().__init__(wizard_state, id=id, classes=classes)
+        self._packages_status: Optional[Dict[str, Dict[str, Any]]] = None
+        self._checkboxes: Dict[str, Checkbox] = {}
+        self._selected_packages: List[str] = []
+        self._available_package_ids: List[str] = []
+        self._install_button: Optional[Button] = None
+        self._status_label: Optional[Label] = None
+        self._status_message: str = ""
+        self._installing: bool = False
+        self._install_attempted: bool = False
+        self._installed_packages: List[str] = []
+        self._failed_packages: List[str] = []
+
+    def _load_packages_status(self) -> None:
+        """Load current skill package installation status."""
+        try:
+            from massgen.utils.skills_installer import check_skill_packages_installed
+
+            self._packages_status = check_skill_packages_installed()
+        except Exception as e:
+            _quickstart_log(f"SkillsInstallStep: Failed to load packages status: {e}")
+            self._packages_status = None
+
+    def compose(self) -> ComposeResult:
+        self._load_packages_status()
+        self._checkboxes = {}
+        self._available_package_ids = []
+
+        yield Label("Skill Packages", classes="text-input-label")
+        yield Label(
+            "Select which quickstart packages to install now, then press Install Selected Packages.",
+            classes="password-hint",
+        )
+
+        if self._packages_status is None:
+            yield Label("Could not check skill package status.", classes="password-hint")
+            return
+
+        missing_packages: List[tuple[str, Dict[str, Any]]] = []
+        for pkg_id, pkg in self._packages_status.items():
+            installed = bool(pkg.get("installed"))
+            status_text = "installed" if installed else "not installed"
+            yield Label(f"{pkg.get('name', pkg_id)} [{status_text}]", classes="password-hint")
+            yield Label(f"  {pkg.get('description', '')}", classes="password-hint")
+            if not installed:
+                missing_packages.append((pkg_id, pkg))
+
+        if not missing_packages:
+            yield Label("All quickstart skill packages are already installed.", classes="password-hint")
+            self._install_attempted = True
+            return
+
+        self._available_package_ids = [pkg_id for pkg_id, _ in missing_packages]
+
+        if not self._selected_packages:
+            self._selected_packages = list(self._available_package_ids)
+        else:
+            self._selected_packages = [pkg_id for pkg_id in self._selected_packages if pkg_id in self._available_package_ids]
+
+        yield Label("Select packages to install:", classes="text-input-label")
+        for pkg_id, pkg in missing_packages:
+            cb = Checkbox(
+                f"{pkg.get('name', pkg_id)}",
+                value=pkg_id in self._selected_packages,
+                id=f"skills_pkg_{pkg_id}",
+            )
+            cb.disabled = self._installing
+            self._checkboxes[pkg_id] = cb
+            yield cb
+
+        self._install_button = Button(
+            "Install Selected Packages",
+            id="install_selected_skill_packages",
+            variant="default",
+        )
+        if self._installing:
+            self._install_button.disabled = True
+            self._install_button.label = "Installing..."
+        yield self._install_button
+
+        self._status_label = Label(self._status_message, classes="password-hint")
+        self._status_label.display = bool(self._status_message)
+        yield self._status_label
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        """Handle package selection toggles."""
+        for pkg_id, cb in self._checkboxes.items():
+            if cb.id != event.checkbox.id:
+                continue
+            if event.value and pkg_id not in self._selected_packages:
+                self._selected_packages.append(pkg_id)
+            elif not event.value and pkg_id in self._selected_packages:
+                self._selected_packages.remove(pkg_id)
+            break
+
+    @staticmethod
+    def _run_installer_quiet(installer) -> tuple[bool, str]:
+        """Run installer while capturing stdout/stderr to avoid TUI corruption."""
+        output_buffer = io.StringIO()
+        error_buffer = io.StringIO()
+        with contextlib.redirect_stdout(output_buffer), contextlib.redirect_stderr(error_buffer):
+            ok = bool(installer())
+        combined = "\n".join([output_buffer.getvalue(), error_buffer.getvalue()]).strip()
+        return ok, combined
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Install selected skill packages with progress updates."""
+        if event.button.id != "install_selected_skill_packages" or self._installing:
+            return
+
+        if not self._selected_packages:
+            self._install_attempted = True
+            self._status_message = "No packages selected. You can continue."
+            if self._status_label:
+                self._status_label.update(self._status_message)
+                self._status_label.display = True
+            return
+
+        self._installing = True
+        if self._install_button:
+            self._install_button.disabled = True
+            self._install_button.label = "Installing..."
+        for cb in self._checkboxes.values():
+            cb.disabled = True
+
+        def _status(message: str) -> None:
+            self._status_message = message
+            if self._status_label:
+                self._status_label.update(message)
+                self._status_label.display = True
+
+        _status("Preparing skill package installation...")
+        self._installed_packages = []
+        self._failed_packages = []
+
+        try:
+            from massgen.utils.skills_installer import (
+                install_agent_browser_skill,
+                install_anthropic_skills,
+                install_crawl4ai_skill,
+                install_openai_skills,
+                install_openskills_cli,
+                install_vercel_skills,
+            )
+
+            openskills_installers = {
+                "anthropic": install_anthropic_skills,
+                "openai": install_openai_skills,
+                "vercel": install_vercel_skills,
+                "agent_browser": install_agent_browser_skill,
+            }
+
+            selected = list(self._selected_packages)
+            needs_openskills = any(pkg_id in openskills_installers for pkg_id in selected)
+            openskills_ready = True
+
+            if needs_openskills:
+                _status("Installing openskills CLI...")
+                openskills_ready, cli_logs = await asyncio.to_thread(
+                    self._run_installer_quiet,
+                    install_openskills_cli,
+                )
+                if cli_logs:
+                    _quickstart_log(f"SkillsInstallStep: openskills logs:\n{cli_logs}")
+                if not openskills_ready:
+                    self._failed_packages.extend([pkg_id for pkg_id in selected if pkg_id in openskills_installers])
+
+            for pkg_id in selected:
+                if pkg_id in openskills_installers:
+                    if not openskills_ready:
+                        continue
+                    _status(f"Installing {pkg_id}...")
+                    ok, pkg_logs = await asyncio.to_thread(
+                        self._run_installer_quiet,
+                        openskills_installers[pkg_id],
+                    )
+                elif pkg_id == "crawl4ai":
+                    _status("Installing crawl4ai...")
+                    ok, pkg_logs = await asyncio.to_thread(
+                        self._run_installer_quiet,
+                        install_crawl4ai_skill,
+                    )
+                else:
+                    _quickstart_log(f"SkillsInstallStep: Unknown package id '{pkg_id}'")
+                    pkg_logs = ""
+                    ok = False
+
+                if pkg_logs:
+                    _quickstart_log(f"SkillsInstallStep: {pkg_id} logs:\n{pkg_logs}")
+
+                if ok:
+                    self._installed_packages.append(pkg_id)
+                else:
+                    self._failed_packages.append(pkg_id)
+
+            self._install_attempted = True
+            if self._failed_packages:
+                _status(
+                    f"Installed {len(self._installed_packages)} package(s), " f"{len(self._failed_packages)} failed. Retry or adjust selection.",
+                )
+            else:
+                _status(f"Installed {len(self._installed_packages)} package(s) successfully.")
+
+        except Exception as e:
+            self._install_attempted = True
+            self._failed_packages = list(self._selected_packages)
+            _quickstart_log(f"SkillsInstallStep: Installation error: {e}")
+            _status(f"Skills installation failed: {e}")
+
+        self._installing = False
+        if self._install_button:
+            self._install_button.disabled = False
+            self._install_button.label = "Install Selected Packages"
+        for cb in self._checkboxes.values():
+            cb.disabled = False
+
+        # Recompose so package status reflects newly installed items.
+        self.refresh(recompose=True)
+
+    def validate(self) -> Optional[str]:
+        if self._installing:
+            return "Please wait for skill installation to finish"
+
+        if not self._available_package_ids:
+            return None
+
+        if self._selected_packages and not self._install_attempted:
+            return "Click 'Install Selected Packages' before continuing, or deselect all packages"
+
+        return None
+
+    def get_value(self) -> Dict[str, Any]:
+        return {
+            "packages_to_install": list(self._selected_packages),
+            "install_attempted": self._install_attempted,
+            "installed_packages": list(self._installed_packages),
+            "failed_packages": list(self._failed_packages),
+        }
+
+    def set_value(self, value: Any) -> None:
+        if not isinstance(value, dict):
+            return
+        self._selected_packages = list(value.get("packages_to_install", []))
+        self._install_attempted = bool(value.get("install_attempted", False))
+        self._installed_packages = list(value.get("installed_packages", []))
+        self._failed_packages = list(value.get("failed_packages", []))
+
+
 class ContextPathStep(StepComponent):
     """Step for entering optional context/workspace path."""
 
@@ -1367,6 +1630,21 @@ class QuickstartCompleteStep(StepComponent):
             config_path = self.wizard_state.get("config_path", default)
             yield Label(f"Saved to: {config_path}", classes="complete-message")
 
+            skills_data = self.wizard_state.get("install_skills_now", {})
+            if isinstance(skills_data, dict):
+                installed = skills_data.get("installed_packages", [])
+                failed = skills_data.get("failed_packages", [])
+                if installed:
+                    yield Label(
+                        f"Installed {len(installed)} skill package(s)",
+                        classes="complete-next-steps",
+                    )
+                if failed:
+                    yield Label(
+                        f"{len(failed)} skill package(s) failed to install",
+                        classes="complete-next-steps",
+                    )
+
             launch_option = self.wizard_state.get("launch_option", "terminal")
             if launch_option == "terminal":
                 yield Label("Launching MassGen Terminal TUI...", classes="complete-next-steps")
@@ -1390,11 +1668,12 @@ class QuickstartWizard(WizardModal):
     4. Provider/model selection
     5. Execution mode
     6. Docker setup - skipped if local mode selected
-    7. Context path
-    8. Coordination mode (multi-agent only)
-    9. Preview
-    10. Launch options
-    11. Complete
+    7. Skills setup - select packages and install in-step (skipped if local mode selected)
+    8. Context path
+    9. Coordination mode (multi-agent only)
+    10. Preview
+    11. Launch options
+    12. Complete
     """
 
     def __init__(
@@ -1448,6 +1727,13 @@ class QuickstartWizard(WizardModal):
                 title="Docker Setup",
                 description="Check Docker status and pull images",
                 component_class=DockerSetupStep,
+                skip_condition=lambda state: not state.get("execution_mode", True),
+            ),
+            WizardStep(
+                id="install_skills_now",
+                title="Skills",
+                description="Install quickstart skill packages now?",
+                component_class=SkillsInstallStep,
                 skip_condition=lambda state: not state.get("execution_mode", True),
             ),
             WizardStep(
@@ -1568,6 +1854,16 @@ class QuickstartWizard(WizardModal):
             agent_count = self.state.get("agent_count", 3)
             setup_mode = self.state.get("setup_mode", "same")
             use_docker = self.state.get("execution_mode", True)
+            skills_step_data = self.state.get("install_skills_now", {})
+            install_skills_now = False
+            installed_skill_packages: List[str] = []
+            failed_skill_packages: List[str] = []
+            if isinstance(skills_step_data, dict):
+                installed_skill_packages = list(skills_step_data.get("installed_packages", []))
+                failed_skill_packages = list(skills_step_data.get("failed_packages", []))
+            elif isinstance(skills_step_data, bool):
+                # Backward compatibility: older bool step data means defer to CLI installer.
+                install_skills_now = skills_step_data
             context_path = self.state.get("context_path")
             launch_option = self.state.get("launch_options", "terminal")
 
@@ -1647,6 +1943,9 @@ class QuickstartWizard(WizardModal):
                 "success": True,
                 "config_path": self._config_path,
                 "launch_option": launch_option,
+                "install_skills_now": bool(install_skills_now),
+                "skills_installed": installed_skill_packages,
+                "skills_failed": failed_skill_packages,
             }
 
         except Exception as e:

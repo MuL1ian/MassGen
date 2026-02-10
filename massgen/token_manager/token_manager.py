@@ -1009,6 +1009,8 @@ class TokenCostCalculator:
         """Normalize provider name for lookup."""
         provider_map = {
             "openai": "OpenAI",
+            "azure": "OpenAI",
+            "azure openai": "OpenAI",
             "anthropic": "Anthropic",
             "claude": "Anthropic",
             "google": "Google",

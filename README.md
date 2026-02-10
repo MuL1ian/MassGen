@@ -69,7 +69,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.48 Features](#-latest-features-v0148)
+- [v0.1.49 Features](#-latest-features-v0149)
 </details>
 
 <details open>
@@ -122,15 +122,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.48)](#recent-achievements-v0148)
-- [Previous Achievements (v0.0.3 - v0.1.47)](#previous-achievements-v003---v0147)
+- [Recent Achievements (v0.1.49)](#recent-achievements-v0149)
+- [Previous Achievements (v0.0.3 - v0.1.48)](#previous-achievements-v003---v0148)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.49 Roadmap](#v0149-roadmap)
+- [v0.1.50 Roadmap](#v0150-roadmap)
 </details>
 
 <details open>
@@ -155,23 +155,24 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.48)
+## 🆕 Latest Features (v0.1.49)
 
-**🎉 Released: February 6, 2026**
+**🎉 Released: February 9, 2026**
 
-**What's New in v0.1.48:**
-- **🧩 Decomposition Mode** - New coordination mode that decomposes tasks into subtasks assigned to individual agents
-- **🔒 Worktree Isolation** - Git worktree-based isolation for agent file writes with review modal
-- **🐳 Quickstart Docker Setup** - Docker setup step in quickstart wizard with animated pull progress
-- **🛑 Stop Tool** - Agents can signal completion and exit workflows
-- **🐛 Bug Fixes** - Fixed subagent timeout, light theme visibility, post-evaluation restart crash
+**What's New in v0.1.49:**
+- **🔍 Log Analysis in TUI** - New "Analyzing" mode in the TUI mode bar for in-app run analysis with configurable profiles
+- **⚖️ Fairness Gate** - Prevents fast agents from dominating coordination with configurable lead caps
+- **✅ Checklist Voting** - Structured quality evaluation with binary pass/fail scoring via MCP server
+- **🧪 Testing Infrastructure** - CI/CD workflow, SVG snapshot baselines, 16+ new test files
+- **🎛️ Persona Easing in TUI** - Persona easing toggle now available in the TUI mode bar
+- **🐛 Bug Fixes** - Fixed shadow agent "[No response generated]" errors, round banner timing, hook injection
 
-**Try v0.1.48 Features:**
+**Try v0.1.49 Features:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
 
-# Launch the quickstart wizard and select Decomposition mode
+# Launch with coordination quality improvements
 uv run massgen
 ```
 
@@ -258,13 +259,14 @@ uv run massgen --quickstart
 The `--setup` command will:
 - Configure your API keys (OpenAI, Anthropic, Google, xAI)
 - Offer to set up Docker images for code execution
-- Offer to install skills (openskills, Anthropic collection)
+- Offer to install skills (openskills, Anthropic/OpenAI/Vercel collections, Agent Browser skill, Crawl4AI)
 
 The `--quickstart` command will:
 - Ask how many agents you want (1-5, default 3)
 - Ask which backend/model for each agent
 - For GPT-5x models, ask for `reasoning.effort` (`low|medium|high`; Codex GPT-5 models also include `xhigh`)
 - Auto-detect Docker availability and configure execution mode
+- If Docker mode is selected, show a Skills step where you can choose package(s) (`openskills`-based Anthropic/OpenAI/Vercel/Agent Browser plus Crawl4AI) and install them in-place with live status
 - Create a ready-to-use config and launch into interactive TUI mode
 
 **🖥️ Textual TUI (Default Display Mode):**
@@ -1222,40 +1224,47 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.48)
+### Recent Achievements (v0.1.49)
 
-**🎉 Released: February 6, 2026**
+**🎉 Released: February 9, 2026**
 
-#### Decomposition Coordination Mode
-- **Task Decomposition**: New coordination mode that decomposes complex tasks into subtasks assigned to individual agents
-- **Presenter Agent**: Designated agent synthesizes subtask results into a final answer
-- **TUI Integration**: Mode bar toggle, subtask assignment display, and generation modals
+#### Log Analysis Mode in TUI
+- **TUI Mode Bar**: New "Analyzing" state in the mode bar cycle (Normal → Planning → Executing → Analyzing)
+- **In-App Analysis**: Browse and select log directories and turns directly in the TUI
+- **Configurable Profiles**: Different analysis depths for different needs
 
-#### Worktree Isolation
-- **Write Mode**: New `write_mode` config (`auto`/`worktree`/`isolated`/`legacy`) for git worktree-based isolation of agent file writes
-- **Review Modal**: Two-panel modal with file list toggles and syntax-highlighted diff for approving/rejecting changes
-- **Infrastructure**: `WorktreeManager`, `ShadowRepo`, `IsolationContextManager`, `ChangeApplier`
+#### Fairness Gate for Coordination
+- **Balanced Participation**: Prevents fast agents from dominating coordination rounds
+- **Configurable Controls**: `fairness_lead_cap_answers` and `max_midstream_injections_per_round`
+- **Use Case**: Ensures all agents contribute meaningfully regardless of speed
 
-#### Quickstart Wizard Docker Setup
-- **Docker Setup Step**: Integrated into quickstart wizard when Docker mode is selected
-- **Pull Progress**: Animated braille spinner with real-time `docker pull` stdout streaming
+#### Checklist Voting Tool
+- **MCP Server**: New `checklist_tools_server.py` for structured quality evaluation
+- **Binary Scoring**: Pass/fail scoring for objective quality assessment
+- **Consistency**: Repeatable evaluation across coordination rounds
+
+#### Automated Testing Infrastructure
+- **CI/CD Pipeline**: GitHub Actions workflow (`tests.yml`) for automated test execution
+- **SVG Snapshots**: Baseline testing for TUI visual regression
+- **Coverage**: 16+ new test files with comprehensive testing strategy
 
 #### Changed
-- **Codex Backend**: Default model updated from `gpt-5.2-codex` to `gpt-5.3-codex`
-- **Deprecation**: `use_two_tier_workspace` deprecated in favor of `write_mode`
+- **Persona Easing in TUI Mode Bar**: Persona easing toggle now accessible from the TUI mode bar
 
 #### Bug Fixes
-- **Subagent Timeout**: Timeout exemption for subagent-related MCP tools that manage their own timeouts
-- **Light Theme Visibility**: Fixed invisible mode bar underlines, separators, and toasts
-- **Post-evaluation Restarts**: Disabled by default in quickstart to prevent TUI crash
+- **Shadow Agent Responses**: Fixed "[No response generated]" errors from chunk type comparison (PR #861)
+- **Round Banner Timing**: No longer appears before final answer is locked
+- **Hook Injection**: Corrected decomposition prompt injection for non-hook backends
+- **Final Answer Lock**: Improved lock timing and reduced hover lag
 
 #### Documentation, Configurations and Resources
-- `docs/source/user_guide/agent_workspaces.rst` — new agent workspaces and code isolation guide
-- `docs/modules/worktrees.md` — new worktrees module documentation
-- `docs/source/reference/yaml_schema.rst` — decomposition mode configuration
-- `massgen/backend/capabilities.py` — updated with `gpt-5.3-codex`
+- `docs/modules/testing.md` — new testing strategy and architecture documentation
+- `.github/workflows/tests.yml` — CI/CD pipeline for automated testing
+- `massgen/tests/snapshot_tests/` — SVG snapshot baselines
 
-### Previous Achievements (v0.0.3 - v0.1.47)
+### Previous Achievements (v0.0.3 - v0.1.48)
+
+✅ **Decomposition Mode & Worktree Isolation (v0.1.48)**: New decomposition coordination mode that decomposes tasks into subtasks assigned to individual agents with a presenter role, git worktree-based isolation for agent file writes with review modal, quickstart wizard Docker setup with animated pull progress, stop tool for agent completion signaling
 
 ✅ **Codex Backend & TUI Theme Refactoring (v0.1.47)**: New Codex backend for OpenAI Codex CLI with local and Docker execution, NativeToolMixin for shared tool handling, TUI theme system refactored to palette-based architecture with dark and light variants, per-agent voting sensitivity configuration
 
@@ -1495,16 +1504,13 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.49 Roadmap
+### v0.1.50 Roadmap
 
-Version 0.1.49 focuses on enhanced log analysis capabilities:
+Version 0.1.50 focuses on log analysis improvements and worktree isolation:
 
 #### Planned Features
 - **Log Analysis Model Selector** ([#766](https://github.com/massgen/MassGen/issues/766)): Allow users to choose which model to use for `massgen logs analyze` self-analysis mode
-
-Key technical approach:
-- **Flexible Analysis**: Configurable model selection for cost/quality tradeoffs in log analysis
-- **Multi-Provider Support**: Works across OpenAI, Anthropic, Google backends
+- **Git Worktree Isolation** ([#853](https://github.com/massgen/MassGen/issues/853)): Worktree isolation improvements for agent file changes
 
 ---
 

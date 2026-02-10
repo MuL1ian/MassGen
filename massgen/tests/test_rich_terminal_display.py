@@ -89,6 +89,7 @@ async def test_rich_display_basic():
 
 
 @pytest.mark.integration
+@pytest.mark.live_api
 async def test_rich_display_coordination():
     """Test RichTerminalDisplay with actual agent coordination."""
     print("\n🤖 Rich Display Coordination Test")
@@ -153,17 +154,14 @@ async def test_rich_display_coordination():
         print("✅ Rich display coordination completed!")
         print(f"📄 Final response length: {len(final_response)} characters")
 
+        assert final_response
         return True
-
     except Exception as e:
-        print(f"❌ Rich display coordination test failed: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
+        pytest.fail(f"Rich display coordination test failed: {e}")
 
 
 @pytest.mark.integration
+@pytest.mark.live_api
 async def test_rich_convenience_function():
     """Test the coordinate_with_rich_ui convenience function."""
     print("\n🚀 Rich UI Convenience Function Test")
@@ -215,14 +213,10 @@ async def test_rich_convenience_function():
         print("✅ Convenience function test completed!")
         print(f"📄 Final response length: {len(final_response)} characters")
 
+        assert final_response
         return True
-
     except Exception as e:
-        print(f"❌ Convenience function test failed: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
+        pytest.fail(f"Convenience function test failed: {e}")
 
 
 async def test_rich_fallback():

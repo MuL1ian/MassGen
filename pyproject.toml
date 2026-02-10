@@ -70,6 +70,7 @@ dependencies = [
     "fastapi>=0.109.0",
     "uvicorn[standard]>=0.27.0",
     "gitpython>=3.1.46",
+    "pytest-textual-snapshot>=1.1.0",
 ]
 
 [project.optional-dependencies]
@@ -244,7 +245,8 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "integration: marks tests as integration tests",
+    "integration: marks tests as integration-scope tests (multi-component behavior)",
+    "live_api: marks tests that call real external provider APIs (requires keys, may incur cost)",
     "unit: marks tests as unit tests",
     "asyncio: mark test as requiring asyncio",
     "docker: marks tests that require Docker to be installed and running",
@@ -254,6 +256,8 @@ markers = [
 asyncio_mode = "auto"
 filterwarnings = [
     "ignore::pytest.PytestAssertRewriteWarning:_pytest.config",
+    "ignore:jsonschema.RefResolver is deprecated as of v4.18.0.*:DeprecationWarning:autogen\\.json_utils",
+    "ignore:Accessing jsonschema.__version__ is deprecated.*:DeprecationWarning:autogen\\.import_utils",
 ]
 
 # Coverage configuration

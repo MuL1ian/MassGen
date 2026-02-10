@@ -5,10 +5,13 @@ Textual Terminal Display for MassGen Coordination
 """
 
 import functools
+import json
 import os
 import re
+import sys
 import threading
 import time
+import traceback
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -58,6 +61,7 @@ try:
         MCPStatusModal,
         MetricsModal,
         OrchestratorEventsModal,
+        SkillsModal,
         StructuredBroadcastPromptModal,
         SystemStatusModal,
         TextContentModal,
@@ -69,6 +73,8 @@ try:
         AgentStatusRibbon,
         AgentTabBar,
         AgentTabChanged,
+        AnalysisProfileChanged,
+        AnalysisTargetChanged,
         BroadcastModeChanged,
         CompletionFooter,
         ContextPathsClicked,
@@ -78,6 +84,7 @@ try:
         ModeChanged,
         ModeHelpClicked,
         MultiLineInput,
+        OpenSkillsRequested,
         OverrideRequested,
         PathSuggestionDropdown,
         PlanDepthChanged,
@@ -97,6 +104,7 @@ try:
         ToolCallCard,
         ToolDetailModal,
         ToolSection,
+        ViewAnalysisRequested,
         ViewPlanRequested,
         ViewSelected,
     )
@@ -108,7 +116,7 @@ except ImportError:
     TEXTUAL_AVAILABLE = False
 
 # TUI Debug logger - use shared implementation
-from .shared.tui_debug import tui_log  # noqa: E402
+from .shared.tui_debug import tui_debug_enabled, tui_log  # noqa: E402
 
 
 def _process_line_buffer(
@@ -1254,6 +1262,15 @@ class TextualTerminalDisplay(TerminalDisplay):
         """
         if self._app:
             self._call_app_method("set_agent_subtasks", subtasks)
+
+    def set_agent_personas(self, personas: Dict[str, str]) -> None:
+        """Pass agent persona assignments to the TUI for display in the tab bar.
+
+        Args:
+            personas: Mapping of agent_id to persona summary/description.
+        """
+        if self._app:
+            self._call_app_method("set_agent_personas", personas)
 
     def begin_restart(
         self,
@@ -2625,7 +2642,7 @@ if TEXTUAL_AVAILABLE:
             # Help - Ctrl+G for guide/help
             Binding("ctrl+g", "show_help", "Help", priority=True, show=False),
             # Mode toggles
-            Binding("shift+tab", "toggle_plan_mode", "Plan Mode", priority=True),
+            Binding("shift+tab", "toggle_plan_mode", "Mode Cycle", priority=True),
             Binding("ctrl+o", "trigger_override", "Override", priority=True, show=False),
             # Task plan toggle
             Binding("ctrl+t", "toggle_task_plan", "Toggle Tasks", priority=True, show=False),
@@ -2657,6 +2674,21 @@ if TEXTUAL_AVAILABLE:
             self._buffer_lock = buffer_lock
             self.buffer_flush_interval = buffer_flush_interval
             self._keyboard_interactive_mode = display._keyboard_interactive_mode
+            self._timing_debug = tui_debug_enabled() and os.environ.get("MASSGEN_TUI_TIMING_DEBUG", "").lower() in (
+                "1",
+                "true",
+                "yes",
+                "on",
+            )
+            self._heartbeat_timer = None
+            self._last_heartbeat_at: Optional[float] = None
+            self._stall_watchdog_thread: Optional[threading.Thread] = None
+            self._stall_watchdog_stop = threading.Event()
+            self._last_stall_dump_at: float = 0.0
+            try:
+                self._stall_watchdog_threshold_s = float(os.environ.get("MASSGEN_TUI_STALL_THRESHOLD_S", "0.8"))
+            except ValueError:
+                self._stall_watchdog_threshold_s = 0.8
 
             self.agent_widgets = {}
             self.header_widget = None
@@ -2734,12 +2766,25 @@ if TEXTUAL_AVAILABLE:
             # Runtime decomposition generation UI state
             self._decomposition_generation_modal: Optional[DecompositionGenerationModal] = None
             self._runtime_decomposition_subtasks: Dict[str, str] = {}
+            self._runtime_parallel_personas: Dict[str, str] = {}
             self._decomposition_completion_source: str = "subagent"
             self._decomposition_runtime_subagent_call_id: Optional[str] = None
             self._decomposition_runtime_subagent_agent_id: Optional[str] = None
             self._decomposition_runtime_subagent_data: Optional[Any] = None
             self._decomposition_runtime_status_callback: Optional[Callable[[str], Optional[Any]]] = None
             self._decomposition_runtime_auto_opened: bool = False
+            # Workspace browser open-guard to prevent duplicate modal pushes from
+            # repeated click/key events while the UI is busy.
+            self._workspace_browser_open_pending: bool = False
+            self._workspace_browser_last_request_at: float = 0.0
+            # Performance guard: suppress expensive hover style updates while the
+            # timeline is answer-locked (buttons remain clickable).
+            self._hover_updates_suppressed: bool = False
+            self._persona_runtime_subagent_call_id: Optional[str] = None
+            self._persona_runtime_subagent_agent_id: Optional[str] = None
+            self._persona_runtime_subagent_data: Optional[Any] = None
+            self._persona_runtime_status_callback: Optional[Callable[[str], Optional[Any]]] = None
+            self._persona_runtime_auto_opened: bool = False
 
             if not self._keyboard_interactive_mode:
                 self.BINDINGS = []
@@ -2800,12 +2845,24 @@ if TEXTUAL_AVAILABLE:
 
             # Decomposition generation modal/runtime state
             self._runtime_decomposition_subtasks = {}
+            self._runtime_parallel_personas = {}
             self._dismiss_decomposition_generation_modal()
             self._decomposition_runtime_subagent_call_id = None
             self._decomposition_runtime_subagent_agent_id = None
             self._decomposition_runtime_subagent_data = None
             self._decomposition_runtime_status_callback = None
             self._decomposition_runtime_auto_opened = False
+            self._persona_runtime_subagent_call_id = None
+            self._persona_runtime_subagent_agent_id = None
+            self._persona_runtime_subagent_data = None
+            self._persona_runtime_status_callback = None
+            self._persona_runtime_auto_opened = False
+
+            if self._tab_bar and self._mode_state.coordination_mode == "parallel":
+                if self._mode_state.parallel_personas_enabled:
+                    self._tab_bar.set_agent_personas({})
+                else:
+                    self._tab_bar.set_agent_subtasks({})
 
         def compose(self) -> ComposeResult:
             """Compose the UI layout with adaptive agent arrangement."""
@@ -2850,7 +2907,7 @@ if TEXTUAL_AVAILABLE:
                     # Spacer to push cancel button to right
                     yield Static("", id="execution_spacer")
                     # Cancel button - on right
-                    self._cancel_button = Button("Cancel [q]", id="cancel_button", variant="error")
+                    self._cancel_button = Button("Cancel [q]", id="turn_cancel_button", variant="error")
                     yield self._cancel_button
 
                 # Queued input banner - mounted dynamically when needed (not in compose)
@@ -2989,6 +3046,10 @@ if TEXTUAL_AVAILABLE:
             self.coordination_display._app_ready.set()
             self._register_event_listener()
             self.set_interval(self.buffer_flush_interval, self._flush_buffers)
+            if self._timing_debug:
+                self._last_heartbeat_at = time.monotonic()
+                self._heartbeat_timer = self.set_interval(0.05, self._heartbeat_tick)
+                self._start_stall_watchdog()
             if self.coordination_display.restart_reason and self.header_widget:
                 self.header_widget.show_restart_context(
                     self.coordination_display.restart_reason,
@@ -2998,6 +3059,7 @@ if TEXTUAL_AVAILABLE:
             self._update_theme_indicator()
             if self._mode_bar:
                 self._mode_bar.set_coordination_mode(self._mode_state.coordination_mode)
+                self._mode_bar.set_parallel_personas_enabled(self._mode_state.parallel_personas_enabled)
             # Auto-focus input field on startup
             if self.question_input:
                 self.question_input.focus()
@@ -3048,7 +3110,7 @@ if TEXTUAL_AVAILABLE:
                     debug_info["execution_bar"] = {"exists": False, "error": str(e)}
 
                 try:
-                    cancel_btn = self.query_one("#cancel_button")
+                    cancel_btn = self.query_one("#turn_cancel_button")
                     debug_info["cancel_button"] = {
                         "exists": True,
                         "id": cancel_btn.id,
@@ -3074,6 +3136,102 @@ if TEXTUAL_AVAILABLE:
                     json.dump(debug_info, f, indent=2, default=str)
                 self.log("DEBUG: Widget info written to /tmp/textual_debug.json")
                 tui_log("TUI mounted - debug info written to /tmp/textual_debug.json")
+
+        def on_unmount(self) -> None:
+            """Clean up debug timers/threads when app exits."""
+            try:
+                if self._heartbeat_timer is not None:
+                    self._heartbeat_timer.stop()
+            except Exception:
+                pass
+            self._heartbeat_timer = None
+            self._stop_stall_watchdog()
+
+        def set_hover_updates_suppressed(self, suppressed: bool, reason: str = "") -> None:
+            """Enable/disable hover-style recalculation for responsiveness."""
+            if self._hover_updates_suppressed == suppressed:
+                return
+            self._hover_updates_suppressed = suppressed
+            if self._timing_debug:
+                reason_suffix = f" reason={reason}" if reason else ""
+                tui_log(f"[TIMING] TextualApp.hover_updates_suppressed {suppressed}{reason_suffix}")
+
+        def _set_mouse_over(self, widget: Optional[Widget], hover_widget: Optional[Widget]) -> None:
+            """Skip hover style churn when suppression is enabled."""
+            if self._hover_updates_suppressed:
+                return
+            super()._set_mouse_over(widget, hover_widget)
+
+        def _start_stall_watchdog(self) -> None:
+            """Start a background watchdog to capture main-thread stack on stalls."""
+            if not self._timing_debug:
+                return
+            if self._stall_watchdog_thread and self._stall_watchdog_thread.is_alive():
+                return
+
+            self._stall_watchdog_stop.clear()
+            self._stall_watchdog_thread = threading.Thread(
+                target=self._stall_watchdog_loop,
+                name="massgen-tui-stall-watchdog",
+                daemon=True,
+            )
+            self._stall_watchdog_thread.start()
+
+        def _stop_stall_watchdog(self) -> None:
+            """Stop stall watchdog thread."""
+            self._stall_watchdog_stop.set()
+            thread = self._stall_watchdog_thread
+            if thread and thread.is_alive():
+                try:
+                    thread.join(timeout=0.2)
+                except Exception:
+                    pass
+            self._stall_watchdog_thread = None
+
+        def _stall_watchdog_loop(self) -> None:
+            """Capture Python stack traces when main loop appears blocked."""
+            while not self._stall_watchdog_stop.wait(0.1):
+                last = self._last_heartbeat_at
+                if not self._timing_debug or last is None:
+                    continue
+                now = time.monotonic()
+                delta = now - last
+                if delta < self._stall_watchdog_threshold_s:
+                    continue
+                # Avoid spamming stack dumps while blocked.
+                if now - self._last_stall_dump_at < 1.5:
+                    continue
+                self._last_stall_dump_at = now
+
+                thread_id = self._thread_id
+                if thread_id is None:
+                    continue
+                frame = sys._current_frames().get(thread_id)
+                if frame is None:
+                    continue
+                stack = "".join(traceback.format_stack(frame, limit=40))
+                tui_log(
+                    "[TIMING] TextualApp.main_loop_stall_stack " f"{delta * 1000.0:.1f}ms thread_id={thread_id}\n{stack}",
+                )
+
+        def _heartbeat_tick(self) -> None:
+            """Log event-loop stalls when timing debug is enabled."""
+            now = time.monotonic()
+            last = self._last_heartbeat_at
+            self._last_heartbeat_at = now
+            if not self._timing_debug or last is None:
+                return
+
+            delta = now - last
+            # 250ms+ main-loop gaps are typically perceived as input lag.
+            if delta >= 0.25:
+                try:
+                    batch_len = len(self._event_batch)
+                except Exception:
+                    batch_len = -1
+                tui_log(
+                    "[TIMING] TextualApp.main_loop_stall " f"{delta * 1000.0:.1f}ms event_batch={batch_len} pending_flush={self._pending_flush}",
+                )
 
         def _dump_widget_sizes(self) -> None:
             """Dump full widget tree with sizes for debugging layout issues."""
@@ -3706,10 +3864,13 @@ if TEXTUAL_AVAILABLE:
             text = submitted_text.strip() if submitted_text else self.question_input.text.strip()
             tui_log(f"_submit_question called with text: '{text[:50]}...' (len={len(text)})")
 
-            # In execute mode, allow empty submission (just press Enter to run the plan)
+            # In execute/analysis mode, allow empty submission.
+            # - Execute: Enter runs selected plan.
+            # - Analysis: Enter runs default analysis request for selected log target.
             is_execute_mode = self._mode_state.plan_mode == "execute"
-            if not text and not is_execute_mode:
-                tui_log("  Empty text and not execute mode, returning")
+            is_analysis_mode = self._mode_state.plan_mode == "analysis"
+            if not text and not (is_execute_mode or is_analysis_mode):
+                tui_log("  Empty text and not execute/analysis mode, returning")
                 return
 
             # Hide plan options popover on submission (especially for execute mode)
@@ -3738,6 +3899,8 @@ if TEXTUAL_AVAILABLE:
                 if text is None:
                     # Setup failed, error already shown
                     return
+            elif is_analysis_mode:
+                text = self._setup_analysis_submission(text)
 
             # Clear input after determining routing (queued input was already cleared)
             self.question_input.clear()
@@ -3909,6 +4072,8 @@ if TEXTUAL_AVAILABLE:
                     self.action_open_workspace_browser()
                 elif result.ui_action == "show_browser":
                     self.action_open_unified_browser()
+                elif result.ui_action == "show_skills":
+                    self._show_skills_modal()
                 elif result.ui_action == "toggle_vim":
                     self._toggle_vim_mode()
                 elif result.ui_action == "toggle_theme":
@@ -3953,6 +4118,8 @@ if TEXTUAL_AVAILABLE:
                     self._show_history_modal()
                 elif cmd in ("/timeline", "/t"):
                     self.action_open_timeline()
+                elif cmd in ("/skills", "/k"):
+                    self._show_skills_modal()
                 else:
                     self.notify(f"Unknown command: {command}", severity="warning")
 
@@ -4053,12 +4220,13 @@ MODAL SHORTCUTS (when not typing):
   v               - Vote results
 
 MODE BAR:
-  Plan            - Normal → Planning → Execute
+  Plan            - Normal → Planning → Execute → Analysis
   Agents          - Multi-agent or single-agent runs
   Coordination    - Parallel (vote) or decomposition (independent subtasks)
+  Personas        - Toggle parallel persona generation + convergence prep view
   Subtasks        - Define per-agent subtasks (decomposition mode)
   Refine          - Keep iterative refinement/voting on or off
-  ⋮               - Plan settings (depth, broadcast, plan selector)
+  ⋮               - Plan/analysis settings (depth, selector, profile, target)
   ?               - Open mode bar help
   Override        - Manually pick final presenter (when available)
 
@@ -4572,6 +4740,162 @@ Type your question and press Enter to ask the agents.
                 lambda: self._auto_open_decomposition_runtime_subagent_screen(attempt + 1),
             )
 
+        def _get_persona_runtime_subagent(
+            self,
+            subagent_id: str = "persona_generation",
+        ) -> Optional[Any]:
+            """Return latest runtime persona-generation subagent data."""
+            current = self._persona_runtime_subagent_data
+            callback = self._persona_runtime_status_callback
+
+            if callback:
+                try:
+                    refreshed = callback(subagent_id)
+                    if refreshed is not None:
+                        self._persona_runtime_subagent_data = refreshed
+                        current = refreshed
+                except Exception:
+                    pass
+
+            if current is not None and getattr(current, "id", None) == subagent_id:
+                return current
+            return None
+
+        def _open_persona_runtime_subagent_screen(
+            self,
+            auto_return_on_completion: bool = False,
+        ) -> bool:
+            """Open the runtime persona-generation subagent screen."""
+            subagent = self._get_persona_runtime_subagent()
+            if not subagent:
+                return False
+
+            screen = SubagentScreen(
+                subagent=subagent,
+                all_subagents=[subagent],
+                status_callback=self._get_persona_runtime_subagent,
+                auto_return_on_completion=auto_return_on_completion,
+            )
+            self.push_screen(screen)
+            return True
+
+        def _persona_subagent_events_ready(self) -> bool:
+            """Return True when persona-generation subagent has enough event data."""
+            subagent = self._get_persona_runtime_subagent()
+            if not subagent:
+                return False
+
+            log_path_raw = getattr(subagent, "log_path", None)
+            if not log_path_raw:
+                return False
+
+            try:
+                from massgen.subagent.models import SubagentResult
+
+                log_path = Path(log_path_raw)
+                if not log_path.is_absolute():
+                    log_path = (Path.cwd() / log_path).resolve()
+
+                events_path: Optional[Path] = None
+                if log_path.is_file():
+                    events_path = log_path
+                elif log_path.is_dir():
+                    resolved = SubagentResult.resolve_events_path(log_path)
+                    if resolved:
+                        events_path = Path(resolved)
+
+                if not events_path or not events_path.exists():
+                    return False
+                if events_path.stat().st_size <= 0:
+                    return False
+
+                metadata_candidates = [events_path.parent / "execution_metadata.yaml"]
+                if log_path.is_dir():
+                    metadata_candidates.extend(
+                        [
+                            log_path / "full_logs" / "execution_metadata.yaml",
+                            log_path / "execution_metadata.yaml",
+                        ],
+                    )
+                else:
+                    metadata_candidates.append(log_path.parent / "execution_metadata.yaml")
+
+                for candidate in metadata_candidates:
+                    if not candidate.exists():
+                        continue
+                    try:
+                        import yaml
+
+                        with open(candidate, encoding="utf-8") as f:
+                            metadata = yaml.safe_load(f) or {}
+                        agents_cfg = (metadata.get("config") or {}).get("agents") or []
+                        if isinstance(agents_cfg, list):
+                            agent_ids = [a.get("id") for a in agents_cfg if isinstance(a, dict) and isinstance(a.get("id"), str) and a.get("id")]
+                            if agent_ids:
+                                return True
+                    except Exception:
+                        continue
+
+                # Fallback: scan recent event lines for inner-agent sources.
+                def _is_agent_source(source: Optional[str]) -> bool:
+                    if not source:
+                        return False
+                    lowered = source.lower()
+                    if lowered.startswith("mcp_") or lowered.startswith("mcp__") or "mcp__" in lowered:
+                        return False
+                    if lowered in ("mcp_setup", "mcp_session", "orchestrator", "system", "persona_generation"):
+                        return False
+                    return True
+
+                try:
+                    import json
+
+                    tail_lines = events_path.read_text(encoding="utf-8", errors="ignore").splitlines()[-400:]
+                    seen_agents: set[str] = set()
+                    for raw in tail_lines:
+                        if not raw.strip():
+                            continue
+                        try:
+                            event = json.loads(raw)
+                        except Exception:
+                            continue
+
+                        agent_id = event.get("agent_id")
+                        if isinstance(agent_id, str) and _is_agent_source(agent_id):
+                            seen_agents.add(agent_id)
+
+                        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+                        source = data.get("source") if isinstance(data, dict) else None
+                        if not source and isinstance(data, dict):
+                            chunk = data.get("chunk")
+                            if isinstance(chunk, dict):
+                                source = chunk.get("source")
+                        if isinstance(source, str) and _is_agent_source(source):
+                            seen_agents.add(source)
+
+                    if seen_agents:
+                        return True
+                except Exception:
+                    return False
+
+                return False
+            except Exception:
+                return False
+
+        def _auto_open_persona_runtime_subagent_screen(self, attempt: int = 0) -> None:
+            """Auto-open persona-generation subagent screen once event data is available."""
+            if self._persona_subagent_events_ready():
+                self._open_persona_runtime_subagent_screen(auto_return_on_completion=True)
+                return
+
+            if attempt >= 120:
+                return
+
+            self.set_timer(
+                0.1,
+                lambda: self._auto_open_persona_runtime_subagent_screen(attempt + 1),
+            )
+
         def show_runtime_subagent_card(
             self,
             agent_id: str,
@@ -4624,6 +4948,45 @@ Type your question and press Enter to ask the agents.
                 if not self._decomposition_runtime_auto_opened:
                     self._decomposition_runtime_auto_opened = True
                     self.set_timer(0.05, self._auto_open_decomposition_runtime_subagent_screen)
+                return
+
+            # Persona generation prep should also stay out of the main timeline and
+            # open directly in the dedicated subagent screen.
+            if subagent_id == "persona_generation":
+                trimmed_task = (task or "").strip()
+                if len(trimmed_task) > 300:
+                    trimmed_task = trimmed_task[:297] + "..."
+
+                resolved_log_path = log_path
+                if not resolved_log_path:
+                    try:
+                        log_dir = get_log_session_dir()
+                        if log_dir:
+                            resolved_log_path = str(log_dir / "subagents" / subagent_id)
+                    except Exception:
+                        resolved_log_path = None
+
+                self._persona_runtime_subagent_call_id = call_id
+                self._persona_runtime_subagent_agent_id = agent_id
+                self._persona_runtime_status_callback = status_callback
+                self._persona_runtime_subagent_data = SubagentDisplayData(
+                    id=subagent_id,
+                    task=trimmed_task,
+                    status="running",
+                    progress_percent=0,
+                    elapsed_seconds=0.0,
+                    timeout_seconds=float(timeout_seconds or 300),
+                    workspace_path="",
+                    workspace_file_count=0,
+                    last_log_line="Starting...",
+                    error=None,
+                    answer_preview=None,
+                    log_path=resolved_log_path,
+                )
+
+                if not self._persona_runtime_auto_opened:
+                    self._persona_runtime_auto_opened = True
+                    self.set_timer(0.05, self._auto_open_persona_runtime_subagent_screen)
                 return
 
             target_agent = agent_id if agent_id in self.agent_widgets else None
@@ -4791,6 +5154,40 @@ Type your question and press Enter to ask the agents.
                     self._decomposition_runtime_subagent_agent_id = None
                 return
 
+            if subagent_id == "persona_generation":
+                existing = self._get_persona_runtime_subagent(subagent_id) or self._persona_runtime_subagent_data
+
+                status_map = {
+                    "running": "running",
+                    "pending": "pending",
+                    "completed": "completed",
+                    "timeout": "timeout",
+                    "failed": "failed",
+                    "error": "error",
+                }
+                normalized_status = status_map.get((status or "").lower(), "failed")
+
+                if existing is not None:
+                    self._persona_runtime_subagent_data = SubagentDisplayData(
+                        id=existing.id,
+                        task=existing.task,
+                        status=normalized_status,
+                        progress_percent=100 if normalized_status in ("completed", "timeout", "failed", "error") else existing.progress_percent,
+                        elapsed_seconds=existing.elapsed_seconds,
+                        timeout_seconds=existing.timeout_seconds,
+                        workspace_path=existing.workspace_path,
+                        workspace_file_count=existing.workspace_file_count,
+                        last_log_line=existing.last_log_line,
+                        error=error or existing.error,
+                        answer_preview=answer_preview or existing.answer_preview,
+                        log_path=existing.log_path,
+                    )
+
+                if call_id == self._persona_runtime_subagent_call_id and normalized_status in ("completed", "timeout", "failed", "error"):
+                    self._persona_runtime_subagent_call_id = None
+                    self._persona_runtime_subagent_agent_id = None
+                return
+
             status_map = {
                 "running": "running",
                 "pending": "pending",
@@ -4804,6 +5201,8 @@ Type your question and press Enter to ask the agents.
             target_agent = agent_id
             if call_id == self._decomposition_runtime_subagent_call_id and self._decomposition_runtime_subagent_agent_id:
                 target_agent = self._decomposition_runtime_subagent_agent_id
+            elif call_id == self._persona_runtime_subagent_call_id and self._persona_runtime_subagent_agent_id:
+                target_agent = self._persona_runtime_subagent_agent_id
 
             panel = self.agent_widgets.get(target_agent)
             if not panel:
@@ -4849,6 +5248,9 @@ Type your question and press Enter to ask the agents.
             if call_id == self._decomposition_runtime_subagent_call_id and normalized_status in ("completed", "timeout", "failed", "error"):
                 self._decomposition_runtime_subagent_call_id = None
                 self._decomposition_runtime_subagent_agent_id = None
+            elif call_id == self._persona_runtime_subagent_call_id and normalized_status in ("completed", "timeout", "failed", "error"):
+                self._persona_runtime_subagent_call_id = None
+                self._persona_runtime_subagent_agent_id = None
 
         def show_subagent_card_from_spawn(
             self,
@@ -5096,9 +5498,9 @@ Type your question and press Enter to ask the agents.
                     # Still need to do the lock and complete
                     if answer and not getattr(card, "_final_content", []):
                         card.append_chunk(answer)
-                    card.complete()
                     timeline.lock_to_final_answer("final_presentation_card")
                     card.set_locked_mode(True)
+                    card.complete()
                     return
 
                 tui_log("[TextualDisplay] Creating new final presentation card")
@@ -5135,6 +5537,9 @@ Type your question and press Enter to ask the agents.
                     # Only add content if card is empty (streaming may have already populated it)
                     if answer and not getattr(card, "_final_content", []):
                         card.append_chunk(answer)
+                    # Auto-lock timeline to show only final answer
+                    timeline.lock_to_final_answer("final_presentation_card")
+                    card.set_locked_mode(True)
                     card.complete()
                     try:
                         logger.info(
@@ -5142,9 +5547,6 @@ Type your question and press Enter to ask the agents.
                         )
                     except Exception as e:
                         tui_log(f"[TextualDisplay] {e}")
-                    # Auto-lock timeline to show only final answer
-                    timeline.lock_to_final_answer("final_presentation_card")
-                    card.set_locked_mode(True)
                     # Auto-collapse task plan when final presentation shows
                     if hasattr(panel, "_task_plan_host"):
                         panel._task_plan_host.collapse()
@@ -5250,9 +5652,6 @@ Type your question and press Enter to ask the agents.
                 if self._final_presentation_card._post_eval_status in ("none", "evaluating"):
                     self._final_presentation_card.set_post_eval_status("verified")
 
-                # Mark the card as complete (shows footer with buttons)
-                self._final_presentation_card.complete()
-
                 # Auto-lock timeline to show only final answer
                 if agent_id in self.agent_widgets:
                     panel = self.agent_widgets[agent_id]
@@ -5268,6 +5667,9 @@ Type your question and press Enter to ask the agents.
                             self.question_input.placeholder = "Type your follow-up question..."
                     except Exception as e:
                         tui_log(f"[TextualDisplay] {e}")
+
+                # Mark the card as complete (shows footer with buttons)
+                self._final_presentation_card.complete()
 
                 # Phase 12.4: Store final answer for view-based navigation
                 if agent_id in self.agent_widgets:
@@ -5878,6 +6280,12 @@ Type your question and press Enter to ask the agents.
                 )
                 self.set_timer(2.5, self._dismiss_decomposition_generation_modal)
 
+        def set_agent_personas(self, personas: Dict[str, str]) -> None:
+            """Pass agent persona assignments to the tab bar for display."""
+            self._runtime_parallel_personas = dict(personas or {})
+            if self._tab_bar and self._mode_state.coordination_mode == "parallel" and self._mode_state.parallel_personas_enabled:
+                self._tab_bar.set_agent_personas(self._runtime_parallel_personas)
+
         def set_input_enabled(self, enabled: bool):
             """Enable or disable mode controls during execution.
 
@@ -6089,8 +6497,10 @@ Type your question and press Enter to ask the agents.
                 except Exception:
                     continue
 
-            # Fallback: runtime decomposition subagent (hidden from timeline by design)
+            # Fallback: runtime preparation subagents (hidden from timeline by design)
             if self._open_decomposition_runtime_subagent_screen():
+                return
+            if self._open_persona_runtime_subagent_screen():
                 return
 
             self.notify("No active subagents", severity="information", timeout=2)
@@ -6219,10 +6629,11 @@ Type your question and press Enter to ask the agents.
         def on_session_info_clicked(self, event: SessionInfoClicked) -> None:
             """Handle click on session info to show full prompt."""
             tui_log(f"on_session_info_clicked: turn={event.turn}")
-            # Build content with optional subtask
+            # Build content with optional per-agent assignment (subtask/persona)
             content = ""
             if event.subtask:
-                content += f"Subtask: {event.subtask}\n\n"
+                label = getattr(event, "assignment_kind", "Subtask")
+                content += f"{label}: {event.subtask}\n\n"
             content += event.question or "(No prompt)"
             # Show the full prompt in a text modal
             self.push_screen(
@@ -6242,11 +6653,15 @@ Type your question and press Enter to ask the agents.
             self._mode_state.coordination_mode = mode
             if self._mode_bar:
                 self._mode_bar.set_coordination_mode(mode)
+                self._mode_bar.set_parallel_personas_enabled(self._mode_state.parallel_personas_enabled)
             if self._tab_bar:
                 if mode == "decomposition":
                     self._tab_bar.set_agent_subtasks(self._mode_state.decomposition_subtasks)
                 else:
-                    self._tab_bar.set_agent_subtasks({})
+                    if self._mode_state.parallel_personas_enabled:
+                        self._tab_bar.set_agent_personas(self._runtime_parallel_personas)
+                    else:
+                        self._tab_bar.set_agent_subtasks({})
 
         # ============================================================
         # Mode Change Handlers
@@ -6273,6 +6688,8 @@ Type your question and press Enter to ask the agents.
                     self._mode_bar.set_coordination_mode(self._mode_state.coordination_mode)
                 elif event.mode_type == "refinement" and self._mode_bar:
                     self._mode_bar.set_refinement_mode(self._mode_state.refinement_enabled)
+                elif event.mode_type == "personas" and self._mode_bar:
+                    self._mode_bar.set_parallel_personas_enabled(self._mode_state.parallel_personas_enabled)
                 event.stop()
                 return
 
@@ -6284,6 +6701,8 @@ Type your question and press Enter to ask the agents.
                 self._handle_coordination_mode_change(event.value)
             elif event.mode_type == "refinement":
                 self._handle_refinement_mode_change(event.value == "on")
+            elif event.mode_type == "personas":
+                self._handle_parallel_persona_mode_change(event.value == "on")
 
             event.stop()
 
@@ -6455,6 +6874,96 @@ Type your question and press Enter to ask the agents.
             self.push_screen(modal)
             event.stop()
 
+        def on_analysis_profile_changed(self, event: AnalysisProfileChanged) -> None:
+            """Handle analysis profile changes from the popover."""
+            tui_log(f"on_analysis_profile_changed: profile={event.profile}")
+
+            if self._mode_state.is_locked():
+                self.notify("Cannot change analysis profile during execution.", severity="warning", timeout=2)
+                event.stop()
+                return
+
+            profile = "user" if event.profile == "user" else "dev"
+            self._mode_state.analysis_config.profile = profile
+
+            popover_visible = hasattr(self, "_plan_options_popover") and "visible" in self._plan_options_popover.classes
+            if not popover_visible:
+                self.notify(
+                    f"Analysis profile: {'User (skills)' if profile == 'user' else 'Dev (internals)'}",
+                    severity="information",
+                    timeout=2,
+                )
+            event.stop()
+
+        def on_analysis_target_changed(self, event: AnalysisTargetChanged) -> None:
+            """Handle analysis target changes from the popover."""
+            tui_log(f"on_analysis_target_changed: log_dir={event.log_dir}, turn={event.turn}")
+
+            if self._mode_state.is_locked():
+                self.notify("Cannot change analysis target during execution.", severity="warning", timeout=2)
+                event.stop()
+                return
+
+            cfg = self._mode_state.analysis_config
+            prev_log_dir = cfg.selected_log_dir
+            prev_turn = cfg.selected_turn
+            cfg.selected_log_dir = event.log_dir
+
+            if event.log_dir:
+                turns = self._get_turn_numbers(Path(event.log_dir))
+                if event.turn in turns:
+                    cfg.selected_turn = event.turn
+                elif turns:
+                    cfg.selected_turn = turns[-1]
+                else:
+                    cfg.selected_turn = None
+            else:
+                cfg.selected_turn = None
+
+            if cfg.selected_log_dir == prev_log_dir and cfg.selected_turn == prev_turn:
+                event.stop()
+                return
+
+            self._refresh_analysis_popover_if_visible()
+
+            popover_visible = hasattr(self, "_plan_options_popover") and "visible" in self._plan_options_popover.classes
+            if not popover_visible:
+                if cfg.selected_log_dir and cfg.selected_turn is not None:
+                    self.notify(
+                        f"Analysis target: {Path(cfg.selected_log_dir).name} / turn_{cfg.selected_turn}",
+                        severity="information",
+                        timeout=2,
+                    )
+                elif cfg.selected_log_dir:
+                    self.notify(
+                        f"Analysis target: {Path(cfg.selected_log_dir).name} (no turns found)",
+                        severity="warning",
+                        timeout=2,
+                    )
+                else:
+                    self.notify("Analysis target cleared", severity="warning", timeout=2)
+            event.stop()
+
+        def on_view_analysis_requested(self, event: ViewAnalysisRequested) -> None:
+            """Handle request to open the selected analysis report."""
+            report_path = self._get_analysis_report_path(event.log_dir, event.turn)
+            if not report_path.exists():
+                self.notify(
+                    f"Analysis report not found at {report_path}. Run analysis first.",
+                    severity="warning",
+                    timeout=3,
+                )
+                event.stop()
+                return
+
+            self._show_text_modal(report_path, f"Analysis Report • {Path(event.log_dir).name} • turn_{event.turn}")
+            event.stop()
+
+        def on_open_skills_requested(self, event: OpenSkillsRequested) -> None:
+            """Handle request to open the session skills manager."""
+            self._show_skills_modal()
+            event.stop()
+
         def _update_plan_options_popover_state(self) -> None:
             """Update the plan options popover internal state (without recompose)."""
             if not hasattr(self, "_plan_options_popover"):
@@ -6465,6 +6974,9 @@ Type your question and press Enter to ask the agents.
 
                 storage = PlanStorage()
                 plans = storage.get_all_plans(limit=5)
+                self._ensure_analysis_defaults()
+                analysis_log_options = self._build_analysis_log_options()
+                analysis_turn_options = self._build_analysis_turn_options()
 
                 # Update popover internal state
                 popover = self._plan_options_popover
@@ -6473,15 +6985,358 @@ Type your question and press Enter to ask the agents.
                 popover._current_plan_id = self._mode_state.selected_plan_id
                 popover._current_depth = self._mode_state.plan_config.depth
                 popover._current_broadcast = self._mode_state.plan_config.broadcast
+                popover._analysis_profile = self._mode_state.analysis_config.profile
+                popover._analysis_log_options = analysis_log_options
+                popover._analysis_selected_log_dir = self._mode_state.analysis_config.selected_log_dir
+                popover._analysis_turn_options = analysis_turn_options
+                popover._analysis_selected_turn = self._mode_state.analysis_config.selected_turn
+                popover._analysis_preview_text = self._build_analysis_preview_text(
+                    self._mode_state.analysis_config.selected_log_dir,
+                    self._mode_state.analysis_config.selected_turn,
+                )
                 # Don't recompose - let the popover show with updated state
             except Exception as e:
                 tui_log(f"_update_plan_options_popover_state error: {e}")
+
+        def _get_available_log_sessions(self) -> List[Path]:
+            """Return available log session directories, excluding the current session.
+
+            The current running session's log dir is excluded because it's
+            actively being written to and not useful as an analysis target.
+            """
+            log_dirs: List[Path] = []
+            try:
+                from massgen.logger_config import get_log_session_root
+                from massgen.logs_analyzer import get_logs_dir
+
+                logs_base = get_logs_dir()
+                if logs_base.exists():
+                    log_dirs.extend([p.resolve() for p in logs_base.glob("log_*") if p.is_dir()])
+                    # Timestamp-based directory names sort correctly lexicographically.
+                    log_dirs.sort(key=lambda p: p.name, reverse=True)
+
+                # Exclude the current running session — it's still being
+                # written to and isn't a meaningful analysis target.
+                current_root = get_log_session_root().resolve()
+                if current_root.exists() and current_root.is_dir():
+                    log_dirs = [p for p in log_dirs if p != current_root]
+
+                # Exclude sessions that never completed an attempt (no status.json).
+                log_dirs = [p for p in log_dirs if any(p.glob("turn_*/attempt_*/status.json"))]
+            except Exception as e:
+                tui_log(f"_get_available_log_sessions error: {e}")
+            return log_dirs
+
+        @staticmethod
+        def _get_turn_numbers(log_dir: Path) -> List[int]:
+            """Extract sorted turn numbers from a log session directory."""
+            turns: List[int] = []
+            if not log_dir.exists():
+                return turns
+            for turn_dir in log_dir.glob("turn_*"):
+                if not turn_dir.is_dir():
+                    continue
+                try:
+                    turns.append(int(turn_dir.name.split("_", 1)[1]))
+                except (IndexError, ValueError):
+                    continue
+            return sorted(set(turns))
+
+        def _ensure_analysis_defaults(self) -> None:
+            """Ensure analysis target defaults are set to valid log/turn values."""
+            logs = self._get_available_log_sessions()
+            cfg = self._mode_state.analysis_config
+
+            if not logs:
+                cfg.selected_log_dir = None
+                cfg.selected_turn = None
+                return
+
+            log_paths = {str(p): p for p in logs}
+            selected_log = cfg.selected_log_dir
+            if not selected_log or selected_log not in log_paths:
+                selected_log = str(logs[0])
+
+            turns = self._get_turn_numbers(log_paths[selected_log])
+            selected_turn = cfg.selected_turn
+            if not turns:
+                selected_turn = None
+            elif selected_turn not in turns:
+                selected_turn = turns[-1]
+
+            cfg.selected_log_dir = selected_log
+            cfg.selected_turn = selected_turn
+
+        def _build_analysis_log_options(self) -> List[Tuple[str, str]]:
+            """Build `(label, value)` options for analysis log selection."""
+            options: List[Tuple[str, str]] = []
+            logs = self._get_available_log_sessions()
+            selected = self._mode_state.analysis_config.selected_log_dir
+            for path in logs:
+                query = self._get_log_session_query(path)
+                # Extract timestamp portion from dir name (e.g. "20260207_143026")
+                ts = path.name.removeprefix("log_").rsplit("_", 1)[0]
+                if query:
+                    label = f"{ts} — {query[:50]}"
+                else:
+                    label = path.name
+                if str(path) == selected:
+                    label += " (selected)"
+                options.append((label, str(path)))
+            return options
+
+        @staticmethod
+        def _get_log_session_query(log_dir: Path) -> Optional[str]:
+            """Extract the user query from the first status.json in a log session."""
+            import json
+
+            for status_path in sorted(log_dir.glob("turn_*/attempt_*/status.json")):
+                try:
+                    data = json.loads(status_path.read_text())
+                    question = data.get("meta", {}).get("question", "")
+                    if question:
+                        return question.strip()
+                except Exception:
+                    continue
+            return None
+
+        def _build_analysis_turn_options(self) -> List[Tuple[str, str]]:
+            """Build `(label, value)` options for analysis turn selection."""
+            options: List[Tuple[str, str]] = []
+            selected_log = self._mode_state.analysis_config.selected_log_dir
+            if not selected_log:
+                return options
+            turns = self._get_turn_numbers(Path(selected_log))
+            for turn in turns:
+                options.append((f"turn_{turn}", str(turn)))
+            return options
+
+        def _refresh_analysis_popover_if_visible(self) -> None:
+            """Recompose the analysis popover when it is currently visible."""
+            if not hasattr(self, "_plan_options_popover"):
+                return
+            popover = self._plan_options_popover
+            if "visible" not in popover.classes:
+                return
+            self._update_plan_options_popover_state()
+            popover._initialized = False
+            popover.refresh(recompose=True)
+            self.call_later(popover.show)
+
+        @staticmethod
+        def _get_analysis_report_path(log_dir: str, turn: int) -> Path:
+            """Return the expected ANALYSIS_REPORT.md path for a log session turn."""
+            return Path(log_dir) / f"turn_{turn}" / "ANALYSIS_REPORT.md"
+
+        @staticmethod
+        def _extract_user_query_fragment(question: str) -> str:
+            """Extract the user-facing part of a structured analysis prompt."""
+            if not question:
+                return ""
+
+            text = question.strip()
+            # Analysis prompts often wrap user input as "USER'S ANALYSIS REQUEST: ..."
+            patterns = [
+                r"USER'?S\s+ANALYSIS\s+REQUEST:\s*(.+)",
+                r"USER'?S\s+REQUEST:\s*(.+)",
+            ]
+            for pattern in patterns:
+                match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+                if match:
+                    candidate = match.group(1).strip()
+                    if candidate:
+                        return candidate
+            return text
+
+        @staticmethod
+        def _condense_preview(text: str, max_chars: int = 260) -> str:
+            """Condense multiline text into a short single-line preview."""
+            if not text:
+                return ""
+            single_line = re.sub(r"\s+", " ", text).strip()
+            if len(single_line) <= max_chars:
+                return single_line
+            return single_line[: max_chars - 3].rstrip() + "..."
+
+        @staticmethod
+        def _read_yaml_file(path: Path) -> Dict[str, Any]:
+            """Read a YAML file into a dictionary, returning {} on errors."""
+            if not path.exists():
+                return {}
+            try:
+                import yaml
+
+                data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+                return data if isinstance(data, dict) else {}
+            except Exception:
+                return {}
+
+        @staticmethod
+        def _get_latest_attempt_dir(turn_dir: Path) -> Optional[Path]:
+            """Return latest attempt dir under a turn, or the turn dir for legacy layouts."""
+            if not turn_dir.exists() or not turn_dir.is_dir():
+                return None
+
+            attempts = [p for p in turn_dir.glob("attempt_*") if p.is_dir()]
+            if not attempts:
+                return turn_dir
+
+            def attempt_key(path: Path) -> int:
+                match = re.match(r"attempt_(\d+)$", path.name)
+                return int(match.group(1)) if match else -1
+
+            attempts.sort(key=attempt_key)
+            return attempts[-1]
+
+        def _extract_query_preview_from_attempt(self, attempt_dir: Path) -> Optional[str]:
+            """Extract query preview from status/metadata/system logs."""
+            if not attempt_dir.exists():
+                return None
+
+            status_candidates = [attempt_dir / "status.json"]
+            metadata_candidates = [attempt_dir / "execution_metadata.yaml"]
+            system_status_candidates = [attempt_dir / "agent_outputs" / "system_status.txt"]
+
+            if attempt_dir.name.startswith("attempt_"):
+                status_candidates.append(attempt_dir.parent / "status.json")
+                metadata_candidates.append(attempt_dir.parent / "execution_metadata.yaml")
+                system_status_candidates.append(attempt_dir.parent / "agent_outputs" / "system_status.txt")
+
+            # 1) status.json -> meta.question (preferred during active/attempt-based runs)
+            for status_path in status_candidates:
+                if not status_path.exists():
+                    continue
+                try:
+                    status_data = json.loads(status_path.read_text(encoding="utf-8"))
+                    question = status_data.get("meta", {}).get("question")
+                    if isinstance(question, str) and question.strip():
+                        question = self._extract_user_query_fragment(question)
+                        return self._condense_preview(question)
+                except Exception:
+                    continue
+
+            # 2) execution_metadata.yaml -> query
+            for metadata_path in metadata_candidates:
+                metadata = self._read_yaml_file(metadata_path)
+                query = metadata.get("query")
+                if isinstance(query, str) and query.strip():
+                    query = self._extract_user_query_fragment(query)
+                    return self._condense_preview(query)
+
+            # 3) system_status.txt fallback (legacy logs may only have this)
+            for system_status_path in system_status_candidates:
+                if not system_status_path.exists():
+                    continue
+                try:
+                    content = system_status_path.read_text(encoding="utf-8", errors="ignore")
+                except Exception:
+                    continue
+                match = re.search(r"^\s*(?:Question|Query)\s*:\s*(.+)$", content, re.IGNORECASE | re.MULTILINE)
+                if match:
+                    query = self._extract_user_query_fragment(match.group(1))
+                    if query:
+                        return self._condense_preview(query)
+
+            return None
+
+        @staticmethod
+        def _extract_winner_from_status(status_data: Dict[str, Any]) -> Optional[str]:
+            """Extract winner agent id from status payload."""
+            if not status_data:
+                return None
+
+            results = status_data.get("results", {})
+            winner = results.get("winner")
+            if isinstance(winner, str) and winner.strip():
+                return winner.strip()
+
+            details = status_data.get("finish_reason_details")
+            if isinstance(details, str):
+                match = re.search(r"Winner:\s*([A-Za-z0-9_.-]+)", details)
+                if match:
+                    return match.group(1)
+            return None
+
+        def _extract_final_answer_preview_from_attempt(self, attempt_dir: Path) -> Optional[str]:
+            """Extract final answer preview if final/ exists for the selected target."""
+            if not attempt_dir.exists():
+                return None
+
+            final_dir_candidates = [attempt_dir / "final"]
+            status_candidates = [attempt_dir / "status.json"]
+
+            if attempt_dir.name.startswith("attempt_"):
+                final_dir_candidates.append(attempt_dir.parent / "final")
+                status_candidates.append(attempt_dir.parent / "status.json")
+
+            final_dir: Optional[Path] = None
+            for candidate in final_dir_candidates:
+                if candidate.exists() and candidate.is_dir():
+                    final_dir = candidate
+                    break
+
+            # User requested: skip final preview when there is no final/
+            if not final_dir:
+                return None
+
+            status_data: Dict[str, Any] = {}
+            for status_path in status_candidates:
+                if not status_path.exists():
+                    continue
+                try:
+                    status_data = json.loads(status_path.read_text(encoding="utf-8"))
+                    break
+                except Exception:
+                    continue
+
+            candidates: List[Path] = []
+            winner = self._extract_winner_from_status(status_data)
+            if winner:
+                candidates.append(final_dir / winner / "answer.txt")
+            candidates.extend(sorted(final_dir.glob("*/answer.txt")))
+
+            seen: Set[Path] = set()
+            for answer_path in candidates:
+                if answer_path in seen:
+                    continue
+                seen.add(answer_path)
+                if not answer_path.exists():
+                    continue
+                try:
+                    answer = answer_path.read_text(encoding="utf-8", errors="ignore").strip()
+                except Exception:
+                    continue
+                if answer:
+                    return self._condense_preview(answer)
+
+            return "unavailable"
+
+        def _build_analysis_preview_text(self, log_dir: Optional[str], turn: Optional[int]) -> str:
+            """Build query/final preview text for analysis popover."""
+            if not log_dir or turn is None:
+                return ""
+
+            turn_dir = Path(log_dir) / f"turn_{turn}"
+            attempt_dir = self._get_latest_attempt_dir(turn_dir)
+            if not attempt_dir:
+                return ""
+
+            parts: List[str] = []
+            query_preview = self._extract_query_preview_from_attempt(attempt_dir)
+            if query_preview:
+                parts.append(f"Query: {query_preview}")
+
+            final_preview = self._extract_final_answer_preview_from_attempt(attempt_dir)
+            if final_preview:
+                parts.append(f"Final: {final_preview}")
+
+            return "\n".join(parts)
 
         def _enter_execute_mode(self) -> None:
             """Enter execute mode and show plan selector if plans exist.
 
             Called from action_toggle_plan_mode when transitioning from plan → execute.
-            If no plans exist, stays in plan mode and shows a warning.
+            If no plans exist, skips to analysis mode so the user isn't stuck.
             """
             tui_log("_enter_execute_mode - START")
 
@@ -6493,16 +7348,9 @@ Type your question and press Enter to ask the agents.
                 tui_log(f"  -> found {len(plans)} plans")
 
                 if not plans:
-                    # No plans available - stay in plan mode
-                    # Revert mode bar if it was already set to "execute"
-                    if self._mode_bar:
-                        self._mode_bar.set_plan_mode("plan")
-                    self.notify(
-                        "No plans available. Create one first by submitting a query in Plan mode.",
-                        severity="warning",
-                        timeout=3,
-                    )
-                    tui_log("  -> no plans, staying in plan mode")
+                    # No plans available - skip execute and go straight to analysis
+                    tui_log("  -> no plans, skipping to analysis mode")
+                    self._enter_analysis_mode()
                     return
 
                 # Set execute mode
@@ -6629,11 +7477,48 @@ Type your question and press Enter to ask the agents.
                 self.notify(f"Failed to set up plan execution: {e}", severity="error", timeout=3)
                 return None
 
+        def _setup_analysis_submission(self, user_text: str) -> str:
+            """Prepare analysis request text for submission.
+
+            Empty analysis submissions use a default request so users can press Enter
+            (matching execute mode ergonomics).
+
+            Args:
+                user_text: User-provided analysis request text (may be empty).
+
+            Returns:
+                Analysis request text to submit.
+            """
+            cleaned = (user_text or "").strip()
+
+            # Snapshot skill directories before analysis for new-skill detection.
+            if self._mode_state.analysis_config.profile == "user":
+                self._mode_state.analysis_config._pre_analysis_skill_dirs = self._snapshot_skill_dirs()
+
+            if cleaned:
+                return cleaned
+
+            # Keep defaults in sync before submission.
+            self._ensure_analysis_defaults()
+
+            profile = self._mode_state.analysis_config.profile
+            if profile == "user":
+                default_request = "Read the logs from this run, understand the workflow that was executed, and create a single reusable skill capturing that workflow."
+            else:
+                default_request = "Analyze this run in depth. Explain what happened, identify likely " "root causes, and recommend concrete MassGen internal improvements."
+
+            self.notify(
+                "Analysis Mode: running default analysis request for selected target",
+                severity="information",
+                timeout=3,
+            )
+            return default_request
+
         def _handle_plan_mode_change(self, mode: str) -> None:
             """Handle plan mode toggle.
 
             Args:
-                mode: "normal", "plan", or "execute".
+                mode: "normal", "plan", "execute", or "analysis".
             """
             tui_log(f"_handle_plan_mode_change: {mode}")
 
@@ -6647,6 +7532,8 @@ Type your question and press Enter to ask the agents.
                 # Note: The mode bar already shows "execute", but _enter_execute_mode
                 # may revert to "plan" if no plans exist
                 self._enter_execute_mode()
+            elif mode == "analysis":
+                self._enter_analysis_mode()
             elif mode == "normal":
                 self._mode_state.reset_plan_state()
                 if self._mode_bar:
@@ -6658,6 +7545,24 @@ Type your question and press Enter to ask the agents.
                 if hasattr(self, "question_input"):
                     self.question_input.placeholder = "Enter to submit • Shift+Enter for newline • @ for files • Ctrl+G help"
                 self.notify("Plan Mode: OFF", severity="information", timeout=2)
+
+        def _enter_analysis_mode(self) -> None:
+            """Enter log analysis mode."""
+            self._mode_state.plan_mode = "analysis"
+            if self._mode_bar:
+                self._mode_bar.set_plan_mode("analysis")
+            if hasattr(self, "question_input"):
+                self.question_input.placeholder = "Enter to analyze selected log • or describe what to analyze • Shift+Enter newline • @ for files • ⋮ for analysis options"
+            # Ensure default analysis target/profile are populated.
+            self._ensure_analysis_defaults()
+            # Always show the analysis options popover so the user can
+            # pick profile/log/turn immediately.
+            if hasattr(self, "_plan_options_popover"):
+                self._update_plan_options_popover_state()
+                self._plan_options_popover._initialized = False
+                self._plan_options_popover.refresh(recompose=True)
+                self.call_later(self._plan_options_popover.show)
+            self.notify("Analysis Mode: ON - Dev/User profile and log target in ⋮", severity="information", timeout=3)
 
         def _handle_agent_mode_change(self, mode: str) -> None:
             """Handle agent mode toggle.
@@ -6706,11 +7611,45 @@ Type your question and press Enter to ask the agents.
                 )
             else:
                 if self._tab_bar:
-                    self._tab_bar.set_agent_subtasks({})
+                    if self._mode_state.parallel_personas_enabled:
+                        self._tab_bar.set_agent_personas(self._runtime_parallel_personas)
+                    else:
+                        self._tab_bar.set_agent_subtasks({})
                 self.notify(
                     "Coordination: Parallel (agents solve the same task and vote)",
                     severity="information",
                     timeout=3,
+                )
+
+        def _handle_parallel_persona_mode_change(self, enabled: bool) -> None:
+            """Handle parallel persona generation toggle."""
+            tui_log(f"_handle_parallel_persona_mode_change: {enabled}")
+            self._mode_state.parallel_personas_enabled = enabled
+
+            if self._tab_bar and self._mode_state.coordination_mode == "parallel":
+                if enabled:
+                    self._tab_bar.set_agent_personas(self._runtime_parallel_personas)
+                else:
+                    self._tab_bar.set_agent_subtasks({})
+
+            if enabled:
+                if self._mode_state.coordination_mode == "parallel":
+                    self.notify(
+                        "Parallel Personas: ON (generate + display per-agent personas before coordination)",
+                        severity="information",
+                        timeout=3,
+                    )
+                else:
+                    self.notify(
+                        "Parallel Personas: ON (will apply when coordination mode is Parallel)",
+                        severity="information",
+                        timeout=3,
+                    )
+            else:
+                self.notify(
+                    "Parallel Personas: OFF",
+                    severity="warning",
+                    timeout=2,
                 )
 
         def _update_agent_panels_in_use_state(self, selected_agent: Optional[str]) -> None:
@@ -6750,7 +7689,7 @@ Type your question and press Enter to ask the agents.
 
         @keyboard_action
         def action_toggle_plan_mode(self) -> None:
-            """Toggle plan mode: normal → plan → execute → normal (Shift+Tab shortcut)."""
+            """Toggle mode: normal -> plan -> execute -> analysis -> normal (Shift+Tab)."""
             tui_log("action_toggle_plan_mode")
 
             # Block during execution (keyboard_action decorator handles this,
@@ -6773,7 +7712,10 @@ Type your question and press Enter to ask the agents.
                 # plan → execute (show plan selector if plans exist)
                 self._enter_execute_mode()
             elif self._mode_state.plan_mode == "execute":
-                # execute → normal
+                # execute -> analysis
+                self._enter_analysis_mode()
+            elif self._mode_state.plan_mode == "analysis":
+                # analysis -> normal
                 self._mode_state.reset_plan_state()
                 if self._mode_bar:
                     self._mode_bar.set_plan_mode("normal")
@@ -6907,7 +7849,7 @@ Type your question and press Enter to ask the agents.
 
         def on_button_pressed(self, event: Button.Pressed) -> None:
             """Handle button clicks in main app."""
-            if event.button.id == "cancel_button":
+            if event.button.id == "turn_cancel_button":
                 # Trigger cancellation (same as Ctrl+C)
                 self.coordination_display.request_cancellation()
                 self.notify("Cancelling turn...", severity="warning", timeout=2)
@@ -7174,7 +8116,7 @@ Type your question and press Enter to ask the agents.
                 self.notify("No answers yet - workspaces available after agents submit", severity="warning", timeout=3)
                 return
 
-            self._show_modal_async(
+            self._present_workspace_browser_modal(
                 WorkspaceBrowserModal(
                     answers=self._answers,
                     agent_ids=self.coordination_display.agent_ids,
@@ -7183,20 +8125,37 @@ Type your question and press Enter to ask the agents.
                 ),
             )
 
-        def _show_workspace_browser_for_agent(self, agent_id: str):
+        def _show_workspace_browser_for_agent(
+            self,
+            agent_id: str,
+            preferred_final_workspace: Optional[str] = None,
+        ):
             """Open workspace browser focused on the winning agent's final workspace.
 
             Args:
                 agent_id: The agent ID to show workspace for (typically the winner)
+                preferred_final_workspace: Optional already-resolved final workspace path
+                    for the agent. When provided, avoids rescanning log directories.
             """
             from pathlib import Path
 
+            started_total = time.perf_counter()
             # Get current workspace paths for ALL agents
             agent_workspace_paths: Dict[str, str] = {}
             final_workspace_paths: Dict[str, str] = {}
             orchestrator = getattr(self.coordination_display, "orchestrator", None)
 
+            if preferred_final_workspace:
+                preferred_path = Path(preferred_final_workspace)
+                if preferred_path.exists():
+                    final_workspace_paths[agent_id] = str(preferred_path)
+                    if self._timing_debug:
+                        tui_log(
+                            "[TIMING] WorkspaceBrowser.reuse_preferred_final_workspace " f"0.0ms agent={agent_id}",
+                        )
+
             if orchestrator:
+                started_collect = time.perf_counter()
                 # Get current workspaces
                 for aid, agent in getattr(orchestrator, "agents", {}).items():
                     fm = getattr(getattr(agent, "backend", None), "filesystem_manager", None)
@@ -7204,10 +8163,16 @@ Type your question and press Enter to ask the agents.
                         workspace = getattr(fm, "get_current_workspace", lambda: None)()
                         if workspace:
                             agent_workspace_paths[aid] = str(workspace)
+                if self._timing_debug:
+                    tui_log(
+                        "[TIMING] WorkspaceBrowser.collect_current_workspaces " f"{(time.perf_counter() - started_collect) * 1000.0:.1f}ms " f"count={len(agent_workspace_paths)}",
+                    )
 
-                # Scan for final workspaces in log directory
+                # Scan for final workspaces in log directory (unless we already
+                # received a resolved path from the final-answer card).
                 log_dir = getattr(orchestrator, "log_session_dir", None)
-                if log_dir:
+                if log_dir and not final_workspace_paths:
+                    started_scan = time.perf_counter()
                     log_path = Path(log_dir)
 
                     def scan_for_final(base_dir: Path) -> Dict[str, str]:
@@ -7233,6 +8198,10 @@ Type your question and press Enter to ask the agents.
                                     break
                             if final_workspace_paths:
                                 break
+                    if self._timing_debug:
+                        tui_log(
+                            "[TIMING] WorkspaceBrowser.scan_final_workspaces " f"{(time.perf_counter() - started_scan) * 1000.0:.1f}ms " f"count={len(final_workspace_paths)}",
+                        )
 
             # Merge final workspaces into agent_workspace_paths with special key
             # The modal will detect keys ending with "-final" as final workspaces
@@ -7242,9 +8211,13 @@ Type your question and press Enter to ask the agents.
 
             if not self._answers and not agent_workspace_paths and not agent_final_paths:
                 self.notify("No workspace available yet", severity="warning", timeout=3)
+                if self._timing_debug:
+                    tui_log(
+                        "[TIMING] WorkspaceBrowser.open " f"{(time.perf_counter() - started_total) * 1000.0:.1f}ms result=no_workspace",
+                    )
                 return
 
-            self._show_modal_async(
+            self._present_workspace_browser_modal(
                 WorkspaceBrowserModal(
                     answers=self._answers,
                     agent_ids=self.coordination_display.agent_ids,
@@ -7254,6 +8227,47 @@ Type your question and press Enter to ask the agents.
                     default_to_final=True,
                 ),
             )
+            if self._timing_debug:
+                tui_log(
+                    "[TIMING] WorkspaceBrowser.open "
+                    f"{(time.perf_counter() - started_total) * 1000.0:.1f}ms "
+                    f"answers={len(self._answers)} current={len(agent_workspace_paths)} final={len(agent_final_paths)}",
+                )
+
+        def _present_workspace_browser_modal(self, modal: WorkspaceBrowserModal) -> bool:
+            """Open workspace browser once, suppressing duplicate open bursts."""
+            now = time.monotonic()
+            # Ignore rapid repeated requests before the first modal appears.
+            if now - self._workspace_browser_last_request_at < 0.4:
+                if self._timing_debug:
+                    tui_log("[TIMING] WorkspaceBrowser.open suppressed=throttled")
+                return False
+            if self._workspace_browser_open_pending:
+                if self._timing_debug:
+                    tui_log("[TIMING] WorkspaceBrowser.open suppressed=pending")
+                return False
+
+            # If a workspace modal is already on stack, don't push another.
+            try:
+                if any(isinstance(screen, WorkspaceBrowserModal) for screen in self.screen_stack):
+                    if self._timing_debug:
+                        tui_log("[TIMING] WorkspaceBrowser.open suppressed=already_open")
+                    return False
+            except Exception:
+                pass
+
+            self._workspace_browser_open_pending = True
+            self._workspace_browser_last_request_at = now
+
+            def _on_dismiss(_result: Any = None) -> None:
+                self._workspace_browser_open_pending = False
+
+            try:
+                self.push_screen(modal, _on_dismiss)
+                return True
+            except Exception:
+                self._workspace_browser_open_pending = False
+                raise
 
         def action_open_unified_browser(self):
             """Open unified browser modal with tabs for Answers, Votes, Workspace, Timeline."""
@@ -8064,6 +9078,7 @@ Type your question and press Enter to ask the agents.
             - f: Final presentation / files
             - c: Cost breakdown
             - m: MCP status / metrics
+            - k: Skills manager
             - a: Answer browser
             - t: Timeline
             - h or ?: Help/shortcuts
@@ -8127,6 +9142,12 @@ Type your question and press Enter to ask the agents.
             # m - MCP status or metrics
             if key_lower == "m":
                 self.action_open_mcp_status()
+                event.stop()
+                return True
+
+            # k - Skills manager
+            if key_lower == "k":
+                self._show_skills_modal()
                 event.stop()
                 return True
 
@@ -8259,6 +9280,180 @@ Type your question and press Enter to ask the agents.
                     self.coordination_display.agent_ids,
                 ),
             )
+
+        @staticmethod
+        def _normalize_skill_name_list(skill_names: List[str]) -> List[str]:
+            """Normalize and deduplicate skill names while preserving order."""
+            seen: Set[str] = set()
+            normalized: List[str] = []
+            for name in skill_names:
+                cleaned = (name or "").strip()
+                if not cleaned:
+                    continue
+                key = cleaned.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                normalized.append(cleaned)
+            return normalized
+
+        def _collect_skill_inventory(self) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+            """Collect available skills grouped into default vs created lists."""
+            from massgen.filesystem_manager.skills_manager import scan_skills
+            from massgen.logs_analyzer import get_logs_dir
+
+            skills_dir = Path(".agent/skills")
+            logs_dir = get_logs_dir()
+            all_skills = scan_skills(skills_dir, logs_dir=logs_dir if logs_dir.exists() else None)
+
+            # Keep first instance per name to avoid duplicates across sources.
+            deduped: List[Dict[str, Any]] = []
+            seen: Set[str] = set()
+            for skill in all_skills:
+                name = str(skill.get("name", "")).strip()
+                if not name:
+                    continue
+                key = name.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                deduped.append(skill)
+
+            default_skills = sorted(
+                [s for s in deduped if s.get("location") == "builtin"],
+                key=lambda s: str(s.get("name", "")).lower(),
+            )
+            created_skills = sorted(
+                [s for s in deduped if s.get("location") != "builtin"],
+                key=lambda s: str(s.get("name", "")).lower(),
+            )
+            return default_skills, created_skills
+
+        def _show_skills_modal(self) -> None:
+            """Show session skill manager modal."""
+            default_skills, created_skills = self._collect_skill_inventory()
+            current_enabled = self._mode_state.analysis_config.get_enabled_skill_names()
+
+            modal = SkillsModal(
+                default_skills=default_skills,
+                created_skills=created_skills,
+                enabled_skill_names=current_enabled,
+            )
+
+            def _on_skills_dismiss(result: Optional[List[str]]) -> None:
+                if result is None:
+                    return
+
+                selected = self._normalize_skill_name_list(result)
+                discovered = self._normalize_skill_name_list(
+                    [str(s.get("name", "")) for s in default_skills + created_skills],
+                )
+
+                selected_set = {name.lower() for name in selected}
+                discovered_set = {name.lower() for name in discovered}
+
+                if discovered and selected_set == discovered_set:
+                    # None = unfiltered; automatically includes newly discovered skills.
+                    self._mode_state.analysis_config.enabled_skill_names = None
+                    enabled_count = len(discovered)
+                    self.notify(f"Skills enabled: all {enabled_count} discovered", severity="information", timeout=3)
+                else:
+                    self._mode_state.analysis_config.enabled_skill_names = selected
+                    self.notify(f"Skills enabled: {len(selected)}", severity="information", timeout=3)
+
+            self.push_screen(modal, _on_skills_dismiss)
+
+        @staticmethod
+        def _snapshot_skill_dirs() -> set:
+            """Return set of directory names in .agent/skills/ that contain a SKILL.md."""
+            skills_root = Path(".agent") / "skills"
+            if not skills_root.is_dir():
+                return set()
+            return {d.name for d in skills_root.iterdir() if d.is_dir() and (d / "SKILL.md").is_file()}
+
+        def _detect_new_skills_from_analysis(self) -> None:
+            """Harvest skills from agent workspaces and copy to project .agent/skills/.
+
+            After an analysis run with the "user" profile, agents may have created
+            SKILL.md files inside their workspace (e.g. final/agent_*/workspace/.agent/skills/*/).
+            This method copies those to the project-root skills directory so they
+            are discoverable by future runs.
+            """
+            if self._mode_state.plan_mode != "analysis":
+                return
+            if self._mode_state.analysis_config.profile != "user":
+                return
+
+            try:
+                self._harvest_skills_from_workspace()
+            finally:
+                # Clear snapshot after detection.
+                self._mode_state.analysis_config._pre_analysis_skill_dirs = None
+
+        def _harvest_skills_from_workspace(self) -> None:
+            """Copy new SKILL.md dirs from agent workspaces to .agent/skills/."""
+            import shutil
+
+            from massgen.logger_config import get_log_session_dir
+
+            project_skills_root = Path(".agent") / "skills"
+            pre_snapshot = self._mode_state.analysis_config._pre_analysis_skill_dirs or set()
+
+            # Find SKILL.md files in agent workspaces
+            log_dir = get_log_session_dir()
+            final_dir = log_dir / "final"
+            if not final_dir.exists():
+                tui_log("[SkillHarvest] No final/ directory found")
+                return
+
+            harvested: list[str] = []
+            for skill_md in final_dir.glob("agent_*/workspace/.agent/skills/*/SKILL.md"):
+                skill_dir = skill_md.parent
+                skill_name = skill_dir.name
+
+                # Skip if it already existed before analysis
+                if skill_name in pre_snapshot:
+                    continue
+
+                dest = project_skills_root / skill_name
+                if dest.exists():
+                    # Don't overwrite existing project skills
+                    continue
+
+                try:
+                    project_skills_root.mkdir(parents=True, exist_ok=True)
+                    shutil.copytree(str(skill_dir), str(dest))
+                    harvested.append(skill_name)
+                    tui_log(f"[SkillHarvest] Copied {skill_name} to {dest}")
+                except Exception as e:
+                    tui_log(f"[SkillHarvest] Failed to copy {skill_name}: {e}")
+
+            if not harvested:
+                return
+
+            from massgen.filesystem_manager.skills_manager import parse_frontmatter
+
+            display_names = []
+            for dirname in harvested:
+                skill_path = project_skills_root / dirname / "SKILL.md"
+                try:
+                    content = skill_path.read_text(encoding="utf-8")
+                    metadata = parse_frontmatter(content)
+                    display_names.append(metadata.get("name", dirname))
+                except Exception:
+                    display_names.append(dirname)
+
+            names_str = ", ".join(display_names)
+            self.notify(
+                f"Skill(s) installed: {names_str}",
+                severity="information",
+                timeout=5,
+            )
+
+            # Auto-add to enabled filter if one is active.
+            enabled = self._mode_state.analysis_config.get_enabled_skill_names()
+            if enabled is not None:
+                self._mode_state.analysis_config.enabled_skill_names = self._normalize_skill_name_list(enabled + display_names)
 
         def _show_file_inspection_modal(self):
             """Display file inspection modal with tree view."""
