@@ -7289,6 +7289,15 @@ Type your question and press Enter to ask the agents.
             """Handle plan selection from popover."""
             tui_log(f"on_plan_selected: plan_id={event.plan_id}, is_new={event.is_new}")
 
+            requested_plan_id = None if event.plan_id in (None, "", "latest") else event.plan_id
+            current_plan_id = None if self._mode_state.selected_plan_id in (None, "", "latest") else self._mode_state.selected_plan_id
+
+            # Ignore no-op selections emitted during recompose/initialization.
+            if not event.is_new and requested_plan_id == current_plan_id:
+                tui_log("  -> no-op plan selection, ignoring")
+                event.stop()
+                return
+
             # Block during execution
             if self._mode_state.is_locked():
                 tui_log("  -> BLOCKED: execution in progress")
@@ -7300,10 +7309,10 @@ Type your question and press Enter to ask the agents.
                 # User wants to create a new plan
                 self._mode_state.selected_plan_id = None
                 self.notify("Will create new plan on next query", severity="information", timeout=2)
-            elif event.plan_id:
+            elif requested_plan_id:
                 # Specific plan selected
-                self._mode_state.selected_plan_id = event.plan_id
-                self.notify(f"Selected plan: {event.plan_id[:15]}...", severity="information", timeout=2)
+                self._mode_state.selected_plan_id = requested_plan_id
+                self.notify(f"Selected plan: {requested_plan_id[:15]}...", severity="information", timeout=2)
             else:
                 # Latest plan (auto) - don't notify on initial load
                 self._mode_state.selected_plan_id = None

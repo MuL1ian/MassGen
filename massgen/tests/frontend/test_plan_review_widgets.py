@@ -39,6 +39,16 @@ class _SelectEvent:
         self.value = value
 
 
+class _PlanSelectedEvent:
+    def __init__(self, plan_id, is_new: bool = False) -> None:
+        self.plan_id = plan_id
+        self.is_new = is_new
+        self.stopped = False
+
+    def stop(self) -> None:
+        self.stopped = True
+
+
 class _DummyPlan:
     def __init__(
         self,
@@ -322,6 +332,61 @@ def test_plan_options_emits_execute_mode_setting_messages():
     assert posted[0].enabled is False
     assert isinstance(posted[1], ExecuteRefinementModeChanged)
     assert posted[1].mode == "off"
+
+
+def test_plan_options_ignores_noop_plan_selector_change_in_execute_mode(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "plan.json").write_text(
+        json.dumps({"tasks": [{"id": "T001", "chunk": "C01", "status": "pending"}]}),
+    )
+    plan = _DummyPlan("plan_1", workspace, status="ready")
+
+    popover = PlanOptionsPopover(
+        plan_mode="execute",
+        available_plans=[plan],
+        current_plan_id=plan.plan_id,
+    )
+    popover._initialized = True
+    popover._update_plan_details = lambda *_args, **_kwargs: None
+    popover.refresh = lambda *_args, **_kwargs: None
+    popover.call_later = lambda *_args, **_kwargs: None
+
+    posted = []
+    popover.post_message = lambda message: posted.append(message)
+
+    popover.on_select_changed(_SelectEvent("plan_selector", "plan_1"))
+
+    assert posted == []
+
+
+def test_on_plan_selected_ignores_noop_event_while_locked():
+    notifications = []
+    event = _PlanSelectedEvent("plan_1", is_new=False)
+    app = SimpleNamespace(
+        _mode_state=SimpleNamespace(is_locked=lambda: True, selected_plan_id="plan_1"),
+        notify=lambda message, **kwargs: notifications.append((message, kwargs)),
+    )
+
+    textual_display_module.TextualApp.on_plan_selected(app, event)
+
+    assert notifications == []
+    assert event.stopped is True
+
+
+def test_on_plan_selected_blocks_real_change_while_locked():
+    notifications = []
+    event = _PlanSelectedEvent("plan_2", is_new=False)
+    app = SimpleNamespace(
+        _mode_state=SimpleNamespace(is_locked=lambda: True, selected_plan_id="plan_1"),
+        notify=lambda message, **kwargs: notifications.append((message, kwargs)),
+    )
+
+    textual_display_module.TextualApp.on_plan_selected(app, event)
+
+    assert len(notifications) == 1
+    assert notifications[0][0] == "Cannot change plan selection during execution."
+    assert event.stopped is True
 
 
 def test_submit_question_queues_input_during_execution_without_bypass():

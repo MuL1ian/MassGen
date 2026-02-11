@@ -1026,7 +1026,15 @@ class PlanOptionsPopover(Widget):
 
         if selector_id == "plan_selector":
             value = str(event.value)
-            self._current_plan_id = None if value == "latest" else value
+            next_plan_id = None if value == "latest" else value
+
+            # Textual can emit Changed events when a Select is recomposed with the
+            # same value. Treat those as no-ops to avoid message/recompose loops.
+            if next_plan_id == self._current_plan_id:
+                _popover_log("  -> ignoring no-op plan_selector change")
+                return
+
+            self._current_plan_id = next_plan_id
 
             # Update plan details display
             self._update_plan_details(value)
