@@ -312,7 +312,8 @@ class Orchestrator(ChatAgent):
         self._fairness_block_log_states: Dict[str, Tuple[int, int]] = {}
 
         # Per-round worktree tracking: {agent_id: branch_name}
-        # Each agent has exactly ONE branch alive at a time (one-branch-per-agent invariant)
+        # Tracks the LATEST branch for each agent. Old branches accumulate
+        # across rounds (not deleted mid-session) for cross-agent diff visibility.
         self._agent_current_branches: Dict[str, str] = {}
         # Per-round isolation managers: {agent_id: IsolationContextManager}
         self._round_isolation_managers: Dict[str, "IsolationContextManager"] = {}
@@ -555,6 +556,41 @@ class Orchestrator(ChatAgent):
 
         # Initialize checklist MCP tool if using tool-gated mode
         self._init_checklist_tool()
+        self._seed_plan_execution_workspaces(context="orchestrator_init")
+
+    def _seed_plan_execution_workspaces(self, context: str) -> None:
+        """Seed execute-mode plan artifacts into agent workspaces."""
+        if not self._plan_session_id:
+            return
+
+        try:
+            from .plan_execution import setup_agent_workspaces_for_execution
+            from .plan_storage import PlanSession
+
+            plan_session = PlanSession(self._plan_session_id)
+            task_count = setup_agent_workspaces_for_execution(
+                self.agents,
+                plan_session,
+            )
+            if task_count > 0:
+                logger.info(
+                    "[Orchestrator] Seeded plan execution workspace (%s, plan_session=%s, tasks=%d)",
+                    context,
+                    self._plan_session_id,
+                    task_count,
+                )
+            else:
+                logger.warning(
+                    "[Orchestrator] Plan execution workspace seed produced no tasks (%s, plan_session=%s)",
+                    context,
+                    self._plan_session_id,
+                )
+        except Exception:
+            logger.exception(
+                "[Orchestrator] Failed to seed plan execution workspace (%s, plan_session=%s)",
+                context,
+                self._plan_session_id,
+            )
 
     def _init_checklist_tool(self) -> None:
         """Register submit_checklist MCP tool if voting_sensitivity is checklist_gated.
@@ -3344,6 +3380,24 @@ Your answer:"""
                 "has_context": conversation_context is not None,
             },
         )
+
+        # Clean up orphaned massgen/* branches from previous crashed sessions
+        coordination_config = getattr(self.config, "coordination_config", None)
+        _wm = getattr(coordination_config, "write_mode", None) if coordination_config else None
+        if _wm and _wm != "legacy":
+            from .filesystem_manager import IsolationContextManager
+
+            for agent_id_cleanup, agent_cleanup in self.agents.items():
+                if hasattr(agent_cleanup, "backend") and hasattr(agent_cleanup.backend, "filesystem_manager") and agent_cleanup.backend.filesystem_manager:
+                    ppm = agent_cleanup.backend.filesystem_manager.path_permission_manager
+                    ctx_paths = ppm.get_context_paths() if ppm else []
+                    for ctx_config in ctx_paths:
+                        ctx_path = ctx_config.get("path", "")
+                        if ctx_path:
+                            cleaned = IsolationContextManager.cleanup_orphaned_branches(ctx_path)
+                            if cleaned:
+                                logger.info(f"[Orchestrator] Cleaned {cleaned} orphaned branches in {ctx_path}")
+                            break  # Only need to clean once per repo
 
         # Generate and inject personas if enabled (happens once per session)
         if (
@@ -7078,13 +7132,11 @@ Your answer:"""
 
                 workspace_path = str(agent.backend.filesystem_manager.get_current_workspace())
                 round_suffix = secrets.token_hex(4)
-                previous_branch = self._agent_current_branches.get(agent_id)
 
                 round_isolation_mgr = IsolationContextManager(
                     session_id=f"{self.session_id}-{round_suffix}",
                     write_mode=write_mode,
                     workspace_path=workspace_path,
-                    previous_branch=previous_branch,
                 )
 
                 # Check for explicit context paths to create worktrees for
@@ -7182,6 +7234,14 @@ Your answer:"""
             _branch_agent_mapping = self.coordination_tracker.get_reverse_agent_mapping()
             other_agent_branches = {_branch_agent_mapping.get(aid, aid): branch for aid, branch in self._agent_current_branches.items() if aid != agent_id and branch}
 
+            # Generate diff summaries for other agents' branches (passive code visibility)
+            branch_diff_summaries = None
+            if other_agent_branches and agent_id in self._round_isolation_managers:
+                round_iso = self._round_isolation_managers[agent_id]
+                branch_diff_summaries = round_iso.generate_branch_summaries(other_agent_branches)
+                if branch_diff_summaries:
+                    logger.info(f"[Orchestrator] Generated diff summaries for {agent_id}: {list(branch_diff_summaries.keys())}")
+
             system_message = self._get_system_message_builder().build_coordination_message(
                 agent=agent,
                 agent_id=agent_id,
@@ -7207,6 +7267,7 @@ Your answer:"""
                 worktree_paths=round_worktree_paths,
                 branch_name=agent_branch,
                 other_branches=other_agent_branches if other_agent_branches else None,
+                branch_diff_summaries=branch_diff_summaries,
             )
 
             # Update checklist tool state if registered (mutable dict — tool closure reads this)
@@ -11455,17 +11516,16 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                         f"[Orchestrator] Cleared workspace for {agent_id}: {workspace_path}",
                     )
 
-                    # Check if this is a plan→execute transition
-                    # For plan execution, we want a clean workspace (planning artifacts in context only)
-                    skip_workspace_copy = False
-                    if self._plan_session_id:
-                        skip_workspace_copy = True
-                        logger.info(
-                            f"[Orchestrator] Skipping workspace pre-population for plan execution (plan_session: {self._plan_session_id})",
-                        )
-
-                    # Pre-populate with previous turn's results if available (creates writable copy)
-                    if not skip_workspace_copy and previous_turn_workspace and previous_turn_workspace.exists():
+                    # Pre-populate with previous turn's results if available (creates writable copy).
+                    # In execute mode, this preserves chunk-to-chunk workspace continuity.
+                    if previous_turn_workspace and previous_turn_workspace.exists():
+                        if self._plan_session_id:
+                            logger.info(
+                                "[Orchestrator] Plan execution mode: restoring previous chunk " "workspace for %s from %s (plan_session: %s)",
+                                agent_id,
+                                previous_turn_workspace,
+                                self._plan_session_id,
+                            )
                         logger.info(
                             f"[Orchestrator] Pre-populating {agent_id} workspace with writable copy of turn n-1 from {previous_turn_workspace}",
                         )
@@ -11484,6 +11544,14 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                         logger.info(
                             f"[Orchestrator] Pre-populated {agent_id} workspace with writable copy of turn n-1",
                         )
+                    elif self._plan_session_id:
+                        logger.info(
+                            "[Orchestrator] Plan execution mode: no previous turn workspace " "available to restore (plan_session: %s)",
+                            self._plan_session_id,
+                        )
+
+        # In plan execution mode, workspace clear removes tasks/plan.json; re-seed immediately.
+        self._seed_plan_execution_workspaces(context="workspace_clear")
 
     def _archive_agent_memories(self, agent_id: str, workspace_path: Path) -> None:
         """

@@ -35,6 +35,7 @@ from .coordination_modals import (
 )
 from .input_modals import (
     BroadcastPromptModal,
+    ChunkAdvanceModal,
     DecompositionGenerationModal,
     DecompositionSubtasksModal,
     StructuredBroadcastPromptModal,
@@ -73,6 +74,7 @@ __all__ = [
     "TurnDetailModal",
     # Input modals
     "BroadcastPromptModal",
+    "ChunkAdvanceModal",
     "DecompositionGenerationModal",
     "DecompositionSubtasksModal",
     "StructuredBroadcastPromptModal",

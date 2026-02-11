@@ -338,8 +338,8 @@ class TestBranchLifecycle:
         assert branch_name == "presenter", f"Expected 'presenter', got {branch_name}"
         icm.cleanup_all()
 
-    def test_previous_branch_deleted_on_new_round(self, tmp_path):
-        """Verify old branch is deleted when new round creates a new branch."""
+    def test_branches_accumulate_across_rounds(self, tmp_path):
+        """Verify old branches are kept when new rounds create new branches."""
         repo_path = tmp_path / "repo"
         repo_path.mkdir()
         repo = init_test_repo(repo_path)
@@ -363,18 +363,20 @@ class TestBranchLifecycle:
         branches = [b.name for b in repo.branches]
         assert old_branch in branches
 
-        # Round 2 with previous_branch set
+        # Round 2 — branches now accumulate (no previous_branch deletion)
         icm2 = IsolationContextManager(
             session_id="test-round2",
             write_mode="worktree",
             workspace_path=str(workspace2),
-            previous_branch=old_branch,
         )
         icm2.initialize_context(str(repo_path), agent_id="agent1")
+        new_branch = icm2.get_branch_name(str(repo_path))
 
-        # Old branch should be deleted
+        # Both branches should exist (old is kept for cross-agent diffs)
         branches = [b.name for b in repo.branches]
-        assert old_branch not in branches, f"Previous branch {old_branch} should be deleted"
+        assert old_branch in branches, f"Old branch {old_branch} should be preserved"
+        assert new_branch in branches, f"New branch {new_branch} should exist"
+        assert old_branch != new_branch
         icm2.cleanup_all()
 
 
@@ -540,8 +542,8 @@ class TestWorkspaceScratchNoContextPaths:
         branches = [b.name for b in repo.branches]
         assert branch not in branches, f"Branch {branch} should be deleted after cleanup_session"
 
-    def test_workspace_previous_branch_deleted(self, tmp_path):
-        """Verify previous branch is deleted when new workspace round starts."""
+    def test_workspace_branches_accumulate_across_rounds(self, tmp_path):
+        """Verify workspace branches accumulate across rounds (not deleted mid-session)."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
 
@@ -559,19 +561,20 @@ class TestWorkspaceScratchNoContextPaths:
         repo = Repo(str(workspace))
         assert old_branch in [b.name for b in repo.branches]
 
-        # Round 2 with previous_branch
+        # Round 2 — branches now accumulate (no previous_branch deletion)
         icm2 = IsolationContextManager(
             session_id="test-ws-r2",
             write_mode="auto",
             workspace_path=str(workspace),
-            previous_branch=old_branch,
         )
         icm2.setup_workspace_scratch(str(workspace), agent_id="agent1")
+        new_branch = icm2.get_branch_name(str(workspace))
 
-        # Old branch should be deleted
+        # Both branches should exist
         repo = Repo(str(workspace))
         branches = [b.name for b in repo.branches]
-        assert old_branch not in branches, f"Previous branch {old_branch} should be deleted"
+        assert old_branch in branches, f"Old branch {old_branch} should be preserved"
+        assert new_branch in branches, f"New branch {new_branch} should exist"
         icm2.cleanup_session()
 
     def test_workspace_move_scratch_to_archive(self, tmp_path):
@@ -859,7 +862,7 @@ class TestSystemPromptWriteMode:
 
         assert "Context paths" not in content, "Context paths should be suppressed when worktree_paths set"
         assert "/projects/myrepo" not in content, "Original context path should not appear"
-        assert "Project Checkout" in content, "Worktree section should be present"
+        assert "Project Workspace" in content, "Worktree section should be present"
 
     def test_system_prompt_shows_context_paths_without_worktrees(self):
         """WorkspaceStructureSection shows context paths when no worktree_paths."""
@@ -1103,8 +1106,8 @@ class TestWorkspaceStructureBranchInfo:
         assert "Your work is on branch" not in content
         assert "Other agents' branches" not in content
 
-    def test_workspace_structure_mentions_scratch_archive(self):
-        """Verify WorkspaceStructureSection mentions scratch_archive for prior rounds."""
+    def test_workspace_structure_mentions_scratch_space(self):
+        """Verify WorkspaceStructureSection mentions scratch space."""
         from massgen.system_prompt_sections import WorkspaceStructureSection
 
         section = WorkspaceStructureSection(
@@ -1114,8 +1117,8 @@ class TestWorkspaceStructureBranchInfo:
         )
         content = section.build_content()
 
-        assert ".scratch_archive/" in content
-        assert "prior rounds" in content
+        assert ".massgen_scratch/" in content
+        assert "git-excluded" in content
 
 
 class TestRestartContextBranchInfo:
@@ -1158,3 +1161,215 @@ class TestRestartContextBranchInfo:
         assert "Your previous work is on branch" not in result
         assert "Other agents' branches" not in result
         assert "PREVIOUS ATTEMPT FEEDBACK" in result
+
+
+class TestBranchDiffSummary:
+    """Tests for get_branch_diff_summary() and generate_branch_summaries()."""
+
+    def test_get_branch_diff_summary_with_changes(self, tmp_path):
+        """Verify diff summary returns compact stats and file list."""
+        from massgen.utils.git_utils import get_branch_diff_summary
+
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        repo = init_test_repo(repo_path)
+        default_branch = repo.active_branch.name
+
+        # Create a feature branch with changes
+        repo.git.checkout("-b", "massgen/test123")
+        (repo_path / "new_file.py").write_text("print('hello')")
+        (repo_path / "file.txt").write_text("modified content")
+        repo.index.add(["new_file.py", "file.txt"])
+        repo.index.commit("feature changes")
+        repo.git.checkout(default_branch)
+
+        summary = get_branch_diff_summary(str(repo_path), default_branch, "massgen/test123")
+        assert summary != ""
+        assert "file" in summary
+        assert "+" in summary
+        assert "new_file.py" in summary
+
+    def test_get_branch_diff_summary_no_changes(self, tmp_path):
+        """Verify diff summary is empty when branches are identical."""
+        from massgen.utils.git_utils import get_branch_diff_summary
+
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        repo = init_test_repo(repo_path)
+        default_branch = repo.active_branch.name
+
+        # Create a branch at the same commit
+        repo.git.branch("massgen/same")
+
+        summary = get_branch_diff_summary(str(repo_path), default_branch, "massgen/same")
+        assert summary == ""
+
+    def test_get_branch_diff_summary_invalid_branch(self, tmp_path):
+        """Verify diff summary returns empty string for invalid branch."""
+        from massgen.utils.git_utils import get_branch_diff_summary
+
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        repo = init_test_repo(repo_path)
+        default_branch = repo.active_branch.name
+
+        summary = get_branch_diff_summary(str(repo_path), default_branch, "massgen/nonexistent")
+        assert summary == ""
+
+    def test_generate_branch_summaries_multiple_branches(self, tmp_path):
+        """Verify generate_branch_summaries() returns summaries for all branches."""
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        repo = init_test_repo(repo_path)
+        default_branch = repo.active_branch.name
+
+        # Create 3 branches with different changes
+        for i, name in enumerate(["massgen/aaa", "massgen/bbb", "massgen/ccc"]):
+            repo.git.checkout("-b", name)
+            (repo_path / f"feature_{i}.py").write_text(f"code_{i}")
+            repo.index.add([f"feature_{i}.py"])
+            repo.index.commit(f"feature {i}")
+            repo.git.checkout(default_branch)
+
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        icm = IsolationContextManager(
+            session_id="test-summaries",
+            write_mode="worktree",
+            workspace_path=str(workspace),
+        )
+        # Initialize a context so ICM has a repo path reference
+        icm.initialize_context(str(repo_path), agent_id="agent1")
+
+        branches = {
+            "agent1": "massgen/aaa",
+            "agent2": "massgen/bbb",
+            "agent3": "massgen/ccc",
+        }
+        summaries = icm.generate_branch_summaries(branches, base_ref=default_branch)
+
+        assert len(summaries) == 3, f"Expected 3 summaries, got {len(summaries)}"
+        for label in ["agent1", "agent2", "agent3"]:
+            assert label in summaries
+            assert "file" in summaries[label]
+        icm.cleanup_all()
+
+    def test_generate_branch_summaries_empty_branches(self, tmp_path):
+        """Verify generate_branch_summaries() handles empty branch dict."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        icm = IsolationContextManager(
+            session_id="test-empty",
+            write_mode="worktree",
+            workspace_path=str(workspace),
+        )
+        summaries = icm.generate_branch_summaries({})
+        assert summaries == {}
+
+
+class TestCleanupOrphanedBranches:
+    """Tests for cleanup_orphaned_branches() static method."""
+
+    def test_cleanup_orphaned_branches_deletes_massgen_branches(self, tmp_path):
+        """Verify orphaned massgen/* branches are deleted."""
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        repo = init_test_repo(repo_path)
+
+        # Create some massgen/* branches (simulating crashed session leftovers)
+        for name in ["massgen/abc123", "massgen/def456", "massgen/ghi789"]:
+            repo.git.branch(name)
+
+        branches_before = [b.name for b in repo.branches]
+        assert "massgen/abc123" in branches_before
+
+        deleted = IsolationContextManager.cleanup_orphaned_branches(str(repo_path))
+
+        assert deleted == 3
+        branches_after = [b.name for b in repo.branches]
+        for name in ["massgen/abc123", "massgen/def456", "massgen/ghi789"]:
+            assert name not in branches_after
+
+    def test_cleanup_orphaned_branches_no_massgen_branches(self, tmp_path):
+        """Verify no-op when there are no massgen/* branches."""
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        repo = init_test_repo(repo_path)
+
+        # Create a non-massgen branch
+        repo.git.branch("feature/unrelated")
+
+        deleted = IsolationContextManager.cleanup_orphaned_branches(str(repo_path))
+
+        assert deleted == 0
+        assert "feature/unrelated" in [b.name for b in repo.branches]
+
+    def test_cleanup_orphaned_branches_non_git_path(self, tmp_path):
+        """Verify graceful handling of non-git paths."""
+        non_git = tmp_path / "not_a_repo"
+        non_git.mkdir()
+
+        deleted = IsolationContextManager.cleanup_orphaned_branches(str(non_git))
+        assert deleted == 0
+
+
+class TestDiffSummariesInSystemPrompt:
+    """Tests for diff summaries rendering in WorkspaceStructureSection."""
+
+    def test_workspace_structure_shows_diff_summaries(self):
+        """Verify diff summaries are rendered with branch info."""
+        from massgen.system_prompt_sections import WorkspaceStructureSection
+
+        section = WorkspaceStructureSection(
+            workspace_path="/workspace",
+            context_paths=[],
+            worktree_paths={"/workspace/.worktree/ctx_1": "/projects/repo"},
+            other_branches={"agent1": "massgen/abc123", "agent2": "massgen/def456"},
+            branch_diff_summaries={
+                "agent1": "3 files (+45/-12)\n  M src/auth.py | A src/oauth.py | M tests/test_auth.py",
+                "agent2": "1 file (+22/-5)\n  M src/auth.py",
+            },
+        )
+        content = section.build_content()
+
+        assert "Other agents' code changes" in content
+        assert "3 files (+45/-12)" in content
+        assert "M src/auth.py" in content
+        assert "1 file (+22/-5)" in content
+        assert "git diff" in content
+        assert "git merge" in content
+
+    def test_workspace_structure_falls_back_without_summaries(self):
+        """Verify branches are shown without summaries when none available."""
+        from massgen.system_prompt_sections import WorkspaceStructureSection
+
+        section = WorkspaceStructureSection(
+            workspace_path="/workspace",
+            context_paths=[],
+            worktree_paths={"/workspace/.worktree/ctx_1": "/projects/repo"},
+            other_branches={"agent1": "massgen/abc123"},
+            branch_diff_summaries=None,
+        )
+        content = section.build_content()
+
+        assert "Other agents' branches" in content
+        assert "agent1" in content
+        assert "massgen/abc123" in content
+
+    def test_workspace_structure_directive_instructions(self):
+        """Verify the improved directive instructions appear in the prompt."""
+        from massgen.system_prompt_sections import WorkspaceStructureSection
+
+        wt_path = "/workspace/.worktree/ctx_1"
+        section = WorkspaceStructureSection(
+            workspace_path="/workspace",
+            context_paths=[],
+            worktree_paths={wt_path: "/projects/repo"},
+        )
+        content = section.build_content()
+
+        assert "All code changes must be made here" in content
+        assert f"cd {wt_path}" in content
+        assert "Project Workspace" in content

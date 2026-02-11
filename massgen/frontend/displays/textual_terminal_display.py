@@ -50,6 +50,7 @@ try:
         AnswerBrowserModal,
         BroadcastPromptModal,
         BrowserTabsModal,
+        ChunkAdvanceModal,
         ContextModal,
         ConversationHistoryModal,
         CoordinationTableModal,
@@ -78,6 +79,9 @@ try:
         BroadcastModeChanged,
         CompletionFooter,
         ContextPathsClicked,
+        ExecuteAutoContinueChanged,
+        ExecutePrefillRequested,
+        ExecuteRefinementModeChanged,
         ExecutionStatusLine,
         FinalPresentationCard,
         ModeBar,
@@ -87,10 +91,12 @@ try:
         OpenSkillsRequested,
         OverrideRequested,
         PathSuggestionDropdown,
+        PlanChunkTargetChanged,
         PlanDepthChanged,
         PlanOptionsPopover,
         PlanSelected,
         PlanSettingsClicked,
+        PlanStepTargetChanged,
         QueuedInputBanner,
         SessionInfoClicked,
         SubagentCard,
@@ -1322,10 +1328,6 @@ class TextualTerminalDisplay(TerminalDisplay):
         """End the current turn"""
         if self._app:
             self._call_app_method("set_input_enabled", True)
-            mode_state = self.get_mode_state()
-            if mode_state and mode_state.plan_mode == "execute":
-                # Auto-exit execute mode after plan execution completes.
-                self._call_app_method("_handle_plan_mode_change", "normal")
 
         if was_cancelled:
             self._write_to_system_file(f"Turn {turn} cancelled by user.")
@@ -1679,6 +1681,58 @@ class TextualTerminalDisplay(TerminalDisplay):
             return self._app._mode_state
         return None
 
+    def _persist_planning_revision_snapshot(
+        self,
+        plan_path: Path,
+        plan_data: Dict[str, Any],
+        mode_state: "TuiModeState",
+    ) -> None:
+        """Persist the latest planning revision immediately.
+
+        This creates/reuses a plan session at review time so iterative modal edits
+        and refinements survive even before final execution is triggered.
+        """
+        from massgen.logger_config import get_log_session_root
+        from massgen.plan_storage import PlanStorage
+
+        storage = PlanStorage()
+        session = mode_state.plan_session
+
+        if session is None:
+            log_dir = get_log_session_root()
+            planning_turn = mode_state.planning_started_turn
+            if planning_turn is None:
+                planning_turn = getattr(self, "_current_turn", 0) or 0
+                mode_state.planning_started_turn = planning_turn
+            session = storage.create_plan(
+                log_dir.name,
+                str(log_dir),
+                planning_prompt=mode_state.last_planning_question,
+                planning_turn=planning_turn,
+            )
+            mode_state.plan_session = session
+            mode_state.selected_plan_id = session.plan_id
+
+        try:
+            plan_path.write_text(json.dumps(plan_data, indent=2), encoding="utf-8")
+        except Exception as write_err:
+            logger.warning(f"[PlanApproval] Failed to persist plan file before snapshot: {write_err}")
+
+        storage.finalize_planning_phase(
+            session,
+            plan_path.parent,
+            context_paths=mode_state.planning_context_paths or [],
+        )
+
+        metadata = session.load_metadata()
+        metadata.plan_revision = mode_state.plan_revision or metadata.plan_revision
+        metadata.planning_iteration_count = mode_state.planning_iteration_count or metadata.planning_iteration_count
+        if mode_state.planning_feedback_history:
+            metadata.planning_feedback_history = list(mode_state.planning_feedback_history)
+        metadata.last_planning_mode = mode_state.last_planning_mode
+        metadata.execution_mode = metadata.execution_mode or "chunked_by_planner_v1"
+        session.save_metadata(metadata)
+
     def show_plan_approval_modal(
         self,
         tasks: List[Dict[str, Any]],
@@ -1701,6 +1755,11 @@ class TextualTerminalDisplay(TerminalDisplay):
             mode_state.reset_plan_state()
             return
 
+        try:
+            self._persist_planning_revision_snapshot(plan_path, plan_data, mode_state)
+        except Exception as e:
+            logger.warning(f"[PlanApproval] Failed to persist planning snapshot: {e}")
+
         from massgen.frontend.displays.textual_widgets.plan_approval_modal import (
             PlanApprovalModal,
             PlanApprovalResult,
@@ -1708,12 +1767,30 @@ class TextualTerminalDisplay(TerminalDisplay):
 
         def show_modal():
             try:
-                modal = PlanApprovalModal(tasks, plan_path, plan_data)
+                # If quick-edit temporarily forced single-agent visuals, restore
+                # the user's prior agent-mode selection before showing review.
+                if getattr(mode_state, "quick_edit_restore_pending", False):
+                    restore_mode = mode_state.quick_edit_prev_agent_mode or "multi"
+                    restore_selected = mode_state.quick_edit_prev_selected_agent
+                    mode_state.agent_mode = restore_mode
+                    mode_state.selected_single_agent = restore_selected
+                    mode_state.quick_edit_prev_agent_mode = None
+                    mode_state.quick_edit_prev_selected_agent = None
+                    mode_state.quick_edit_restore_pending = False
+
+                    if hasattr(self._app, "_set_agent_mode_visual_state"):
+                        self._app._set_agent_mode_visual_state(restore_mode, restore_selected)
+
+                revision = getattr(mode_state, "plan_revision", 0) or None
+                modal = PlanApprovalModal(tasks, plan_path, plan_data, revision=revision)
 
                 def handle_result(result: PlanApprovalResult) -> None:
                     try:
-                        if result and result.approved:
+                        action = getattr(result, "action", "cancel") if result else "cancel"
+                        if action == "finalize":
                             self._execute_approved_plan(result, mode_state)
+                        elif action in {"continue", "quick_edit"}:
+                            self._continue_planning_refinement(result, mode_state)
                         else:
                             # Cancelled - reset to normal mode
                             mode_state.reset_plan_state()
@@ -1742,6 +1819,97 @@ class TextualTerminalDisplay(TerminalDisplay):
             mode_state.reset_plan_state()
             # Can't notify via app if call_from_thread failed
             logger.error("[PlanApproval] Failed to dispatch modal to main thread")
+
+    def _continue_planning_refinement(
+        self,
+        result: "PlanApprovalResult",
+        mode_state: "TuiModeState",
+    ) -> None:
+        """Queue another planning turn from the plan review modal."""
+        if not self._app:
+            mode_state.reset_plan_state()
+            return
+
+        action = getattr(result, "action", "continue")
+        planning_mode = "single" if action == "quick_edit" else "multi"
+        feedback = (getattr(result, "feedback", None) or "").strip()
+        if not feedback:
+            self._app.notify(
+                "Cannot continue planning with an empty prompt. Enter feedback in the review modal.",
+                severity="warning",
+                timeout=4,
+            )
+            return
+
+        mode_state.pending_planning_mode = planning_mode
+        mode_state.last_planning_mode = planning_mode
+        mode_state.pending_planning_feedback = feedback
+        mode_state.planning_feedback_history.append(feedback)
+
+        # Keep planning mode active and submit refinement prompt.
+        mode_state.plan_mode = "plan"
+        if hasattr(self._app, "_mode_bar") and self._app._mode_bar:
+            self._app._mode_bar.set_plan_mode("plan")
+
+        if planning_mode == "single":
+            # Temporarily reflect quick-edit single-agent mode in the mode bar.
+            # We'll restore these visuals after the turn completes.
+            mode_state.quick_edit_prev_agent_mode = mode_state.agent_mode
+            mode_state.quick_edit_prev_selected_agent = mode_state.selected_single_agent
+            mode_state.quick_edit_restore_pending = True
+
+            selected = mode_state.selected_single_agent or getattr(self._app, "_active_agent_id", None)
+            if not selected and getattr(self.coordination_display, "agent_ids", None):
+                selected = self.coordination_display.agent_ids[0]
+            mode_state.agent_mode = "single"
+            mode_state.selected_single_agent = selected
+            if hasattr(self._app, "_set_agent_mode_visual_state"):
+                self._app._set_agent_mode_visual_state("single", selected)
+        else:
+            mode_state.quick_edit_prev_agent_mode = None
+            mode_state.quick_edit_prev_selected_agent = None
+            mode_state.quick_edit_restore_pending = False
+
+        refinement_prompt = "Refine `project_plan.json` using the latest plan review." " Keep chunk labels deterministic and update any affected dependencies."
+        refinement_prompt += f"\n\nPlan review feedback:\n{feedback}"
+
+        refinement_prompt = refinement_prompt.strip()
+        if not refinement_prompt:
+            self._app.notify(
+                "Cannot submit an empty planning refinement prompt.",
+                severity="warning",
+                timeout=3,
+            )
+            return
+
+        self._app.notify(
+            ("Quick Edit: running single-agent planning refinement..." if planning_mode == "single" else "Continuing planning refinement..."),
+            severity="information",
+            timeout=3,
+        )
+
+        question_input = getattr(self._app, "question_input", None)
+        if question_input:
+            question_input.disabled = True
+            question_input.value = refinement_prompt
+
+            def submit_and_reenable() -> None:
+                try:
+                    submit_value = refinement_prompt.strip()
+                    if not submit_value:
+                        self._app.notify(
+                            "Cannot submit an empty planning refinement prompt.",
+                            severity="warning",
+                            timeout=3,
+                        )
+                        return
+                    self._app._submit_question(submit_value)
+                finally:
+                    question_input.disabled = False
+
+            self._app.call_later(submit_and_reenable)
+        else:
+            self._app.call_later(lambda: self._app._submit_question(refinement_prompt.strip()))
 
     async def show_change_review_modal(
         self,
@@ -1825,6 +1993,11 @@ class TextualTerminalDisplay(TerminalDisplay):
             mode_state: TuiModeState instance to update
         """
         from massgen.logger_config import get_log_session_root
+        from massgen.plan_execution import (
+            PlanValidationError,
+            build_execution_prompt,
+            initialize_chunk_execution_state,
+        )
         from massgen.plan_storage import PlanStorage
 
         try:
@@ -1841,27 +2014,63 @@ class TextualTerminalDisplay(TerminalDisplay):
                     f"[PlanExecution] planning_started_turn was None, defaulting to {current_turn}",
                 )
 
-            # Get log directory for plan session
-            log_dir = get_log_session_root()
-
-            # Create and finalize plan session
             storage = PlanStorage()
-            session = storage.create_plan(
-                log_dir.name,
-                str(log_dir),
-                planning_prompt=mode_state.last_planning_question,
-                planning_turn=mode_state.planning_started_turn,
-            )
+            session = mode_state.plan_session
+            if session is None:
+                log_dir = get_log_session_root()
+                session = storage.create_plan(
+                    log_dir.name,
+                    str(log_dir),
+                    planning_prompt=mode_state.last_planning_question,
+                    planning_turn=mode_state.planning_started_turn,
+                )
+                mode_state.plan_session = session
 
             # Copy workspace to frozen - use the parent of plan_path as workspace source
             workspace_source = approval.plan_path.parent
+            if approval.plan_data and approval.plan_path:
+                try:
+                    approval.plan_path.write_text(
+                        json.dumps(approval.plan_data, indent=2),
+                        encoding="utf-8",
+                    )
+                except Exception as write_err:
+                    logger.warning(f"[PlanExecution] Failed to persist edited plan before finalize: {write_err}")
             # Use context paths captured during planning phase
             context_paths = mode_state.planning_context_paths or []
             storage.finalize_planning_phase(session, workspace_source, context_paths=context_paths)
 
+            # Persist planning review metadata from iterative modal workflow.
+            session_metadata = session.load_metadata()
+            session_metadata.plan_revision = mode_state.plan_revision or 1
+            session_metadata.planning_iteration_count = mode_state.planning_iteration_count or session_metadata.plan_revision
+            session_metadata.planning_feedback_history = list(
+                mode_state.planning_feedback_history or [],
+            )
+            session_metadata.last_planning_mode = mode_state.last_planning_mode
+            session_metadata.execution_mode = "chunked_by_planner_v1"
+            session.save_metadata(session_metadata)
+
             # Update mode state for execution
             mode_state.plan_mode = "execute"
             mode_state.plan_session = session
+            mode_state.selected_plan_id = session.plan_id
+            mode_state.pending_planning_feedback = None
+            mode_state.pending_planning_mode = None
+
+            # Validate chunk contract and initialize current chunk pointer.
+            try:
+                chunk_metadata = initialize_chunk_execution_state(session)
+            except PlanValidationError as e:
+                self._app.notify(
+                    f"Plan validation failed: {e}",
+                    severity="error",
+                    timeout=6,
+                )
+                mode_state.reset_plan_state()
+                if hasattr(self._app, "_mode_bar") and self._app._mode_bar:
+                    self._app._mode_bar.set_plan_mode("normal")
+                return
 
             # Update mode bar
             if hasattr(self._app, "_mode_bar") and self._app._mode_bar:
@@ -1869,10 +2078,11 @@ class TextualTerminalDisplay(TerminalDisplay):
 
             # Build execution prompt from original question
             original_question = mode_state.last_planning_question or "Execute the plan"
-
-            from massgen.plan_execution import build_execution_prompt
-
-            execution_prompt = build_execution_prompt(original_question)
+            execution_prompt = build_execution_prompt(
+                original_question,
+                active_chunk=chunk_metadata.current_chunk,
+                chunk_order=chunk_metadata.chunk_order or [],
+            )
 
             self._app.notify("Executing plan...", severity="information", timeout=3)
 
@@ -3851,7 +4061,12 @@ if TEXTUAL_AVAILABLE:
                 hook.set_inject_callback(lambda content: self.call_from_thread(self._on_human_input_injected, content))
             tui_log(f"[HumanInput] Set human input hook: {hook}")
 
-        def _submit_question(self, submitted_text: str | None = None) -> None:
+        def _submit_question(
+            self,
+            submitted_text: str | None = None,
+            *,
+            bypass_execution_queue: bool = False,
+        ) -> None:
             """Submit the current question text.
 
             During execution, input is queued for injection into the next tool result.
@@ -3860,6 +4075,8 @@ if TEXTUAL_AVAILABLE:
             Args:
                 submitted_text: Pre-processed text from Submitted event (with paste
                     placeholders expanded). If None, reads from widget directly.
+                bypass_execution_queue: Internal-only flag. When True, submit as a
+                    new turn even if execution-phase status still reports in-progress.
             """
             text = submitted_text.strip() if submitted_text else self.question_input.text.strip()
             tui_log(f"_submit_question called with text: '{text[:50]}...' (len={len(text)})")
@@ -3882,13 +4099,12 @@ if TEXTUAL_AVAILABLE:
 
             # CRITICAL: Check execution status FIRST before execute mode
             # During active execution, queue input (don't trigger new plan execution)
-            # Execute mode is auto-cleared by end_turn() after execution completes
             is_executing = self._is_execution_in_progress()
             has_hook = self._human_input_hook is not None
             phase = self._status_bar._current_phase if self._status_bar else "unknown"
             tui_log(f"  is_executing={is_executing}, has_hook={has_hook}, phase={phase}")
 
-            if not text.startswith("/") and is_executing and has_hook:
+            if not text.startswith("/") and is_executing and has_hook and not bypass_execution_queue:
                 tui_log("  -> Queueing input for injection")
                 self._queue_human_input(text)
                 return
@@ -4337,6 +4553,53 @@ Type your question and press Enter to ask the agents.
 
             def _on_dismiss(_result: Any = None) -> None:
                 self._decomposition_generation_modal = None
+
+            self.push_screen(modal, _on_dismiss)
+
+        def _show_chunk_advance_modal(
+            self,
+            completed_chunk: str,
+            next_chunk: str,
+            auto_continue: bool = True,
+        ) -> None:
+            """Show chunk transition modal and optionally auto-continue execution."""
+            if self._mode_state.plan_mode != "execute":
+                return
+
+            modal = ChunkAdvanceModal(
+                completed_chunk=completed_chunk,
+                next_chunk=next_chunk,
+                auto_continue=auto_continue,
+                countdown_seconds=2,
+            )
+
+            def _on_dismiss(should_continue: Any = None) -> None:
+                if self._mode_state.plan_mode != "execute":
+                    return
+                if should_continue:
+                    self.notify(
+                        f"Continuing with next chunk: {next_chunk}",
+                        severity="information",
+                        timeout=2,
+                    )
+                    if hasattr(self, "question_input") and self.question_input:
+                        self.question_input.value = next_chunk
+
+                    def _submit_next() -> None:
+                        if self._mode_state.plan_mode != "execute":
+                            return
+                        self._submit_question(
+                            next_chunk,
+                            bypass_execution_queue=True,
+                        )
+
+                    self.call_later(_submit_next)
+                else:
+                    self.notify(
+                        f"Paused after chunk {completed_chunk}. Next ready: {next_chunk}",
+                        severity="warning",
+                        timeout=3,
+                    )
 
             self.push_screen(modal, _on_dismiss)
 
@@ -6836,7 +7099,42 @@ Type your question and press Enter to ask the agents.
                 return
 
             self._mode_state.plan_config.depth = event.depth
-            self.notify(f"Plan depth: {event.depth}", severity="information", timeout=2)
+            if event.depth == "dynamic":
+                self.notify("Plan depth: dynamic (scope-adaptive)", severity="information", timeout=2)
+            else:
+                self.notify(f"Plan depth: {event.depth}", severity="information", timeout=2)
+            event.stop()
+
+        def on_plan_step_target_changed(self, event: PlanStepTargetChanged) -> None:
+            """Handle explicit planning task-count target change from popover."""
+            tui_log(f"on_plan_step_target_changed: target_steps={event.target_steps}")
+
+            if self._mode_state.is_locked():
+                self.notify("Cannot change plan step target during execution.", severity="warning", timeout=2)
+                event.stop()
+                return
+
+            self._mode_state.plan_config.target_steps = event.target_steps
+            if event.target_steps is None:
+                self.notify("Task count target: dynamic", severity="information", timeout=2)
+            else:
+                self.notify(f"Task count target: {event.target_steps}", severity="information", timeout=2)
+            event.stop()
+
+        def on_plan_chunk_target_changed(self, event: PlanChunkTargetChanged) -> None:
+            """Handle explicit planning chunk-count target change from popover."""
+            tui_log(f"on_plan_chunk_target_changed: target_chunks={event.target_chunks}")
+
+            if self._mode_state.is_locked():
+                self.notify("Cannot change chunk target during execution.", severity="warning", timeout=2)
+                event.stop()
+                return
+
+            self._mode_state.plan_config.target_chunks = event.target_chunks
+            if event.target_chunks is None:
+                self.notify("Chunk target: dynamic", severity="information", timeout=2)
+            else:
+                self.notify(f"Chunk target: {event.target_chunks}", severity="information", timeout=2)
             event.stop()
 
         def on_broadcast_mode_changed(self, event: BroadcastModeChanged) -> None:
@@ -6872,6 +7170,51 @@ Type your question and press Enter to ask the agents.
             # Open TaskPlanModal with the plan's tasks
             modal = TaskPlanModal(tasks=event.tasks)
             self.push_screen(modal)
+            event.stop()
+
+        def on_execute_prefill_requested(self, event: ExecutePrefillRequested) -> None:
+            """Handle execute popover prefill requests from chunk controls."""
+            prefill_value = (event.value or "").strip()
+            if not prefill_value:
+                event.stop()
+                return
+            if hasattr(self, "question_input") and self.question_input:
+                self.question_input.value = prefill_value
+                self.question_input.focus()
+                self.notify(
+                    f"Prefilled execute input: {prefill_value}",
+                    severity="information",
+                    timeout=2,
+                )
+            event.stop()
+
+        def on_execute_auto_continue_changed(self, event: ExecuteAutoContinueChanged) -> None:
+            """Handle execute auto-continue setting change from popover."""
+            if self._mode_state.is_locked():
+                self.notify("Cannot change execute flow during execution.", severity="warning", timeout=2)
+                event.stop()
+                return
+            self._mode_state.plan_config.execute_auto_continue_chunks = bool(event.enabled)
+            if event.enabled:
+                self.notify("Execute flow: auto-continue enabled", severity="information", timeout=2)
+            else:
+                self.notify("Execute flow: pause after each chunk", severity="information", timeout=2)
+            event.stop()
+
+        def on_execute_refinement_mode_changed(self, event: ExecuteRefinementModeChanged) -> None:
+            """Handle execute refinement override mode change from popover."""
+            if self._mode_state.is_locked():
+                self.notify("Cannot change execute refinement during execution.", severity="warning", timeout=2)
+                event.stop()
+                return
+            mode = event.mode if event.mode in {"inherit", "on", "off"} else "inherit"
+            self._mode_state.plan_config.execute_refinement_mode = mode
+            labels = {
+                "inherit": "Execute refinement: inherit mode bar setting",
+                "on": "Execute refinement: forced ON",
+                "off": "Execute refinement: forced OFF",
+            }
+            self.notify(labels[mode], severity="information", timeout=2)
             event.stop()
 
         def on_analysis_profile_changed(self, event: AnalysisProfileChanged) -> None:
@@ -6984,6 +7327,10 @@ Type your question and press Enter to ask the agents.
                 popover._available_plans = plans
                 popover._current_plan_id = self._mode_state.selected_plan_id
                 popover._current_depth = self._mode_state.plan_config.depth
+                popover._current_step_target = self._mode_state.plan_config.target_steps
+                popover._current_chunk_target = self._mode_state.plan_config.target_chunks
+                popover._current_execute_auto_continue = self._mode_state.plan_config.execute_auto_continue_chunks
+                popover._current_execute_refinement_mode = self._mode_state.plan_config.execute_refinement_mode
                 popover._current_broadcast = self._mode_state.plan_config.broadcast
                 popover._analysis_profile = self._mode_state.analysis_config.profile
                 popover._analysis_log_options = analysis_log_options
@@ -7353,6 +7700,12 @@ Type your question and press Enter to ask the agents.
                     self._enter_analysis_mode()
                     return
 
+                # Default selection prefers resumable plan sessions.
+                if not self._mode_state.selected_plan_id:
+                    resumable_plan = storage.get_latest_resumable_plan()
+                    if resumable_plan:
+                        self._mode_state.selected_plan_id = resumable_plan.plan_id
+
                 # Set execute mode
                 self._mode_state.plan_mode = "execute"
                 if self._mode_bar:
@@ -7390,6 +7743,8 @@ Type your question and press Enter to ask the agents.
             popover._plan_mode = "execute"
             popover._available_plans = plans
             popover._current_plan_id = self._mode_state.selected_plan_id
+            popover._current_execute_auto_continue = self._mode_state.plan_config.execute_auto_continue_chunks
+            popover._current_execute_refinement_mode = self._mode_state.plan_config.execute_refinement_mode
 
             # Reset initialized flag before recompose to ignore spurious events
             popover._initialized = False
@@ -7416,7 +7771,11 @@ Type your question and press Enter to ask the agents.
             tui_log(f"_setup_plan_execution: user_text='{user_text[:50] if user_text else '(empty)'}'")
 
             try:
-                from massgen.plan_execution import build_execution_prompt
+                from massgen.plan_execution import (
+                    PlanValidationError,
+                    build_execution_prompt,
+                    resolve_active_chunk,
+                )
                 from massgen.plan_storage import PlanStorage
 
                 # Get the selected plan
@@ -7442,13 +7801,14 @@ Type your question and press Enter to ask the agents.
                         tui_log(f"  -> plan not found: {plan_id}")
                         return None
                 else:
-                    # Use latest plan
-                    plan = plans[0]
+                    # Default resume target to latest resumable, otherwise latest plan.
+                    plan = storage.get_latest_resumable_plan() or plans[0]
 
                 tui_log(f"  -> using plan: {plan.plan_id}")
 
                 # Set the plan session on mode state (needed for workspace setup)
                 self._mode_state.plan_session = plan
+                self._mode_state.selected_plan_id = plan.plan_id
 
                 # Load metadata to get the original planning prompt
                 try:
@@ -7457,11 +7817,83 @@ Type your question and press Enter to ask the agents.
                 except Exception:
                     original_question = user_text or "Execute the plan"
 
-                # If user provided additional instructions, append them
-                if user_text:
-                    execution_prompt = build_execution_prompt(f"{original_question}\n\nAdditional instructions: {user_text}")
-                else:
-                    execution_prompt = build_execution_prompt(original_question)
+                cleaned_input = (user_text or "").strip()
+                requested_chunk: Optional[str] = None
+                range_selection: Optional[Tuple[str, str]] = None
+                additional_instructions: Optional[str] = None
+
+                try:
+                    chunk_metadata, chunk_order = resolve_active_chunk(
+                        plan,
+                        requested_chunk=None,
+                    )
+                except PlanValidationError as e:
+                    self.notify(f"Plan validation failed: {e}", severity="error", timeout=6)
+                    tui_log(f"  -> chunk validation error: {e}")
+                    return None
+
+                # Parse optional chunk/range selection from execute input.
+                if cleaned_input:
+                    if cleaned_input in set(chunk_order):
+                        requested_chunk = cleaned_input
+                    else:
+                        range_match = re.match(
+                            r"^\s*([^\s-]+)\s*-\s*([^\s-]+)\s*$",
+                            cleaned_input,
+                        )
+                        if range_match:
+                            start_chunk = range_match.group(1).strip()
+                            end_chunk = range_match.group(2).strip()
+                            if start_chunk in set(chunk_order) and end_chunk in set(chunk_order):
+                                range_selection = (start_chunk, end_chunk)
+                                requested_chunk = start_chunk
+                            else:
+                                additional_instructions = cleaned_input
+                        else:
+                            additional_instructions = cleaned_input
+
+                if requested_chunk:
+                    try:
+                        chunk_metadata, chunk_order = resolve_active_chunk(
+                            plan,
+                            requested_chunk=requested_chunk,
+                        )
+                    except PlanValidationError as e:
+                        self.notify(f"Plan validation failed: {e}", severity="error", timeout=6)
+                        tui_log(f"  -> chunk selection validation error: {e}")
+                        return None
+
+                if not chunk_metadata.current_chunk:
+                    # No pending chunk selected. Fall back to first chunk only if explicit range was requested.
+                    if chunk_order and requested_chunk and requested_chunk in set(chunk_order):
+                        chunk_metadata.current_chunk = requested_chunk
+                    else:
+                        self.notify("Selected plan has no pending chunks to execute", severity="warning", timeout=3)
+                        tui_log("  -> no pending chunks")
+                        return None
+
+                if cleaned_input and not requested_chunk and not additional_instructions:
+                    additional_instructions = cleaned_input
+                elif cleaned_input and requested_chunk and cleaned_input != requested_chunk and not range_selection and not additional_instructions:
+                    # Input was not a plain chunk selection (e.g., text containing chunk names).
+                    additional_instructions = cleaned_input
+
+                prompt_question = original_question
+                if additional_instructions:
+                    prompt_question = f"{original_question}\n\nAdditional instructions: {additional_instructions}"
+
+                execution_prompt = build_execution_prompt(
+                    prompt_question,
+                    active_chunk=chunk_metadata.current_chunk,
+                    chunk_order=chunk_order,
+                )
+
+                if range_selection:
+                    execution_prompt += (
+                        f"\n\nOperator range request: {range_selection[0]}-{range_selection[1]}."
+                        " Start at the first chunk now, then continue sequentially toward the range end"
+                        " as chunks are completed in subsequent runs."
+                    )
 
                 tui_log(f"  -> execution_prompt: {execution_prompt[:100]}...")
 
@@ -7469,7 +7901,11 @@ Type your question and press Enter to ask the agents.
                 if hasattr(self, "question_input"):
                     self.question_input.placeholder = "Enter to submit • Shift+Enter for newline • @ for files • Ctrl+G help"
 
-                self.notify("Executing plan...", severity="information", timeout=3)
+                self.notify(
+                    f"Executing chunk: {chunk_metadata.current_chunk}",
+                    severity="information",
+                    timeout=3,
+                )
                 return execution_prompt
 
             except Exception as e:
@@ -7590,6 +8026,23 @@ Type your question and press Enter to ask the agents.
                 # All panels are in use in multi-agent mode
                 self._update_agent_panels_in_use_state(None)
                 self.notify("Multi-Agent Mode", severity="information", timeout=2)
+
+        def _set_agent_mode_visual_state(self, mode: str, selected_agent: Optional[str] = None) -> None:
+            """Update agent-mode UI state without changing orchestration logic."""
+            if self._mode_bar:
+                self._mode_bar.set_agent_mode(mode)
+
+            if mode == "single":
+                selected = selected_agent or self._active_agent_id
+                if not selected and self.coordination_display.agent_ids:
+                    selected = self.coordination_display.agent_ids[0]
+                if self._tab_bar and selected:
+                    self._tab_bar.set_single_agent_mode(True, selected)
+                self._update_agent_panels_in_use_state(selected)
+            else:
+                if self._tab_bar:
+                    self._tab_bar.set_single_agent_mode(False)
+                self._update_agent_panels_in_use_state(None)
 
         def _handle_coordination_mode_change(self, mode: str) -> None:
             """Handle coordination mode toggle.
