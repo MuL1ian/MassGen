@@ -556,6 +556,41 @@ class Orchestrator(ChatAgent):
 
         # Initialize checklist MCP tool if using tool-gated mode
         self._init_checklist_tool()
+        self._seed_plan_execution_workspaces(context="orchestrator_init")
+
+    def _seed_plan_execution_workspaces(self, context: str) -> None:
+        """Seed execute-mode plan artifacts into agent workspaces."""
+        if not self._plan_session_id:
+            return
+
+        try:
+            from .plan_execution import setup_agent_workspaces_for_execution
+            from .plan_storage import PlanSession
+
+            plan_session = PlanSession(self._plan_session_id)
+            task_count = setup_agent_workspaces_for_execution(
+                self.agents,
+                plan_session,
+            )
+            if task_count > 0:
+                logger.info(
+                    "[Orchestrator] Seeded plan execution workspace (%s, plan_session=%s, tasks=%d)",
+                    context,
+                    self._plan_session_id,
+                    task_count,
+                )
+            else:
+                logger.warning(
+                    "[Orchestrator] Plan execution workspace seed produced no tasks (%s, plan_session=%s)",
+                    context,
+                    self._plan_session_id,
+                )
+        except Exception:
+            logger.exception(
+                "[Orchestrator] Failed to seed plan execution workspace (%s, plan_session=%s)",
+                context,
+                self._plan_session_id,
+            )
 
     def _init_checklist_tool(self) -> None:
         """Register submit_checklist MCP tool if voting_sensitivity is checklist_gated.
@@ -11481,17 +11516,16 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                         f"[Orchestrator] Cleared workspace for {agent_id}: {workspace_path}",
                     )
 
-                    # Check if this is a plan→execute transition
-                    # For plan execution, we want a clean workspace (planning artifacts in context only)
-                    skip_workspace_copy = False
-                    if self._plan_session_id:
-                        skip_workspace_copy = True
-                        logger.info(
-                            f"[Orchestrator] Skipping workspace pre-population for plan execution (plan_session: {self._plan_session_id})",
-                        )
-
-                    # Pre-populate with previous turn's results if available (creates writable copy)
-                    if not skip_workspace_copy and previous_turn_workspace and previous_turn_workspace.exists():
+                    # Pre-populate with previous turn's results if available (creates writable copy).
+                    # In execute mode, this preserves chunk-to-chunk workspace continuity.
+                    if previous_turn_workspace and previous_turn_workspace.exists():
+                        if self._plan_session_id:
+                            logger.info(
+                                "[Orchestrator] Plan execution mode: restoring previous chunk " "workspace for %s from %s (plan_session: %s)",
+                                agent_id,
+                                previous_turn_workspace,
+                                self._plan_session_id,
+                            )
                         logger.info(
                             f"[Orchestrator] Pre-populating {agent_id} workspace with writable copy of turn n-1 from {previous_turn_workspace}",
                         )
@@ -11510,6 +11544,14 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                         logger.info(
                             f"[Orchestrator] Pre-populated {agent_id} workspace with writable copy of turn n-1",
                         )
+                    elif self._plan_session_id:
+                        logger.info(
+                            "[Orchestrator] Plan execution mode: no previous turn workspace " "available to restore (plan_session: %s)",
+                            self._plan_session_id,
+                        )
+
+        # In plan execution mode, workspace clear removes tasks/plan.json; re-seed immediately.
+        self._seed_plan_execution_workspaces(context="workspace_clear")
 
     def _archive_agent_memories(self, agent_id: str, workspace_path: Path) -> None:
         """

@@ -3,7 +3,7 @@
 
 import json
 import shutil
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, fields
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -25,8 +25,20 @@ class PlanMetadata:
     planning_turn: Optional[int] = None  # Turn number when planning was initiated
     execution_session_id: Optional[str] = None
     execution_log_dir: Optional[str] = None
-    status: str = "planning"  # planning, ready, executing, completed, failed
+    status: str = "planning"  # planning, ready, executing, resumable, completed, failed
     context_paths: Optional[List[Dict[str, Any]]] = None  # Context paths from planning phase
+    # Planning review loop metadata
+    plan_revision: int = 1
+    planning_iteration_count: int = 1
+    planning_feedback_history: Optional[List[str]] = None
+    last_planning_mode: Optional[str] = None  # "multi" | "single"
+    # Chunk execution metadata
+    execution_mode: Optional[str] = None  # "chunked_by_planner_v1"
+    chunk_order: Optional[List[str]] = None
+    current_chunk: Optional[str] = None
+    completed_chunks: Optional[List[str]] = None
+    chunk_history: Optional[List[Dict[str, Any]]] = None
+    resumable_state: Optional[Dict[str, Any]] = None
 
 
 class PlanSession:
@@ -50,11 +62,16 @@ class PlanSession:
         """Load plan metadata from disk."""
         if not self.metadata_file.exists():
             raise FileNotFoundError(f"Plan metadata not found: {self.metadata_file}")
-        return PlanMetadata(**json.loads(self.metadata_file.read_text()))
+        raw = json.loads(self.metadata_file.read_text())
+        if not isinstance(raw, dict):
+            raise ValueError(f"Invalid plan metadata format in {self.metadata_file}")
+        allowed = {field.name for field in fields(PlanMetadata)}
+        normalized = {k: v for k, v in raw.items() if k in allowed}
+        return PlanMetadata(**normalized)
 
     def save_metadata(self, metadata: PlanMetadata):
         """Save plan metadata to disk."""
-        self.metadata_file.write_text(json.dumps(metadata.__dict__, indent=2))
+        self.metadata_file.write_text(json.dumps(asdict(metadata), indent=2))
 
     def log_event(self, event_type: str, data: Dict[str, Any]):
         """Append event to execution log."""
@@ -166,6 +183,27 @@ class PlanStorage:
 
         plan_id = plan_dirs[0].name.replace("plan_", "")
         return PlanSession(plan_id)
+
+    def get_latest_resumable_plan(self) -> Optional[PlanSession]:
+        """Get the most recent resumable plan session, if any."""
+        if not PLANS_DIR.exists():
+            return None
+
+        for plan_dir in sorted(PLANS_DIR.glob("plan_*"), reverse=True):
+            plan_id = plan_dir.name.replace("plan_", "")
+            session = PlanSession(plan_id)
+            if not session.metadata_file.exists():
+                continue
+            try:
+                metadata = session.load_metadata()
+            except Exception:
+                logger.exception(
+                    f"[PlanStorage] Failed to load metadata for resumable check (plan_id={plan_id})",
+                )
+                continue
+            if metadata.status == "resumable":
+                return session
+        return None
 
     def get_all_plans(self, limit: int = 10) -> List[PlanSession]:
         """Get all plan sessions sorted by creation date (newest first).
@@ -295,6 +333,11 @@ class PlanStorage:
             # Empty list [] means "no new paths provided, retain existing value".
             if context_paths:
                 metadata.context_paths = context_paths
+            metadata.execution_mode = metadata.execution_mode or "chunked_by_planner_v1"
+            metadata.chunk_order = metadata.chunk_order or []
+            metadata.completed_chunks = metadata.completed_chunks or []
+            metadata.chunk_history = metadata.chunk_history or []
+            metadata.planning_feedback_history = metadata.planning_feedback_history or []
             session.save_metadata(metadata)
             session.log_event(
                 "planning_finalized",

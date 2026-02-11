@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from massgen.plan_storage import PlanSession
 
 # Type alias for plan depth
-PlanDepth = Literal["shallow", "medium", "deep"]
+PlanDepth = Literal["dynamic", "shallow", "medium", "deep"]
 AnalysisProfile = Literal["dev", "user"]
 
 
@@ -22,9 +22,17 @@ class PlanConfig:
 
     Attributes:
         depth: Plan granularity level
+            - "dynamic": planner chooses based on scope (default)
             - "shallow": 5-10 high-level tasks
-            - "medium": 20-50 tasks (default)
+            - "medium": 20-50 tasks
             - "deep": 100-200+ granular tasks
+        target_steps: Optional explicit target number of tasks (None = dynamic)
+        target_chunks: Optional explicit target number of chunks (None = dynamic)
+        execute_auto_continue_chunks: If True, auto-continue to next chunk after completion.
+        execute_refinement_mode: Execute-time refinement mode:
+            - "inherit": Use mode-bar refinement toggle
+            - "on": Force refinement ON during execute turns
+            - "off": Force refinement OFF during execute turns
         auto_execute: If True, skip approval and auto-execute after planning
         broadcast: Broadcast mode for planning phase
             - "human": Agents can ask human questions (default)
@@ -32,18 +40,23 @@ class PlanConfig:
             - False: Fully autonomous, no questions
     """
 
-    depth: PlanDepth = "medium"
+    depth: PlanDepth = "dynamic"
+    target_steps: Optional[int] = None
+    target_chunks: Optional[int] = None
+    execute_auto_continue_chunks: bool = True
+    execute_refinement_mode: Literal["inherit", "on", "off"] = "inherit"
     auto_execute: bool = False
     broadcast: Any = "human"  # "human" | "agents" | False
 
     def get_depth_description(self) -> str:
         """Get human-readable description of current depth."""
         descriptions = {
+            "dynamic": "scope-adaptive",
             "shallow": "5-10 tasks",
             "medium": "20-50 tasks",
             "deep": "100-200+ tasks",
         }
-        return descriptions.get(self.depth, "20-50 tasks")
+        return descriptions.get(self.depth, "scope-adaptive")
 
 
 @dataclass
@@ -105,6 +118,15 @@ class TuiModeState:
     pending_plan_approval: bool = False
     plan_config: PlanConfig = field(default_factory=PlanConfig)
     analysis_config: AnalysisConfig = field(default_factory=AnalysisConfig)
+    plan_revision: int = 0
+    planning_iteration_count: int = 0
+    planning_feedback_history: List[str] = field(default_factory=list)
+    last_planning_mode: str = "multi"  # "multi" | "single"
+    pending_planning_feedback: Optional[str] = None
+    pending_planning_mode: Optional[str] = None  # "multi" | "single"
+    quick_edit_prev_agent_mode: Optional[str] = None
+    quick_edit_prev_selected_agent: Optional[str] = None
+    quick_edit_restore_pending: bool = False
 
     # Selected plan ID for execution (None = use latest, "new" = create new)
     selected_plan_id: Optional[str] = None
@@ -222,6 +244,8 @@ class TuiModeState:
             "enable_agent_task_planning": True,
             "task_planning_filesystem_mode": True,
             "plan_depth": self.plan_config.depth,
+            "plan_target_steps": self.plan_config.target_steps,
+            "plan_target_chunks": self.plan_config.target_chunks,
             "broadcast": self.plan_config.broadcast,
         }
 
@@ -262,6 +286,15 @@ class TuiModeState:
         self.planning_started_turn = None
         self.selected_plan_id = None
         self.planning_context_paths = None
+        self.plan_revision = 0
+        self.planning_iteration_count = 0
+        self.planning_feedback_history = []
+        self.last_planning_mode = "multi"
+        self.pending_planning_feedback = None
+        self.pending_planning_mode = None
+        self.quick_edit_prev_agent_mode = None
+        self.quick_edit_prev_selected_agent = None
+        self.quick_edit_restore_pending = False
 
     def reset_plan_state_with_error(self, error_msg: str) -> str:
         """Reset plan state due to an error.

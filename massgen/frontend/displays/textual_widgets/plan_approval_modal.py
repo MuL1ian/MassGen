@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Plan Approval Modal Widget for MassGen TUI.
+Plan Review Modal Widget for MassGen TUI.
 
-Modal shown after planning completes to approve/reject plan before execution.
+Shown after planning completes to support iterative planning review before execution.
 """
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -13,34 +14,37 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, ScrollableContainer
 from textual.screen import ModalScreen
-from textual.widgets import Button, Static
+from textual.widgets import Button, Input, Static, TextArea
 
 
 @dataclass
 class PlanApprovalResult:
-    """Result from the plan approval modal."""
+    """Result from the plan review modal."""
 
     approved: bool
+    action: str  # "continue", "quick_edit", "finalize", "cancel"
+    feedback: Optional[str] = None
     plan_data: Optional[Dict[str, Any]] = None
     plan_path: Optional[Path] = None
 
 
 class PlanApprovalModal(ModalScreen[PlanApprovalResult]):
-    """Modal screen for approving a plan before execution."""
+    """Modal screen for planning review and action routing."""
 
     BINDINGS = [
         ("escape", "cancel", "Cancel"),
-        ("enter", "execute", "Execute"),
+        ("enter", "finalize_plan", "Finalize Plan and Execute"),
+        ("ctrl+e", "toggle_expand", "Expand/Collapse"),
     ]
 
-    # CSS moved to base.tcss for theme support
+    # CSS moved to theme files for consistency.
     DEFAULT_CSS = ""
 
-    # Status indicators for task preview
     STATUS_ICONS = {
         "pending": "○",
         "in_progress": "●",
         "completed": "✓",
+        "verified": "✓",
         "blocked": "◌",
     }
 
@@ -55,138 +59,319 @@ class PlanApprovalModal(ModalScreen[PlanApprovalResult]):
         tasks: List[Dict[str, Any]],
         plan_path: Path,
         plan_data: Dict[str, Any],
+        revision: Optional[int] = None,
         name: Optional[str] = None,
         id: Optional[str] = None,
         classes: Optional[str] = None,
     ):
-        """Initialize the plan approval modal.
-
-        Args:
-            tasks: List of task dictionaries from the plan
-            plan_path: Path to the plan file
-            plan_data: Full plan data dictionary
-            name: Widget name
-            id: Widget id
-            classes: Widget CSS classes
-        """
         super().__init__(name=name, id=id, classes=classes)
-        self.tasks = tasks
+        plan_tasks = plan_data.get("tasks", [])
+        if isinstance(plan_tasks, list):
+            self.tasks = [task for task in plan_tasks if isinstance(task, dict)]
+            self.plan_data = dict(plan_data)
+            self.plan_data["tasks"] = self.tasks
+        else:
+            self.tasks = [task for task in tasks if isinstance(task, dict)]
+            self.plan_data = dict(plan_data)
+            self.plan_data["tasks"] = self.tasks
         self.plan_path = plan_path
-        self.plan_data = plan_data
+        self.revision = revision
+        self._expanded = False
+        self._feedback_value = ""
+        self._json_edit_status = ""
+        self._action_status = ""
+        self._plan_json_value = json.dumps(self.plan_data, indent=2)
+        self._chunk_order, self._tasks_by_chunk = self._group_tasks_by_chunk(self.tasks)
+        self._rebuild_chunk_groups()
+
+    @staticmethod
+    def _group_tasks_by_chunk(
+        tasks: List[Dict[str, Any]],
+    ) -> tuple[List[str], Dict[str, List[Dict[str, Any]]]]:
+        chunk_order: List[str] = []
+        tasks_by_chunk: Dict[str, List[Dict[str, Any]]] = {}
+        for task in tasks:
+            chunk = str(task.get("chunk", "")).strip() or "unassigned"
+            if chunk not in tasks_by_chunk:
+                tasks_by_chunk[chunk] = []
+                chunk_order.append(chunk)
+            tasks_by_chunk[chunk].append(task)
+        return chunk_order, tasks_by_chunk
+
+    def _rebuild_chunk_groups(self) -> None:
+        """Recompute chunk grouping after in-modal edits."""
+        self._chunk_order, self._tasks_by_chunk = self._group_tasks_by_chunk(self.tasks)
+
+    def _persist_plan_data(self) -> None:
+        """Persist in-modal plan edits back to project_plan.json."""
+        try:
+            self.plan_path.parent.mkdir(parents=True, exist_ok=True)
+            self.plan_path.write_text(json.dumps(self.plan_data, indent=2), encoding="utf-8")
+        except Exception:
+            # Best effort. Finalize path also attempts persistence.
+            pass
 
     def compose(self) -> ComposeResult:
-        """Compose the modal UI."""
-        with Container():
-            # Header
+        container_classes = "expanded" if self._expanded else None
+        with Container(classes=container_classes):
             with Container(classes="modal-header"):
                 with Container(classes="header-row"):
-                    yield Static("Plan Approval", classes="modal-title")
+                    title = "Planning Review"
+                    if self.revision:
+                        title = f"Planning Review (rev {self.revision})"
+                    yield Static(title, classes="modal-title")
+                    expand_label = "Collapse View" if self._expanded else "Expand View"
+                    yield Button(expand_label, variant="default", classes="modal-expand", id="expand_btn")
                     yield Button("✕", variant="default", classes="modal-close", id="close_btn")
 
-            # Stats summary
             with Horizontal(classes="modal-stats"):
                 yield Static(f"Tasks: {len(self.tasks)}", classes="stat-item")
-
-                # Count by priority if available
+                yield Static(f"Chunks: {len(self._chunk_order)}", classes="stat-item")
+                yield Static(f"View: {'Expanded' if self._expanded else 'Compact'}", classes="stat-item")
                 high_priority = sum(1 for t in self.tasks if t.get("priority") == "high")
                 if high_priority > 0:
                     yield Static(f"High Priority: {high_priority}", classes="stat-item")
 
-                # Count dependencies
-                has_deps = sum(1 for t in self.tasks if t.get("dependencies"))
-                if has_deps > 0:
-                    yield Static(f"With Dependencies: {has_deps}", classes="stat-item")
-
-            # Task preview (scrollable)
-            with ScrollableContainer(classes="modal-body"):
-                preview_count = min(15, len(self.tasks))
-                for task in self.tasks[:preview_count]:
-                    yield Static(self._format_task_row(task), classes="task-row")
-
-                if len(self.tasks) > preview_count:
-                    remaining = len(self.tasks) - preview_count
+            body_classes = "modal-body expanded-body" if self._expanded else "modal-body"
+            with ScrollableContainer(classes=body_classes):
+                for chunk in self._chunk_order:
+                    chunk_tasks = self._tasks_by_chunk.get(chunk, [])
+                    completed = sum(1 for task in chunk_tasks if str(task.get("status", "pending")).lower() in {"completed", "verified"})
                     yield Static(
-                        Text(f"... and {remaining} more tasks", style="dim italic"),
-                        classes="task-row",
+                        f"[bold]{chunk}[/bold] [dim]({completed}/{len(chunk_tasks)} complete)[/dim]",
+                        classes="plan-chunk-header",
                     )
+                    for task in chunk_tasks:
+                        yield Static(self._format_task_row(task), classes="task-row")
 
-            # Footer with buttons
+            with Container(classes="plan-json-edit"):
+                yield Static(
+                    "Editable Plan JSON:",
+                    classes="plan-json-edit-label",
+                )
+                json_editor = TextArea(
+                    self._plan_json_value,
+                    id="plan_json_editor",
+                )
+                yield json_editor
+                yield Button(
+                    "Apply JSON Edits",
+                    variant="default",
+                    id="apply_plan_json_btn",
+                    classes="apply-plan-json-button",
+                )
+                if self._json_edit_status:
+                    yield Static(self._json_edit_status, classes="plan-json-edit-status")
+
+            with Container(classes="plan-feedback"):
+                yield Static(
+                    "Prompt for next planning turn (required for Continue/Quick Edit):",
+                    classes="plan-feedback-label",
+                )
+                feedback_input = Input(
+                    placeholder="Example: tighten scope, reorder chunks, add migration tasks",
+                    id="planning_feedback_input",
+                )
+                feedback_input.value = self._feedback_value
+                yield feedback_input
+
             with Container(classes="modal-footer"):
                 with Horizontal(classes="footer-buttons"):
                     yield Button(
-                        "Execute Plan (Enter)",
-                        variant="success",
-                        id="execute_btn",
-                        classes="execute-button",
+                        "Continue Planning",
+                        variant="default",
+                        id="continue_btn",
+                        classes="continue-button",
+                        disabled=not self._has_feedback(),
                     )
                     yield Button(
-                        "Cancel (Esc)",
-                        variant="error",
-                        id="cancel_btn",
+                        "Quick Edit (Single Agent)",
+                        variant="default",
+                        id="quick_edit_btn",
+                        disabled=not self._has_feedback(),
                     )
+                    yield Button(
+                        "Finalize Plan and Execute (Enter)",
+                        variant="primary",
+                        id="finalize_btn",
+                        classes="execute-button",
+                    )
+                    yield Button("Cancel (Esc)", variant="error", id="cancel_btn")
+                if self._action_status:
+                    yield Static(self._action_status, classes="plan-action-status")
 
     def _format_task_row(self, task: Dict[str, Any]) -> Text:
-        """Format a single task row for display.
-
-        Args:
-            task: Task dictionary
-
-        Returns:
-            Rich Text object with formatted task
-        """
         text = Text()
 
-        # Status icon
-        status = task.get("status", "pending")
+        status = str(task.get("status", "pending")).lower()
         icon = self.STATUS_ICONS.get(status, "○")
         text.append(f"{icon} ", style="dim")
 
-        # Task ID
         task_id = task.get("id", "?")
         text.append(f"[{task_id}] ", style="cyan")
 
-        # Priority indicator
-        priority = task.get("priority", "").lower()
+        priority = str(task.get("priority", "")).lower()
         if priority in self.PRIORITY_COLORS:
             text.append("● ", style=self.PRIORITY_COLORS[priority])
 
-        # Task name/description
         name = task.get("name") or task.get("description", "Untitled task")
-        # Truncate long names
-        if len(name) > 60:
-            name = name[:57] + "..."
+        if not self._expanded and len(name) > 72:
+            name = name[:69] + "..."
         text.append(name)
 
-        # Dependencies indicator
-        deps = task.get("dependencies", [])
-        if deps:
+        deps = task.get("depends_on") or task.get("dependencies") or []
+        if isinstance(deps, list) and deps:
             text.append(f" (→{len(deps)})", style="dim")
 
         return text
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle button press events."""
-        if event.button.id == "execute_btn":
-            self.dismiss(
-                PlanApprovalResult(
-                    approved=True,
-                    plan_data=self.plan_data,
-                    plan_path=self.plan_path,
-                ),
-            )
-        elif event.button.id in ("cancel_btn", "close_btn"):
-            self.dismiss(PlanApprovalResult(approved=False))
+    def _feedback_text(self) -> Optional[str]:
+        try:
+            feedback_input = self.query_one("#planning_feedback_input", Input)
+            text = (feedback_input.value or "").strip()
+            return text or None
+        except Exception:
+            text = (self._feedback_value or "").strip()
+            return text or None
 
-    def action_cancel(self) -> None:
-        """Cancel action (ESC key)."""
-        self.dismiss(PlanApprovalResult(approved=False))
+    def _has_feedback(self) -> bool:
+        return self._feedback_text() is not None
 
-    def action_execute(self) -> None:
-        """Execute action (Enter key)."""
+    def _sync_feedback_action_controls(self) -> None:
+        has_feedback = self._has_feedback()
+        for button_id in ("continue_btn", "quick_edit_btn"):
+            try:
+                self.query_one(f"#{button_id}", Button).disabled = not has_feedback
+            except Exception:
+                pass
+
+    def _snapshot_input_values(self) -> None:
+        """Capture current input values before recompose/dismiss."""
+        try:
+            self._feedback_value = self.query_one("#planning_feedback_input", Input).value
+        except Exception:
+            pass
+        try:
+            self._plan_json_value = self.query_one("#plan_json_editor", TextArea).text
+        except Exception:
+            pass
+
+    def _apply_plan_json_edit(self) -> bool:
+        """Apply plan JSON edits from inline editor."""
+        self._snapshot_input_values()
+        payload = (self._plan_json_value or "").strip()
+        if not payload:
+            self._json_edit_status = "Plan JSON cannot be empty."
+            self.refresh(recompose=True)
+            return False
+
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError as e:
+            self._json_edit_status = f"Invalid JSON: {e}"
+            self.refresh(recompose=True)
+            return False
+
+        if not isinstance(parsed, dict):
+            self._json_edit_status = "Plan JSON must be an object with a tasks array."
+            self.refresh(recompose=True)
+            return False
+
+        raw_tasks = parsed.get("tasks")
+        if not isinstance(raw_tasks, list) or not raw_tasks:
+            self._json_edit_status = "Plan JSON must include a non-empty 'tasks' array."
+            self.refresh(recompose=True)
+            return False
+
+        parsed_tasks = [task for task in raw_tasks if isinstance(task, dict)]
+        if not parsed_tasks:
+            self._json_edit_status = "Plan JSON contains no valid task objects."
+            self.refresh(recompose=True)
+            return False
+
+        parsed["tasks"] = parsed_tasks
+        self.plan_data = parsed
+        self.tasks = parsed_tasks
+        self._plan_json_value = json.dumps(self.plan_data, indent=2)
+        self._rebuild_chunk_groups()
+        self._json_edit_status = f"Applied JSON edits ({len(self.tasks)} task(s) loaded)."
+        self._persist_plan_data()
+        self.refresh(recompose=True)
+        return True
+
+    def _validate_action(self, action: str) -> bool:
+        """Validate modal action requirements before dismissing."""
+        self._action_status = ""
+        if action in {"continue", "quick_edit"} and not self._feedback_text():
+            self._action_status = "Enter a planning prompt before Continue or Quick Edit."
+            self.refresh(recompose=True)
+            return False
+        return True
+
+    def _dismiss_with_action(self, action: str) -> None:
+        self._snapshot_input_values()
+
+        if action != "cancel":
+            if not self._apply_plan_json_edit():
+                return
+            if not self._validate_action(action):
+                return
+
+        if action != "cancel":
+            self._persist_plan_data()
         self.dismiss(
             PlanApprovalResult(
-                approved=True,
+                approved=action == "finalize",
+                action=action,
+                feedback=self._feedback_text(),
                 plan_data=self.plan_data,
                 plan_path=self.plan_path,
             ),
         )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id
+        if button_id == "continue_btn":
+            self._dismiss_with_action("continue")
+        elif button_id == "quick_edit_btn":
+            self._dismiss_with_action("quick_edit")
+        elif button_id == "finalize_btn":
+            self._dismiss_with_action("finalize")
+        elif button_id == "expand_btn":
+            self.action_toggle_expand()
+        elif button_id == "apply_plan_json_btn":
+            self._apply_plan_json_edit()
+        elif button_id in ("cancel_btn", "close_btn"):
+            self._dismiss_with_action("cancel")
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Keep local state in sync so recompose preserves edits."""
+        if event.input.id == "planning_feedback_input":
+            self._feedback_value = event.value
+            self._sync_feedback_action_controls()
+
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        """Keep JSON editor state synced across recomposes."""
+        if event.text_area.id == "plan_json_editor":
+            self._plan_json_value = event.text_area.text
+
+    def action_cancel(self) -> None:
+        self._dismiss_with_action("cancel")
+
+    def action_toggle_expand(self) -> None:
+        self._snapshot_input_values()
+        self._expanded = not self._expanded
+        self.refresh(recompose=True)
+
+    def action_continue_planning(self) -> None:
+        self._dismiss_with_action("continue")
+
+    def action_finalize_plan(self) -> None:
+        self._dismiss_with_action("finalize")
+
+    def on_mount(self) -> None:
+        self._sync_feedback_action_controls()
+        try:
+            self.query_one("#finalize_btn", Button).focus()
+        except Exception:
+            pass

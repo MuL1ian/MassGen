@@ -102,6 +102,9 @@ class APIParamsHandlerBase(ABC):
             "mcp_servers",
             # Coordination parameters (handled by orchestrator, not passed to API)
             "vote_only",  # Vote-only mode flag for coordination
+            "plan_depth",
+            "plan_target_steps",
+            "plan_target_chunks",
             "use_two_tier_workspace",  # Two-tier workspace (scratch/deliverable) + git versioning
             "write_mode",  # Isolated write context mode (auto/worktree/isolated/legacy)
             # NLIP configuration belongs to MassGen routing, never provider APIs

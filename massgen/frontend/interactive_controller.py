@@ -505,6 +505,22 @@ class TextualInteractiveAdapter(UIAdapter):
                 logger.info("[TextualAdapter] Triggering plan approval flow")
                 self._trigger_plan_approval(result, mode_state)
                 return
+            if mode_state.plan_mode == "plan" and getattr(mode_state, "quick_edit_restore_pending", False) and (result.was_cancelled or result.error):
+                restore_mode = mode_state.quick_edit_prev_agent_mode or "multi"
+                restore_selected = mode_state.quick_edit_prev_selected_agent
+                mode_state.agent_mode = restore_mode
+                mode_state.selected_single_agent = restore_selected
+                mode_state.quick_edit_prev_agent_mode = None
+                mode_state.quick_edit_prev_selected_agent = None
+                mode_state.quick_edit_restore_pending = False
+                if self._display:
+                    self._display._call_app_method(
+                        "_set_agent_mode_visual_state",
+                        restore_mode,
+                        restore_selected,
+                    )
+            if mode_state.plan_mode == "execute" and mode_state.plan_session and not result.was_cancelled and not result.error:
+                self._update_execute_chunk_progress(result, mode_state)
             if mode_state.plan_mode == "analysis" and result.answer_text and not result.was_cancelled and not result.error:
                 analysis_profile = getattr(mode_state.analysis_config, "profile", "dev")
                 if analysis_profile == "user":
@@ -546,12 +562,20 @@ class TextualInteractiveAdapter(UIAdapter):
                 self._display._call_app_method("_update_mode_bar_plan_mode", "normal")
             return
 
+        # Track planning revisions/iterations for iterative review flow.
+        mode_state.plan_revision = (getattr(mode_state, "plan_revision", 0) or 0) + 1
+        mode_state.planning_iteration_count = (getattr(mode_state, "planning_iteration_count", 0) or 0) + 1
+
         # Show modal via display
         if self._display:
             logger.info("[TextualAdapter] Calling show_plan_approval_modal")
             self._display.show_plan_approval_modal(tasks, plan_path, plan_data, mode_state)
 
-    def _find_plan_from_workspace(self) -> Optional[tuple]:
+    def _find_plan_from_workspace(
+        self,
+        *,
+        prefer_execution_scope: bool = False,
+    ) -> Optional[tuple]:
         """Find and parse plan.json from agent workspace.
 
         Returns:
@@ -576,11 +600,21 @@ class TextualInteractiveAdapter(UIAdapter):
 
             # Check agent workspaces for plan
             for agent_dir in final_dir.glob("agent_*/workspace"):
-                for plan_location in [
-                    agent_dir / "deliverable" / "project_plan.json",
-                    agent_dir / "project_plan.json",
-                    agent_dir / "tasks" / "plan.json",
-                ]:
+                if prefer_execution_scope:
+                    search_order = [
+                        agent_dir / "tasks" / "plan.json",
+                        agent_dir / "plan.json",
+                        agent_dir / "deliverable" / "project_plan.json",
+                        agent_dir / "project_plan.json",
+                    ]
+                else:
+                    search_order = [
+                        agent_dir / "deliverable" / "project_plan.json",
+                        agent_dir / "project_plan.json",
+                        agent_dir / "tasks" / "plan.json",
+                    ]
+
+                for plan_location in search_order:
                     if plan_location.exists():
                         try:
                             plan_data = json.loads(plan_location.read_text())
@@ -610,6 +644,135 @@ class TextualInteractiveAdapter(UIAdapter):
         except Exception as e:
             logger.error(f"[PlanApproval] Error finding plan: {e}")
             return None
+
+    def _merge_chunk_updates_into_workspace(
+        self,
+        plan_session: Any,
+        chunk_tasks: List[Dict[str, Any]],
+    ) -> None:
+        """Merge chunk task updates into workspace/plan.json for checkpoint persistence."""
+        import json
+
+        workspace_plan_file = plan_session.workspace_dir / "plan.json"
+        if not workspace_plan_file.exists():
+            return
+        try:
+            payload = json.loads(workspace_plan_file.read_text())
+        except Exception:
+            return
+        if not isinstance(payload, dict) or not isinstance(payload.get("tasks"), list):
+            return
+
+        by_id = {str(task.get("id", "")).strip(): task for task in payload.get("tasks", []) if isinstance(task, dict)}
+        for task in chunk_tasks:
+            if not isinstance(task, dict):
+                continue
+            task_id = str(task.get("id", "")).strip()
+            if not task_id or task_id not in by_id:
+                continue
+            by_id[task_id].update(task)
+
+        workspace_plan_file.write_text(json.dumps(payload, indent=2))
+
+    def _update_execute_chunk_progress(self, result: TurnResult, mode_state: Any) -> None:
+        """Checkpoint chunk execution progress after an execute-mode turn."""
+        from massgen.plan_execution import (
+            evaluate_chunk_progress,
+            mark_session_resumable,
+            record_chunk_checkpoint,
+        )
+
+        plan_result = self._find_plan_from_workspace(prefer_execution_scope=True)
+        if not plan_result:
+            logger.warning("[TextualAdapter] Execute turn completed but no chunk plan found in workspace")
+            return
+
+        _plan_path, plan_data = plan_result
+        chunk_tasks = plan_data.get("tasks", []) if isinstance(plan_data, dict) else []
+        if not isinstance(chunk_tasks, list):
+            chunk_tasks = []
+
+        plan_session = mode_state.plan_session
+        metadata = plan_session.load_metadata()
+        active_chunk = metadata.current_chunk
+        if not active_chunk:
+            return
+
+        progress = evaluate_chunk_progress(chunk_tasks)
+        self._merge_chunk_updates_into_workspace(plan_session, chunk_tasks)
+
+        retry_counts: Dict[str, int] = {}
+        if isinstance(metadata.resumable_state, dict):
+            saved = metadata.resumable_state.get("retry_counts", {})
+            if isinstance(saved, dict):
+                for chunk_name, retry_value in saved.items():
+                    try:
+                        retry_counts[str(chunk_name)] = int(retry_value)
+                    except Exception:
+                        continue
+
+        attempt = retry_counts.get(active_chunk, 0) + 1
+
+        if progress["is_complete"]:
+            retry_counts[active_chunk] = 0
+            updated = record_chunk_checkpoint(
+                plan_session,
+                chunk=active_chunk,
+                status="completed",
+                attempt=attempt,
+                progress=progress,
+            )
+
+            if updated.current_chunk:
+                mark_session_resumable(
+                    plan_session,
+                    current_chunk=updated.current_chunk,
+                    reason="awaiting_next_chunk_execution",
+                    retry_counts=retry_counts,
+                )
+                auto_continue = True
+                try:
+                    auto_continue = bool(
+                        getattr(mode_state.plan_config, "execute_auto_continue_chunks", True),
+                    )
+                except Exception:
+                    auto_continue = True
+
+                if self._display:
+                    self._display._call_app_method(
+                        "_show_chunk_advance_modal",
+                        active_chunk,
+                        updated.current_chunk,
+                        auto_continue,
+                    )
+                else:
+                    self.notify(
+                        f"Chunk complete: {active_chunk}. Next: {updated.current_chunk}",
+                        "info",
+                    )
+            else:
+                self.notify("All chunks completed for this plan.", "info")
+                if self._display:
+                    self._display._call_app_method("_handle_plan_mode_change", "normal")
+        else:
+            retry_counts[active_chunk] = retry_counts.get(active_chunk, 0) + 1
+            record_chunk_checkpoint(
+                plan_session,
+                chunk=active_chunk,
+                status="incomplete",
+                attempt=attempt,
+                progress=progress,
+            )
+            mark_session_resumable(
+                plan_session,
+                current_chunk=active_chunk,
+                reason="chunk_incomplete",
+                retry_counts=retry_counts,
+            )
+            self.notify(
+                f"Chunk incomplete: {active_chunk} ({progress['completed_count']}/{progress['total_tasks']})",
+                "warning",
+            )
 
     def reset_turn_view(self) -> None:
         """Reset agent panels."""
