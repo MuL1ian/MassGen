@@ -410,3 +410,99 @@ class DecompositionGenerationModal(BaseModal):
             self.query_one("#decomposition_generation_results_content", Static).update(content)
         except Exception:
             pass
+
+
+class ChunkAdvanceModal(BaseModal):
+    """Modal shown after chunk completion to advance/pause chunk execution."""
+
+    BINDINGS = [
+        ("enter", "continue_now", "Continue"),
+        ("escape", "pause_here", "Pause"),
+    ]
+
+    def __init__(
+        self,
+        completed_chunk: str,
+        next_chunk: str,
+        *,
+        auto_continue: bool = True,
+        countdown_seconds: int = 2,
+    ) -> None:
+        super().__init__()
+        self.completed_chunk = completed_chunk
+        self.next_chunk = next_chunk
+        self.auto_continue = auto_continue
+        self.countdown_seconds = max(1, int(countdown_seconds))
+        self._remaining = self.countdown_seconds
+        self._countdown_timer = None
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal-container modal-container-narrow", id="chunk_advance_container"):
+            yield Label("✅ Chunk Complete", classes="modal-title")
+            yield Label(
+                f"Completed: {self.completed_chunk}",
+                id="chunk_advance_completed",
+                classes="modal-summary",
+            )
+            yield Label(
+                f"Next chunk: {self.next_chunk}",
+                id="chunk_advance_next",
+                classes="modal-summary",
+            )
+
+            if self.auto_continue:
+                yield Label(
+                    f"Auto-continuing in {self._remaining}s. Press Pause to stop.",
+                    id="chunk_advance_countdown",
+                    classes="modal-summary",
+                )
+            else:
+                yield Label(
+                    "Auto-continue is off. Continue when ready.",
+                    id="chunk_advance_countdown",
+                    classes="modal-summary",
+                )
+
+            with Horizontal(classes="modal-footer"):
+                yield Button("Continue Now (Enter)", id="continue_chunk_button", variant="primary")
+                yield Button("Pause Here (Esc)", id="pause_chunk_button")
+
+    def on_mount(self) -> None:
+        """Start optional auto-continue countdown."""
+        if not self.auto_continue:
+            return
+
+        def tick() -> None:
+            self._remaining -= 1
+            if self._remaining <= 0:
+                if self._countdown_timer:
+                    self._countdown_timer.stop()
+                    self._countdown_timer = None
+                self.dismiss(True)
+                return
+            try:
+                label = self.query_one("#chunk_advance_countdown", Label)
+                label.update(f"Auto-continuing in {self._remaining}s. Press Pause to stop.")
+            except Exception:
+                pass
+
+        self._countdown_timer = self.set_interval(1.0, tick)
+
+    def on_unmount(self) -> None:
+        """Clean up countdown timer."""
+        if self._countdown_timer:
+            self._countdown_timer.stop()
+            self._countdown_timer = None
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle modal button actions."""
+        if event.button.id == "continue_chunk_button":
+            self.dismiss(True)
+        elif event.button.id == "pause_chunk_button":
+            self.dismiss(False)
+
+    def action_continue_now(self) -> None:
+        self.dismiss(True)
+
+    def action_pause_here(self) -> None:
+        self.dismiss(False)

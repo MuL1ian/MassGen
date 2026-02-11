@@ -63,15 +63,16 @@ The TUI provides interactive modes for creating and executing plans without comm
 Mode Cycling
 ^^^^^^^^^^^^
 
-Press ``Shift+Tab`` to cycle through three modes:
+Press ``Shift+Tab`` to cycle through four modes:
 
 1. **Normal Mode** - Standard chat with agents
 2. **Planning Mode** - Create new plans interactively
-3. **Execute Mode** - Browse and execute existing plans
+3. **Execute Mode** - Browse and execute existing plans chunk-by-chunk
+4. **Analysis Mode** - Analyze prior run logs and improve workflows
 
 .. code-block:: text
 
-   Normal ──[Shift+Tab]──> Planning ──[Shift+Tab]──> Execute ──[Shift+Tab]──> Normal
+   Normal ──[Shift+Tab]──> Planning ──[Shift+Tab]──> Execute ──[Shift+Tab]──> Analysis ──[Shift+Tab]──> Normal
 
 Or click the plan mode button in the mode bar to cycle through modes.
 
@@ -90,7 +91,9 @@ Press ``Shift+Tab`` once to enter Planning mode.
 
 Click the plan options button to set:
 
-* **Plan Depth**: shallow (5-10 tasks), medium (20-50 tasks), or deep (100-200+ tasks)
+* **Plan Depth**: dynamic (default), shallow (5-10 tasks), medium (20-50 tasks), or deep (100-200+ tasks)
+* **Task Count Target**: dynamic (default) or an explicit target
+* **Chunk Count Target**: dynamic (default) or an explicit target
 * **Broadcast Mode**: agents (agent coordination), human (ask user), or false (autonomous)
 
 **Step 3: Create Plan**
@@ -105,11 +108,15 @@ Agents will collaborate to create a structured task plan without executing any c
 
 **Step 4: Review Plan**
 
-After planning completes, the plan is saved to ``.massgen/plans/`` and can be:
+After planning completes, the review modal opens and the plan is saved immediately to ``.massgen/plans/``.
 
-* Executed immediately (click execute button presented after planning)
-* Executed later via Execute Mode
-* Executed via CLI with ``--execute-plan latest``
+You can:
+
+* **Continue Planning** (multi-agent refinement turn; requires a non-empty prompt)
+* **Quick Edit (Single Agent)** (focused refinement turn; requires a non-empty prompt)
+* **Finalize Plan and Execute** (default Enter action)
+
+The modal also includes an inline JSON editor so you can directly edit ``project_plan.json`` before continuing or finalizing.
 
 Using Execute Mode
 ^^^^^^^^^^^^^^^^^^
@@ -137,8 +144,17 @@ Click "View Full Plan" to see complete task breakdown in a modal.
 **Step 4: Execute**
 
 * Select a plan (or use the default latest plan)
-* Press ``Enter`` to execute the selected plan
-* Optionally type additional instructions before pressing Enter
+* Press ``Enter`` to execute the selected plan's current chunk
+* Optionally type a chunk label (or chunk range like ``C02-C04``) before pressing Enter
+* Optionally type additional execution instructions
+
+**Step 5: Control Chunk Flow**
+
+In execute options you can choose:
+
+* **Auto-continue next chunk** (default)
+* **Pause after each chunk** (manual confirmation between chunks)
+* **Execute refinement mode**: inherit / force ON / force OFF
 
 Context Path Preservation
 ^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -149,6 +165,16 @@ Context paths from the planning phase are automatically preserved:
 * Those same paths are restored when you execute the plan later
 * Ensures consistent file access between planning and execution
 
+Execution Workspace Contract
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+During each execute turn:
+
+* ``tasks/plan.json`` contains only the active chunk tasks
+* previous chunk snapshots are retained as ``tasks/tasks_cXX.json`` files
+* ``planning_docs/full_plan.json`` contains the frozen full plan for read-only reference
+* supporting planning docs are available under ``planning_docs/``
+
 .. note::
    **TUI Plan Workflow Benefits:**
 
@@ -157,7 +183,7 @@ Context paths from the planning phase are automatically preserved:
    * **Flexibility**: Switch modes on-the-fly without restarting MassGen
 
 Planning Phase (CLI)
---------------
+--------------------
 
 In planning mode, agents create:
 
@@ -212,6 +238,7 @@ Plans are stored as JSON with this structure:
        {
          "id": "F001",
          "description": "Initialize Next.js project with Tailwind CSS",
+         "chunk": "C01_foundation",
          "status": "pending",
          "depends_on": [],
          "priority": "high",
@@ -224,6 +251,7 @@ Plans are stored as JSON with this structure:
        {
          "id": "F002",
          "description": "Create responsive navigation component",
+         "chunk": "C02_ui_shell",
          "status": "pending",
          "depends_on": ["F001"],
          "priority": "high",
@@ -251,6 +279,9 @@ Plans are stored as JSON with this structure:
    * - ``description``
      - Yes
      - What the task accomplishes
+   * - ``chunk``
+     - Yes
+     - Planner-defined chunk label used for chunk-by-chunk execution order
    * - ``status``
      - Yes
      - ``pending``, ``in_progress``, ``completed``, ``verified``, or ``blocked``
@@ -281,10 +312,13 @@ Execution Phase
 
 During execution:
 
-1. The frozen plan (from ``frozen/plan.json``) is loaded and copied to each agent's workspace
-2. Agents use MCP planning tools to track progress
-3. Agents execute tasks respecting dependencies
-4. Agents update task status as they work
+1. The frozen plan (from ``frozen/plan.json``) is loaded
+2. ``tasks/plan.json`` is written with only the active chunk tasks for that turn
+3. ``planning_docs/full_plan.json`` is copied for read-only full-plan reference
+4. Previous chunk snapshots are archived as ``tasks/tasks_cXX.json`` files
+5. Agents use MCP planning tools to track progress
+6. Agents execute tasks respecting dependencies
+7. Agents update task status as they work
 
 MCP Planning Tools
 ^^^^^^^^^^^^^^^^^^

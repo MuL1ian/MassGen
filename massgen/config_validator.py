@@ -902,12 +902,31 @@ class ConfigValidator:
                 # Validate plan_depth if present
                 if "plan_depth" in coordination:
                     value = coordination["plan_depth"]
-                    valid_depths = ["shallow", "medium", "deep"]
+                    valid_depths = ["dynamic", "shallow", "medium", "deep"]
                     if value not in valid_depths:
                         result.add_error(
                             f"'plan_depth' must be one of {valid_depths}, got '{value}'",
                             f"{location}.coordination.plan_depth",
-                            "Use 'shallow' (5-10 tasks), 'medium' (20-50 tasks), or 'deep' (100-200+ tasks)",
+                            "Use 'dynamic', 'shallow' (5-10 tasks), 'medium' (20-50 tasks), or 'deep' (100-200+ tasks)",
+                        )
+
+                # Validate optional explicit planning targets
+                if "plan_target_steps" in coordination:
+                    value = coordination["plan_target_steps"]
+                    if value is not None and (not isinstance(value, int) or value <= 0):
+                        result.add_error(
+                            "'plan_target_steps' must be a positive integer or null",
+                            f"{location}.coordination.plan_target_steps",
+                            "Use values like 20, 40, 80, or omit/null for dynamic sizing.",
+                        )
+
+                if "plan_target_chunks" in coordination:
+                    value = coordination["plan_target_chunks"]
+                    if value is not None and (not isinstance(value, int) or value <= 0):
+                        result.add_error(
+                            "'plan_target_chunks' must be a positive integer or null",
+                            f"{location}.coordination.plan_target_chunks",
+                            "Use values like 3, 5, 8, or omit/null for dynamic sizing.",
                         )
 
                 # Validate subagent_round_timeouts if present

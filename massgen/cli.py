@@ -205,6 +205,39 @@ def _automation_print(msg: str) -> None:
     print(msg, file=sys.stderr if _stream_events_active else sys.stdout)
 
 
+def _has_evolving_skills_enabled(agents: Optional[Dict[str, Any]]) -> bool:
+    """Return True when any active agent has evolving skills enabled."""
+    if not agents:
+        return False
+
+    for agent in agents.values():
+        backend = getattr(agent, "backend", None)
+        backend_config = getattr(backend, "config", None)
+        if isinstance(backend_config, dict) and backend_config.get(
+            "auto_discover_custom_tools",
+            False,
+        ):
+            return True
+    return False
+
+
+def _should_use_conversation_history_for_turn(
+    conversation_history: List[Dict[str, Any]],
+    mode_state: Any,
+    agents: Optional[Dict[str, Any]],
+) -> bool:
+    """Determine whether prior conversation history should be injected this turn."""
+    if not conversation_history:
+        return False
+
+    if not (mode_state and getattr(mode_state, "plan_mode", None) == "execute"):
+        return True
+
+    # Execute turns normally run from task artifacts only. Keep history only when
+    # evolving skills are enabled so iterative workflow refinement can use prior context.
+    return _has_evolving_skills_enabled(agents)
+
+
 def _setup_event_streaming() -> None:
     """Configure event streaming to stdout for subprocess-based TUI display.
 
@@ -351,7 +384,9 @@ def _restore_terminal_for_input() -> None:
 
 
 def get_task_planning_prompt_prefix(
-    plan_depth: str = "medium",
+    plan_depth: str = "dynamic",
+    target_steps: Optional[int] = None,
+    target_chunks: Optional[int] = None,
     enable_subagents: bool = False,
     broadcast_mode: Union[Literal["human", "agents"], bool] = "human",
 ) -> str:
@@ -361,7 +396,9 @@ def get_task_planning_prompt_prefix(
     It instructs agents to interactively create structured feature lists.
 
     Args:
-        plan_depth: One of "shallow", "medium", or "deep" controlling task granularity.
+        plan_depth: One of "dynamic", "shallow", "medium", or "deep" controlling task granularity.
+        target_steps: Optional explicit target number of tasks (None = dynamic sizing).
+        target_chunks: Optional explicit target number of chunks (None = default single-chunk planning).
         enable_subagents: Whether subagents are enabled for research tasks.
         broadcast_mode: One of "human", "agents", or False. Controls whether ask_others() is available.
 
@@ -369,11 +406,25 @@ def get_task_planning_prompt_prefix(
         The prompt prefix string to prepend to the user's question.
     """
     depth_config = {
+        "dynamic": {"target": "dynamic", "detail": "scope-adaptive granularity"},
         "shallow": {"target": "5-10", "detail": "high-level phases only"},
         "medium": {"target": "20-50", "detail": "sections with tasks"},
         "deep": {"target": "100-200+", "detail": "granular step-by-step"},
     }
-    cfg = depth_config.get(plan_depth, depth_config["medium"])
+    normalized_depth = plan_depth if plan_depth in depth_config else "dynamic"
+    cfg = depth_config[normalized_depth]
+
+    if target_steps is not None and target_steps > 0:
+        task_target_line = f"- Target tasks: around {target_steps}"
+    elif normalized_depth == "dynamic":
+        task_target_line = "- Target tasks: dynamic based on scope complexity"
+    else:
+        task_target_line = f"- Target tasks: {cfg['target']}"
+
+    if target_chunks is not None and target_chunks > 0:
+        chunk_target_line = f"- Target chunks: around {target_chunks}"
+    else:
+        chunk_target_line = "- Target chunks: around 1 (single-run default unless dependencies require splitting)"
 
     # Subagent research section (only if enabled)
     subagent_section = ""
@@ -664,13 +715,14 @@ Write `project_plan.json` with this structure:
   "tasks": [
     {{
       "id": "F001",
+      "chunk": "C01_foundation",
       "description": "Feature Name - What this feature accomplishes and the expected outcome",
       "status": "pending",
       "depends_on": ["F000"],
       "priority": "high|medium|low",
       "metadata": {{
         "verification": "How to verify this task is complete",
-        "verification_method": "Automated verification approach",
+        "verification_method": "Output-first verification approach",
         "verification_group": "optional_group_name"
       }}
     }}
@@ -678,14 +730,23 @@ Write `project_plan.json` with this structure:
 }}
 ```
 
+### Required Chunking Rules
+- Every task **MUST** include a non-empty `chunk` string.
+- Use ordered chunk labels (for example: `C01_foundation`, `C02_backend`, `C03_ui`).
+- Dependencies must not point to future chunks.
+- Keep chunk order deterministic by using consistent, increasing labels.
+- Respect the chunk target guidance below while preserving a valid dependency DAG.
+
 ### Metadata Fields (Optional but Recommended)
 - **verification**: What to check - testable completion criteria (e.g., "Homepage displays correctly", "API returns 200")
-- **verification_method**: Automated verification approach (no manual human steps). Can check both correctness (builds, tests, API responses) and quality (visual analysis, output review).
+- **verification_method**: Output-first verification approach. Start with user-visible checks (run it, click through it, inspect the rendered/output result), then add automated checks where useful.
 - **verification_group**: Group related tasks for batch verification (e.g., "foundation", "frontend_ui", "api_endpoints").
   During execution, tasks are marked `completed` then later `verified` in groups.
 
-## Depth: {plan_depth.upper()}
-- Target: {cfg["target"]} features/tasks
+## Planning Size Controls
+- Depth mode: {normalized_depth.upper()}
+{task_target_line}
+{chunk_target_line}
 - Detail level: {cfg["detail"]}
 
 ## Quality Criteria
@@ -695,11 +756,49 @@ Write `project_plan.json` with this structure:
 - Scope should be confirmed with user before detailed planning
 - Verification criteria should be testable and specific
 - Use verification_group to batch related tasks (e.g., verify all pages after building them)
+- For user-facing tasks, include at least one verification step that checks the actual user-visible output
 
 ---
 
 USER'S REQUEST:
 """
+
+
+def build_plan_review_refinement_appendix(
+    *,
+    question: str,
+    planning_feedback: str,
+    include_quick_edit_hint: bool,
+) -> str:
+    """Build optional prompt appendix for planning-review refinement turns.
+
+    Avoids duplicating feedback blocks when the current question already embeds
+    plan-review feedback text (common when users include it directly).
+    """
+    sections: List[str] = []
+
+    feedback = (planning_feedback or "").strip()
+    normalized_question = " ".join((question or "").lower().split())
+    normalized_feedback = " ".join(feedback.lower().split())
+
+    feedback_already_present = False
+    if feedback:
+        if normalized_feedback and normalized_feedback in normalized_question:
+            feedback_already_present = True
+        elif "plan review feedback" in normalized_question:
+            feedback_already_present = True
+
+    if feedback and not feedback_already_present:
+        sections.append(
+            "## Plan Review Feedback\n" f"{feedback}\n\n" "Apply this feedback while keeping a valid chunk-labeled task DAG.",
+        )
+
+    if include_quick_edit_hint:
+        sections.append(
+            "## Quick Edit Planning Turn\n" "Make precise updates and preserve valid chunk/dependency structure.",
+        )
+
+    return "\n\n".join(sections)
 
 
 def _load_skill_creator_reference() -> str:
@@ -741,6 +840,7 @@ def get_log_analysis_prompt_prefix(
     log_dir: Optional[str],
     turn: Optional[int],
     profile: str = "dev",
+    skill_lifecycle_mode: str = "create_or_update",
 ) -> str:
     """Generate the user prompt prefix for Textual analysis mode.
 
@@ -752,7 +852,10 @@ def get_log_analysis_prompt_prefix(
     Returns:
         Prefix instructions to prepend to the user's question.
     """
+    from massgen.filesystem_manager.skills_manager import normalize_skill_lifecycle_mode
+
     normalized_profile = profile if profile in ("dev", "user") else "dev"
+    normalized_lifecycle_mode = normalize_skill_lifecycle_mode(skill_lifecycle_mode)
     target_log = log_dir or "auto-select current/latest log session"
     target_turn = f"turn_{turn}" if turn is not None else "latest available turn"
 
@@ -764,6 +867,16 @@ def get_log_analysis_prompt_prefix(
 
     if normalized_profile == "user":
         skill_creator_ref = _load_skill_creator_reference()
+        lifecycle_instructions = {
+            "create_or_update": """- Lifecycle mode: create_or_update (default).
+- First look for the best existing skill in `.agent/skills/` and update it when it matches the same domain workflow.
+- Only create a new skill if no existing skill is a strong match.
+""",
+            "create_new": """- Lifecycle mode: create_new.
+- Always create a new skill directory in `.agent/skills/`.
+- Do not modify existing skills in this mode.
+""",
+        }.get(normalized_lifecycle_mode, "")
         profile_section = f"""## Profile Focus: USER (skills-first)
 
 Primary objective:
@@ -775,10 +888,14 @@ IMPORTANT constraints:
 - The skill must be about the DOMAIN TASK (the original query above), NOT about "analyzing logs" or "evaluating runs".
 - The skill should encode the workflow, techniques, prompt patterns, and tool usage that made this run effective.
 - Name the skill after what it DOES (e.g., "poem-workshop", "website-builder"), not after analysis.
+{lifecycle_instructions}
 
 Required outputs:
 - Create a skill directory on disk: `.agent/skills/<skill-name>/SKILL.md` using filesystem tools.
 - The SKILL.md should capture the specific workflow, prompts, and patterns from the logs so someone else can reproduce or build on this work.
+- Add provenance metadata so MassGen can classify this as an evolving skill:
+  - `massgen_origin: "{target_log}::{target_turn}"`
+  - `evolving: true`
 
 ## Skill Creation Reference
 
@@ -789,8 +906,12 @@ Required outputs:
 When creating a skill from analysis findings:
 1. Choose a descriptive kebab-case name that reflects the domain task (NOT "log-analysis" or similar).
 2. Write the SKILL.md file directly to `.agent/skills/<name>/SKILL.md` using filesystem tools.
-3. Include proper YAML frontmatter with at least `name` and `description`.
+3. Include YAML frontmatter with at least `name`, `description`, `massgen_origin`, and `evolving`.
 4. Focus the skill content on the actual workflow and techniques, not on meta-analysis.
+5. Respect lifecycle mode `{normalized_lifecycle_mode}` when deciding whether to update existing skills, create a new one, or consolidate overlaps.
+6. If a SKILL_REGISTRY.md exists in `.agent/skills/`, append the new skill to it under a "## Recently Added" section \
+with format: `- **skill-name** (project): description`. This ensures the skill is visible to agents before the next \
+full registry reorganization.
 """
     else:
         profile_section = """## Profile Focus: DEV (internals-first)
@@ -819,6 +940,89 @@ General constraints:
 - If evidence is incomplete, state exactly what is missing and why it matters.
 
 USER'S ANALYSIS REQUEST:
+"""
+
+
+def get_skill_organization_prompt_prefix() -> str:
+    """Generate the user prompt prefix for skill organization analysis mode.
+
+    This prompt instructs the agent to read all installed skills, identify
+    overlapping or confusable skills, merge where appropriate, and produce
+    a compact SKILL_REGISTRY.md routing guide.
+
+    Returns:
+        Prefix instructions to prepend to the user's question.
+    """
+    return """# SKILL ORGANIZATION MODE
+
+You are in MassGen skill organization mode. Your task is to analyze, reorganize,
+and catalog all installed skills.
+
+IMPORTANT: Start by reading the skill-organizer skill's instructions from
+.agent/skills/skill-organizer/SKILL.md for the detailed workflow.
+
+## Step 1: Inventory all skills
+
+List all skill directories in the .agent/skills/ folder. Then read each skill's
+SKILL.md file to understand what it does, its scope, and its quality.
+
+## Step 2: Identify overlapping or confusable skills
+
+Look for:
+- Skills that do the same thing with slightly different names or descriptions
+- Skills whose scopes overlap significantly (one is a subset of another)
+- Skills that could be combined into a single broader skill with multiple sections
+
+## Step 3: Merge into hierarchical parent skills
+
+For each group of overlapping or related skills, create a single parent skill
+with sections covering each sub-capability:
+- Choose a broader parent name (e.g., `web-app-dev` instead of separate
+  `react-frontend`, `nodejs-backend`, `web-testing`)
+- Write one comprehensive SKILL.md with clearly labeled sections for each
+  sub-capability
+- Move bundled resources into subdirectories of the parent skill directory
+- Remove the redundant skill directories
+
+When merging, prefer the skill with:
+- Better-quality instructions and examples
+- More complete bundled resources
+- A more descriptive, general name
+
+Fewer, richer skills with sections beats many shallow skills.
+
+## Step 4: Generate SKILL_REGISTRY.md
+
+Write a compact `SKILL_REGISTRY.md` to `.agent/skills/SKILL_REGISTRY.md` that serves
+as a routing guide for skill selection. For each skill, include:
+
+- **What it does** in one sentence
+- **Use when**: trigger condition — when should the agent read this skill?
+- **Sections**: what sub-capabilities/sections live inside (for hierarchical skills)
+
+Group skills by purpose/domain (not alphabetically). Stay under 50 entries total.
+Include a "Recently Added" section for uncategorized new skills.
+
+The registry is injected into agent system prompts to help them pick the right skill
+without loading all skill details upfront.
+
+## Step 5: Report what you did
+
+Summarize:
+- How many skills were found
+- Which skills were merged (old names → new name)
+- Which skills were kept as-is
+- The final registry structure
+
+## Constraints
+
+- Do NOT use keyword matching, Jaccard similarity, or heuristic categorization.
+  Use your understanding of what each skill does.
+- Be aggressive about merging — fewer high-quality skills is better than many overlapping ones.
+- Preserve all bundled resources (templates, examples, configs) during merges.
+- The SKILL_REGISTRY.md is a routing guide, not documentation. Keep it concise.
+
+USER'S ORGANIZATION REQUEST:
 """
 
 
@@ -5373,6 +5577,13 @@ async def run_textual_interactive_mode(
     display_kwargs["agent_models"] = agent_models
     configured_coordination_mode = orchestrator_cfg.get("coordination_mode", "voting") if orchestrator_cfg else "voting"
     display_kwargs["default_coordination_mode"] = "decomposition" if configured_coordination_mode == "decomposition" else "parallel"
+    coordination_settings = orchestrator_cfg.get("coordination", {}) if orchestrator_cfg else {}
+    display_kwargs["default_load_previous_session_skills"] = bool(
+        coordination_settings.get("load_previous_session_skills", False),
+    )
+    display_kwargs["default_skill_lifecycle_mode"] = str(
+        coordination_settings.get("skill_lifecycle_mode", "create_or_update"),
+    )
     display = TextualTerminalDisplay(agent_ids, **display_kwargs)
 
     # Start background MCP registry cache warmup (non-blocking)
@@ -5493,7 +5704,7 @@ async def run_textual_interactive_mode(
                 return True
 
             analysis_context_path: Optional[str] = None
-            if mode_state and mode_state.plan_mode == "analysis":
+            if mode_state and mode_state.plan_mode == "analysis" and getattr(mode_state.analysis_config, "target", "log") == "log":
                 selected_log_dir = getattr(mode_state.analysis_config, "selected_log_dir", None)
                 if selected_log_dir:
                     resolved_log_dir = Path(selected_log_dir).resolve()
@@ -5587,22 +5798,6 @@ async def run_textual_interactive_mode(
                 agents = new_agents
                 logger.info(f"[Textual] Created {len(agents)} agent(s)")
                 adapter.update_loading_status("✅ Agents created")
-
-            # Setup agent workspaces for execute mode (copy plan files)
-            # This must run whenever agents exist and we're in execute mode
-            # (both when first created and on subsequent turns)
-            mode_state = display.get_mode_state()
-            if agents is not None and mode_state and mode_state.plan_mode == "execute" and mode_state.plan_session:
-                from .plan_execution import setup_agent_workspaces_for_execution
-
-                task_count = setup_agent_workspaces_for_execution(
-                    agents,
-                    mode_state.plan_session,
-                )
-                if task_count > 0:
-                    logger.info(
-                        f"[Textual] Execute mode - copied plan with {task_count} tasks to agent workspaces",
-                    )
 
             # Ensure analysis target logs are mounted as read-only context paths.
             # Without this, agents in Docker cannot read host log artifacts.
@@ -5848,6 +6043,34 @@ async def run_textual_interactive_mode(
                             display._call_app_method("_sync_coordination_mode_toggle", synced_mode)
 
                 mode_overrides = mode_state.get_orchestrator_overrides()
+                execute_refinement_mode = getattr(
+                    mode_state.plan_config,
+                    "execute_refinement_mode",
+                    "inherit",
+                )
+                if mode_state.plan_mode == "execute" and execute_refinement_mode in {"on", "off"}:
+                    if execute_refinement_mode == "on":
+                        # Ensure refinement behavior is active for execute turns.
+                        for key in (
+                            "max_new_answers_per_agent",
+                            "skip_final_presentation",
+                            "skip_voting",
+                            "disable_injection",
+                            "defer_voting_until_all_answered",
+                        ):
+                            mode_overrides.pop(key, None)
+                    else:
+                        # Force quick-mode behavior for execute turns.
+                        mode_overrides["max_new_answers_per_agent"] = 1
+                        mode_overrides["skip_final_presentation"] = True
+                        if mode_state.agent_mode == "single":
+                            mode_overrides["skip_voting"] = True
+                            mode_overrides.pop("disable_injection", None)
+                            mode_overrides.pop("defer_voting_until_all_answered", None)
+                        else:
+                            mode_overrides["disable_injection"] = True
+                            mode_overrides["defer_voting_until_all_answered"] = True
+                            mode_overrides.pop("skip_voting", None)
                 if mode_overrides:
                     logger.info(f"[Textual] Applying TUI mode overrides: {mode_overrides}")
                     for key, value in mode_overrides.items():
@@ -5885,12 +6108,64 @@ async def run_textual_interactive_mode(
                         if hasattr(orchestrator_config.coordination_config, key):
                             setattr(orchestrator_config.coordination_config, key, value)
 
+                planning_turn_mode: Optional[str] = None
+                if mode_state.plan_mode == "plan" and mode_state.pending_planning_mode in {"multi", "single"}:
+                    planning_turn_mode = mode_state.pending_planning_mode
+                    # One-shot override set by planning review modal.
+                    mode_state.pending_planning_mode = None
+
                 # In single-agent mode, filter agents to selected agent only
-                if mode_state.is_single_agent_mode() and mode_state.selected_single_agent:
+                if planning_turn_mode == "single":
+                    selected_for_quick_edit = mode_state.selected_single_agent or next(
+                        iter(agents.keys()),
+                        None,
+                    )
+                    if selected_for_quick_edit and selected_for_quick_edit in agents:
+                        logger.info(
+                            f"[Textual] Plan quick-edit mode: using single agent {selected_for_quick_edit}",
+                        )
+                        agents = {selected_for_quick_edit: agents[selected_for_quick_edit]}
+                elif mode_state.is_single_agent_mode() and mode_state.selected_single_agent:
                     effective_agents = mode_state.get_effective_agents(agents)
                     if effective_agents:
                         logger.info(f"[Textual] Single-agent mode: using {list(effective_agents.keys())}")
                         agents = effective_agents
+
+                enabled_skill_names = mode_state.analysis_config.get_enabled_skill_names()
+                include_previous_session_skills = bool(
+                    mode_state.analysis_config.include_previous_session_skills,
+                )
+                skill_lifecycle_mode = str(
+                    getattr(mode_state.analysis_config, "skill_lifecycle_mode", "create_or_update"),
+                )
+                skills_runtime_enabled = bool(
+                    (orchestrator_config.coordination_config and orchestrator_config.coordination_config.use_skills) or mode_state.plan_mode == "analysis",
+                )
+                if skills_runtime_enabled:
+                    if orchestrator_config.coordination_config is None:
+                        from .agent_config import CoordinationConfig
+
+                        orchestrator_config.coordination_config = CoordinationConfig()
+
+                    # Analysis mode always requires skills to be on.
+                    if mode_state.plan_mode == "analysis":
+                        orchestrator_config.coordination_config.use_skills = True
+
+                    setattr(
+                        orchestrator_config.coordination_config,
+                        "enabled_skill_names",
+                        enabled_skill_names,
+                    )
+                    setattr(
+                        orchestrator_config.coordination_config,
+                        "load_previous_session_skills",
+                        include_previous_session_skills,
+                    )
+                    setattr(
+                        orchestrator_config.coordination_config,
+                        "skill_lifecycle_mode",
+                        skill_lifecycle_mode,
+                    )
 
                 # Prepend task planning prompt prefix when TUI plan mode is "plan" (not "execute")
                 # Execute mode has its own execution prompt with plan context
@@ -5904,14 +6179,30 @@ async def run_textual_interactive_mode(
 
                     planning_prefix = get_task_planning_prompt_prefix(
                         plan_depth=mode_state.plan_config.depth,
+                        target_steps=mode_state.plan_config.target_steps,
+                        target_chunks=mode_state.plan_config.target_chunks,
                         enable_subagents=enable_subagents,
                         broadcast_mode=mode_state.plan_config.broadcast,
                     )
+
+                    planning_feedback = (mode_state.pending_planning_feedback or "").strip()
+                    mode_state.pending_planning_feedback = None
+                    effective_planning_mode = planning_turn_mode or ("single" if len(agents) == 1 else "multi")
+                    mode_state.last_planning_mode = effective_planning_mode
+
                     question = planning_prefix + question
+                    planning_refinement_appendix = build_plan_review_refinement_appendix(
+                        question=question,
+                        planning_feedback=planning_feedback,
+                        include_quick_edit_hint=effective_planning_mode == "single",
+                    )
+                    if planning_refinement_appendix:
+                        question += "\n\n" + planning_refinement_appendix
                     logger.info(
                         f"[Textual] Plan mode: Prepended task planning instructions "
                         f"(depth={mode_state.plan_config.depth}, subagents={enable_subagents}, "
-                        f"broadcast={mode_state.plan_config.broadcast})",
+                        f"broadcast={mode_state.plan_config.broadcast}, target_steps={mode_state.plan_config.target_steps}, "
+                        f"target_chunks={mode_state.plan_config.target_chunks}, planning_turn_mode={effective_planning_mode})",
                     )
 
                     # Capture context paths for use during execution
@@ -5923,38 +6214,30 @@ async def run_textual_interactive_mode(
                                 f"[Textual] Plan mode: Captured {len(mode_state.planning_context_paths)} context paths for execution",
                             )
                 elif mode_state.plan_mode == "analysis":
-                    # In analysis mode, always keep skills enabled and optionally
-                    # apply a runtime skill allowlist selected in the TUI.
-                    if orchestrator_config.coordination_config is None:
-                        from .agent_config import CoordinationConfig
-
-                        orchestrator_config.coordination_config = CoordinationConfig()
-
-                    orchestrator_config.coordination_config.use_skills = True
-
-                    enabled_skill_names = mode_state.analysis_config.get_enabled_skill_names()
-                    setattr(
-                        orchestrator_config.coordination_config,
-                        "enabled_skill_names",
-                        enabled_skill_names,
-                    )
-
-                    analysis_profile = mode_state.analysis_config.profile
-                    analysis_log_dir = mode_state.analysis_config.selected_log_dir
-                    analysis_turn = mode_state.analysis_config.selected_turn
-                    question = (
-                        get_log_analysis_prompt_prefix(
-                            log_dir=analysis_log_dir,
-                            turn=analysis_turn,
-                            profile=analysis_profile,
+                    analysis_target = getattr(mode_state.analysis_config, "target", "log")
+                    if analysis_target == "skills":
+                        question = get_skill_organization_prompt_prefix() + question
+                        logger.info("[Textual] Analysis mode: skill organization (prepended organization instructions)")
+                    else:
+                        analysis_profile = mode_state.analysis_config.profile
+                        analysis_log_dir = mode_state.analysis_config.selected_log_dir
+                        analysis_turn = mode_state.analysis_config.selected_turn
+                        question = (
+                            get_log_analysis_prompt_prefix(
+                                log_dir=analysis_log_dir,
+                                turn=analysis_turn,
+                                profile=analysis_profile,
+                                skill_lifecycle_mode=skill_lifecycle_mode,
+                            )
+                            + question
                         )
-                        + question
-                    )
-                    logger.info(
-                        "[Textual] Analysis mode: prepended analysis instructions "
-                        f"(profile={analysis_profile}, log_dir={analysis_log_dir}, turn={analysis_turn}, "
-                        f"skills_filter={'all' if enabled_skill_names is None else len(enabled_skill_names)})",
-                    )
+                        logger.info(
+                            "[Textual] Analysis mode: prepended analysis instructions "
+                            f"(profile={analysis_profile}, log_dir={analysis_log_dir}, turn={analysis_turn}, "
+                            f"skills_filter={'all' if enabled_skill_names is None else len(enabled_skill_names)}, "
+                            f"evolving={'on' if include_previous_session_skills else 'off'}, "
+                            f"lifecycle={skill_lifecycle_mode})",
+                        )
 
             # Get generated personas from session info if persist_across_turns is enabled
             # (matching Rich terminal path setup)
@@ -6050,9 +6333,24 @@ async def run_textual_interactive_mode(
 
             # Run orchestration with restart loop
             # (won't call display.run_async due to interactive_mode)
+            use_conversation_history = _should_use_conversation_history_for_turn(
+                conversation_history=conversation_history,
+                mode_state=mode_state,
+                agents=agents,
+            )
+            if mode_state and mode_state.plan_mode == "execute" and conversation_history:
+                if use_conversation_history:
+                    logger.info(
+                        "[Textual] Execute mode - keeping conversation history " "injection because evolving skills are enabled",
+                    )
+                else:
+                    logger.info(
+                        "[Textual] Execute mode - skipping conversation history " "injection for orchestration prompt assembly",
+                    )
+
             while True:
                 # Use coordinate_with_context if we have conversation history for multi-turn
-                if conversation_history:
+                if use_conversation_history:
                     # Build messages list with history + current question
                     messages = conversation_history + [
                         {"role": "user", "content": question},
@@ -7179,7 +7477,8 @@ def resolve_plan_path(plan_path: str) -> "PlanSession":
     storage = PlanStorage()
 
     if plan_path == "latest":
-        session = storage.get_latest_plan()
+        # Prefer latest resumable session for safer resume-by-default behavior.
+        session = storage.get_latest_resumable_plan() or storage.get_latest_plan()
         if not session:
             raise FileNotFoundError("No plans found in .massgen/plans/")
         return session
@@ -7235,13 +7534,23 @@ async def _execute_plan_phase(
     Returns:
         Tuple of (final_answer, diff_dict)
     """
+    import copy as _copy
+
     from rich.console import Console
 
     from .logger_config import get_log_session_root
     from .plan_execution import (
+        PlanValidationError,
         build_execution_prompt,
+        evaluate_chunk_progress,
+        get_next_pending_chunk,
+        initialize_chunk_execution_state,
+        load_frozen_plan,
+        mark_session_resumable,
         prepare_plan_execution_config,
+        record_chunk_checkpoint,
         setup_agent_workspaces_for_execution,
+        validate_chunked_plan,
     )
 
     console = Console()
@@ -7255,9 +7564,6 @@ async def _execute_plan_phase(
     plan_session.save_metadata(metadata)
     plan_session.log_event("execution_started", {"question": question})
 
-    # Build execution prompt
-    execution_prompt = build_execution_prompt(question)
-
     # Use shared helper to prepare config (adds context paths, enables planning tools, injects guidance)
     exec_config = prepare_plan_execution_config(config, plan_session)
     orchestrator_cfg = exec_config.get("orchestrator", {})
@@ -7269,16 +7575,31 @@ async def _execute_plan_phase(
         memory_session_id=f"plan_exec_{plan_session.plan_id}",
     )
 
-    # Use shared helper to copy plan and docs to agent workspaces
-    task_count = setup_agent_workspaces_for_execution(agents, plan_session)
-
-    if task_count == 0:
-        frozen_plan_file = plan_session.frozen_dir / "plan.json"
-        console.print(f"[bold red]Error: Frozen plan not found at {frozen_plan_file}[/bold red]")
-        console.print("[red]Cannot execute plan without a valid frozen plan.json[/red]")
+    # Validate + initialize chunk state
+    try:
+        chunk_metadata = initialize_chunk_execution_state(plan_session)
+        frozen_plan_data = load_frozen_plan(plan_session)
+        chunk_order, _ = validate_chunked_plan(frozen_plan_data)
+    except (FileNotFoundError, PlanValidationError) as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+        console.print("[red]Cannot execute plan without valid chunk metadata on every task.[/red]")
         raise SystemExit(1)
 
-    console.print(f"[dim]Loaded {task_count} tasks from frozen plan[/dim]")
+    total_tasks = len(frozen_plan_data.get("tasks", []))
+    if total_tasks == 0:
+        console.print("[bold red]Error: Frozen plan has no tasks[/bold red]")
+        raise SystemExit(1)
+    if not chunk_order:
+        console.print("[bold red]Error: Frozen plan has no chunk order[/bold red]")
+        raise SystemExit(1)
+
+    console.print(
+        f"[dim]Loaded {total_tasks} tasks across {len(chunk_order)} chunks from frozen plan[/dim]",
+    )
+    if chunk_metadata.status == "resumable" and chunk_metadata.current_chunk:
+        console.print(
+            f"[yellow]Resuming from chunk: {chunk_metadata.current_chunk}[/yellow]",
+        )
 
     # Build UI config
     ui_config = {
@@ -7287,42 +7608,195 @@ async def _execute_plan_phase(
         "automation_mode": automation,
     }
 
-    # Run execution
-    result = await run_single_question(
-        execution_prompt,
-        agents,
-        ui_config,
-        return_metadata=True,
-        orchestrator=orchestrator_cfg,
-    )
+    # Maintain a full-plan projection that gets updated chunk by chunk.
+    working_plan_data = _copy.deepcopy(frozen_plan_data)
+    plan_session.workspace_dir.mkdir(parents=True, exist_ok=True)
+    working_plan_file = plan_session.workspace_dir / "plan.json"
+    working_plan_file.write_text(json.dumps(working_plan_data, indent=2))
 
-    final_answer = result["answer"]
-    coordination_result = result.get("coordination_result", {})
+    def _read_chunk_plan_from_agent(agent_obj: Any) -> Optional[Dict[str, Any]]:
+        """Read the operational tasks/plan.json produced by an execution turn."""
+        if not (hasattr(agent_obj.backend, "filesystem_manager") and agent_obj.backend.filesystem_manager):
+            return None
+        workspace = Path(agent_obj.backend.filesystem_manager.cwd)
+        candidate_files = [workspace / "tasks" / "plan.json", workspace / "plan.json"]
+        for candidate in candidate_files:
+            if not candidate.exists():
+                continue
+            try:
+                payload = json.loads(candidate.read_text())
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict) and isinstance(payload.get("tasks"), list):
+                return payload
+        return None
+
+    def _merge_chunk_updates(full_plan: Dict[str, Any], chunk_tasks: List[Dict[str, Any]]) -> None:
+        """Merge chunk task updates into the full working plan by task id."""
+        by_id = {str(task.get("id", "")).strip(): task for task in full_plan.get("tasks", []) if isinstance(task, dict)}
+        for updated_task in chunk_tasks:
+            if not isinstance(updated_task, dict):
+                continue
+            task_id = str(updated_task.get("id", "")).strip()
+            if not task_id or task_id not in by_id:
+                continue
+            by_id[task_id].update(updated_task)
+
+    retry_budget_per_chunk = 2
+    retry_counts: Dict[str, int] = {}
+    if isinstance(chunk_metadata.resumable_state, dict):
+        saved_retry_counts = chunk_metadata.resumable_state.get("retry_counts", {})
+        if isinstance(saved_retry_counts, dict):
+            for chunk_name, retry_value in saved_retry_counts.items():
+                try:
+                    retry_counts[str(chunk_name)] = int(retry_value)
+                except (TypeError, ValueError):
+                    continue
+
+    final_answer = ""
+    coordination_result: Dict[str, Any] = {}
+
+    try:
+        while True:
+            current_metadata = plan_session.load_metadata()
+            active_chunk = current_metadata.current_chunk or get_next_pending_chunk(
+                current_metadata,
+            )
+            if not active_chunk:
+                break
+
+            attempt = retry_counts.get(active_chunk, 0) + 1
+
+            current_metadata.status = "executing"
+            current_metadata.current_chunk = active_chunk
+            current_metadata.resumable_state = {
+                "marked_at": datetime.now().isoformat(),
+                "current_chunk": active_chunk,
+                "reason": "in_progress",
+                "retry_counts": dict(retry_counts),
+            }
+            plan_session.save_metadata(current_metadata)
+            plan_session.log_event(
+                "chunk_started",
+                {"chunk": active_chunk, "attempt": attempt},
+            )
+
+            task_count = setup_agent_workspaces_for_execution(
+                agents,
+                plan_session,
+                active_chunk=active_chunk,
+            )
+            if task_count == 0:
+                raise RuntimeError(
+                    f"No executable tasks found for chunk '{active_chunk}'",
+                )
+
+            console.print(
+                f"[bold cyan]Chunk {active_chunk}[/bold cyan] " f"[dim](attempt {attempt}, {task_count} tasks)[/dim]",
+            )
+
+            execution_prompt = build_execution_prompt(
+                question,
+                active_chunk=active_chunk,
+                chunk_order=chunk_order,
+            )
+
+            result = await run_single_question(
+                execution_prompt,
+                agents,
+                ui_config,
+                return_metadata=True,
+                orchestrator=orchestrator_cfg,
+            )
+
+            if result.get("answer"):
+                final_answer = result["answer"]
+            coordination_result = result.get("coordination_result", {}) or {}
+
+            winner_id = coordination_result.get("selected_agent")
+            chunk_plan_data: Optional[Dict[str, Any]] = None
+            if winner_id and winner_id in agents:
+                chunk_plan_data = _read_chunk_plan_from_agent(agents[winner_id])
+            if chunk_plan_data is None:
+                # Fallback: use the first readable agent plan.
+                for agent in agents.values():
+                    chunk_plan_data = _read_chunk_plan_from_agent(agent)
+                    if chunk_plan_data:
+                        break
+
+            chunk_tasks = chunk_plan_data.get("tasks", []) if chunk_plan_data else []
+            progress = evaluate_chunk_progress(chunk_tasks)
+            if chunk_tasks:
+                _merge_chunk_updates(working_plan_data, chunk_tasks)
+                working_plan_file.write_text(json.dumps(working_plan_data, indent=2))
+
+            if progress["is_complete"]:
+                retry_counts[active_chunk] = 0
+                updated_metadata = record_chunk_checkpoint(
+                    plan_session,
+                    chunk=active_chunk,
+                    status="completed",
+                    attempt=attempt,
+                    progress=progress,
+                )
+                next_chunk = updated_metadata.current_chunk
+                if next_chunk:
+                    console.print(
+                        f"[green]✓ Completed chunk {active_chunk}[/green] " f"[dim]→ next: {next_chunk}[/dim]",
+                    )
+                else:
+                    console.print(
+                        f"[green]✓ Completed final chunk {active_chunk}[/green]",
+                    )
+            else:
+                retry_counts[active_chunk] = retry_counts.get(active_chunk, 0) + 1
+                exhausted = not progress["made_progress"] and retry_counts[active_chunk] > retry_budget_per_chunk
+                if exhausted:
+                    error_msg = f"Chunk '{active_chunk}' exhausted retry budget " f"({retry_budget_per_chunk}) without progress"
+                    record_chunk_checkpoint(
+                        plan_session,
+                        chunk=active_chunk,
+                        status="failed",
+                        attempt=attempt,
+                        progress=progress,
+                        error_message=error_msg,
+                    )
+                    raise RuntimeError(error_msg)
+
+                record_chunk_checkpoint(
+                    plan_session,
+                    chunk=active_chunk,
+                    status="incomplete",
+                    attempt=attempt,
+                    progress=progress,
+                )
+                console.print(
+                    f"[yellow]Chunk {active_chunk} incomplete[/yellow] "
+                    f"[dim](completed {progress['completed_count']}/{progress['total_tasks']}, "
+                    f"retry {retry_counts[active_chunk]}/{retry_budget_per_chunk})[/dim]",
+                )
+    except KeyboardInterrupt:
+        current_metadata = plan_session.load_metadata()
+        mark_session_resumable(
+            plan_session,
+            current_chunk=current_metadata.current_chunk,
+            reason="interrupted_by_user",
+            retry_counts=retry_counts,
+        )
+        raise
+    except Exception as e:
+        current_metadata = plan_session.load_metadata()
+        if current_metadata.status not in {"failed", "completed"}:
+            mark_session_resumable(
+                plan_session,
+                current_chunk=current_metadata.current_chunk,
+                reason=f"execution_error: {e}",
+                retry_counts=retry_counts,
+            )
+        raise
 
     # ========== Collection & Reporting ==========
     console.print("\n[bold blue]═══ COLLECTION ═══[/bold blue]")
-
-    # Get winning agent's workspace and collect their modified plan
-    if coordination_result:
-        winning_agent_id = coordination_result.get("selected_agent")
-        if winning_agent_id and winning_agent_id in agents:
-            winning_agent = agents[winning_agent_id]
-            if hasattr(winning_agent.backend, "filesystem_manager") and winning_agent.backend.filesystem_manager:
-                winner_workspace = Path(winning_agent.backend.filesystem_manager.cwd)
-
-                # Look for plan.json: agents work with tasks/plan.json during execution
-                winner_plan_file = winner_workspace / "tasks" / "plan.json"
-                if not winner_plan_file.exists():
-                    # Fallback to workspace root
-                    winner_plan_file = winner_workspace / "plan.json"
-
-                if winner_plan_file.exists():
-                    # Copy winning agent's modified plan.json to workspace_dir/plan.json
-                    # This is needed for compute_plan_diff() which compares workspace/plan.json vs frozen/plan.json
-                    plan_session.workspace_dir.mkdir(parents=True, exist_ok=True)
-                    dest_plan_file = plan_session.workspace_dir / "plan.json"
-                    shutil.copy2(winner_plan_file, dest_plan_file)
-                    logger.info(f"[ExecutePlan] Collected modified plan from {winning_agent_id}")
 
     # Compute plan diff
     diff = plan_session.compute_plan_diff()
@@ -7331,7 +7805,9 @@ async def _execute_plan_phase(
 
     # Update metadata
     metadata = plan_session.load_metadata()
-    metadata.status = "completed"
+    if metadata.current_chunk is None:
+        metadata.status = "completed"
+        metadata.resumable_state = None
     metadata.execution_session_id = coordination_result.get("session_id") if coordination_result else None
     try:
         metadata.execution_log_dir = str(get_log_session_root())
@@ -7420,7 +7896,9 @@ async def run_execute_plan(
 async def run_plan_and_execute(
     config: Dict[str, Any],
     question: str,
-    plan_depth: str = "medium",
+    plan_depth: str = "dynamic",
+    plan_target_steps: Optional[int] = None,
+    plan_target_chunks: Optional[int] = None,
     broadcast_mode: str = "human",
     automation: bool = False,
     debug: bool = False,
@@ -7434,7 +7912,9 @@ async def run_plan_and_execute(
     Args:
         config: Full config dict
         question: User's task/question
-        plan_depth: shallow/medium/deep
+        plan_depth: dynamic/shallow/medium/deep
+        plan_target_steps: Optional explicit target number of tasks.
+        plan_target_chunks: Optional explicit target number of chunks (defaults to 1).
         broadcast_mode: human/agents/false
         automation: Whether in automation mode
         debug: Debug mode flag
@@ -7455,7 +7935,12 @@ async def run_plan_and_execute(
 
     # ========== PHASE 1: Planning ==========
     console.print("\n[bold blue]═══ PHASE 1: PLANNING ═══[/bold blue]")
-    console.print(f"Running agents to create task plan (depth: {plan_depth})...")
+    effective_plan_target_chunks = plan_target_chunks if isinstance(plan_target_chunks, int) and plan_target_chunks > 0 else 1
+    planning_controls = [f"depth={plan_depth}"]
+    if plan_target_steps is not None:
+        planning_controls.append(f"target_steps={plan_target_steps}")
+    planning_controls.append(f"target_chunks={effective_plan_target_chunks}")
+    console.print(f"Running agents to create task plan ({', '.join(planning_controls)})...")
 
     # Create plan storage
     storage = PlanStorage()
@@ -7492,6 +7977,9 @@ async def run_plan_and_execute(
         "--config",
         config_path,
     ]
+    if plan_target_steps is not None:
+        cmd.extend(["--plan-steps", str(plan_target_steps)])
+    cmd.extend(["--plan-chunks", str(effective_plan_target_chunks)])
 
     if debug:
         cmd.append("--debug")
@@ -7910,12 +8398,31 @@ async def main(args):
             orchestrator_cfg_plan["coordination"]["plan_depth"] = getattr(
                 args,
                 "plan_depth",
-                "medium",
+                "dynamic",
             )
+            orchestrator_cfg_plan["coordination"]["plan_target_steps"] = getattr(
+                args,
+                "plan_steps",
+                None,
+            )
+            resolved_plan_target_chunks = getattr(
+                args,
+                "plan_chunks",
+                None,
+            )
+            if resolved_plan_target_chunks is None:
+                existing_chunk_target = orchestrator_cfg_plan["coordination"].get("plan_target_chunks")
+                if isinstance(existing_chunk_target, int) and existing_chunk_target > 0:
+                    resolved_plan_target_chunks = existing_chunk_target
+                else:
+                    resolved_plan_target_chunks = 1
+            orchestrator_cfg_plan["coordination"]["plan_target_chunks"] = resolved_plan_target_chunks
 
             logger.info(
-                "[Plan Mode] Enabled with depth=%s, broadcast=%s",
+                "[Plan Mode] Enabled with depth=%s, target_steps=%s, target_chunks=%s, broadcast=%s",
                 args.plan_depth,
+                getattr(args, "plan_steps", None),
+                resolved_plan_target_chunks,
                 orchestrator_cfg_plan["coordination"].get("broadcast"),
             )
 
@@ -8044,10 +8551,22 @@ async def main(args):
 
         # Prepend task planning instructions if --plan mode is active
         if args.question and getattr(args, "plan", False):
-            plan_depth = getattr(args, "plan_depth", "medium")
+            plan_depth = getattr(args, "plan_depth", "dynamic")
+            plan_target_steps = getattr(args, "plan_steps", None)
+            plan_target_chunks = getattr(args, "plan_chunks", None)
             # Check if subagents are enabled in config
             coordination_cfg = config.get("orchestrator", {}).get("coordination", {})
             enable_subagents = coordination_cfg.get("enable_subagents", False)
+            if plan_target_steps is None:
+                cfg_steps = coordination_cfg.get("plan_target_steps")
+                if isinstance(cfg_steps, int) and cfg_steps > 0:
+                    plan_target_steps = cfg_steps
+            if plan_target_chunks is None:
+                cfg_chunks = coordination_cfg.get("plan_target_chunks")
+                if isinstance(cfg_chunks, int) and cfg_chunks > 0:
+                    plan_target_chunks = cfg_chunks
+            if plan_target_chunks is None:
+                plan_target_chunks = 1
 
             # Broadcast mode priority: CLI arg > config > default "human"
             cli_broadcast = getattr(args, "broadcast", None)
@@ -8060,12 +8579,15 @@ async def main(args):
 
             planning_prefix = get_task_planning_prompt_prefix(
                 plan_depth,
+                target_steps=plan_target_steps,
+                target_chunks=plan_target_chunks,
                 enable_subagents=enable_subagents,
                 broadcast_mode=broadcast_mode,
             )
             args.question = planning_prefix + args.question
             logger.info(
-                f"[Plan Mode] Prepended task planning instructions (depth={plan_depth}, subagents={enable_subagents}, broadcast={broadcast_mode})",
+                f"[Plan Mode] Prepended task planning instructions (depth={plan_depth}, target_steps={plan_target_steps}, "
+                f"target_chunks={plan_target_chunks}, subagents={enable_subagents}, broadcast={broadcast_mode})",
             )
 
         # For interactive mode without initial question, defer agent creation until first prompt
@@ -8171,7 +8693,9 @@ async def main(args):
             final_answer, plan_session = await run_plan_and_execute(
                 config=config,
                 question=args.question,
-                plan_depth=getattr(args, "plan_depth", "medium") or "medium",
+                plan_depth=getattr(args, "plan_depth", "dynamic") or "dynamic",
+                plan_target_steps=getattr(args, "plan_steps", None),
+                plan_target_chunks=getattr(args, "plan_chunks", None),
                 broadcast_mode=broadcast,
                 automation=args.automation,
                 debug=args.debug,
@@ -8906,9 +9430,21 @@ Environment Variables:
     )
     parser.add_argument(
         "--plan-depth",
-        choices=["shallow", "medium", "deep"],
-        default="medium",
-        help="Plan granularity for --plan mode: shallow (5-10 tasks), medium (20-50 tasks), deep (100-200+ tasks). Default: medium.",
+        choices=["dynamic", "shallow", "medium", "deep"],
+        default="dynamic",
+        help="Plan granularity for --plan mode: dynamic (scope-adaptive), shallow (5-10 tasks), " "medium (20-50 tasks), deep (100-200+ tasks). Default: dynamic.",
+    )
+    parser.add_argument(
+        "--plan-steps",
+        type=int,
+        default=None,
+        help="Optional explicit planning target for task count (for example 30). Omit for dynamic sizing.",
+    )
+    parser.add_argument(
+        "--plan-chunks",
+        type=int,
+        default=None,
+        help="Optional explicit planning target for chunk count (for example 5). Default in plan mode: 1 chunk.",
     )
     parser.add_argument(
         "--broadcast",
@@ -9104,6 +9640,13 @@ Environment Variables:
     )
 
     args = parser.parse_args()
+
+    if args.plan_steps is not None and args.plan_steps <= 0:
+        print("❌ --plan-steps must be a positive integer")
+        sys.exit(2)
+    if args.plan_chunks is not None and args.plan_chunks <= 0:
+        print("❌ --plan-chunks must be a positive integer")
+        sys.exit(2)
 
     # Handle --continue flag BEFORE setup_logging so we can reuse log directory
     if args.continue_session:

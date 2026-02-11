@@ -148,3 +148,67 @@ def get_changes(repo: Repo) -> List[Dict[str, str]]:
         changes_by_path[path] = "?"
 
     return [{"status": status, "path": path} for path, status in changes_by_path.items()]
+
+
+def get_branch_diff_summary(
+    repo_path: str,
+    base_ref: str,
+    target_branch: str,
+    max_files: int = 10,
+) -> str:
+    """Get a short diff summary between base_ref and target_branch.
+
+    Returns a formatted string like:
+        3 files (+45/-12)
+        M src/auth.py | A src/oauth.py | M tests/test_auth.py
+
+    Args:
+        repo_path: Path to the git repository
+        base_ref: Base reference (e.g., "HEAD", commit SHA, branch name)
+        target_branch: Target branch name to diff against
+        max_files: Maximum number of files to list (avoids prompt bloat)
+
+    Returns:
+        Formatted diff summary string, or empty string on failure
+    """
+    try:
+        repo = Repo(repo_path, search_parent_directories=True)
+
+        # Get shortstat summary (e.g., "3 files changed, 45 insertions(+), 12 deletions(-)")
+        shortstat = repo.git.diff("--shortstat", base_ref, target_branch).strip()
+        if not shortstat:
+            return ""
+
+        # Parse shortstat into compact form
+        import re
+
+        files_match = re.search(r"(\d+) file", shortstat)
+        ins_match = re.search(r"(\d+) insertion", shortstat)
+        del_match = re.search(r"(\d+) deletion", shortstat)
+        n_files = files_match.group(1) if files_match else "0"
+        n_ins = ins_match.group(1) if ins_match else "0"
+        n_del = del_match.group(1) if del_match else "0"
+        summary_line = f"{n_files} file{'s' if int(n_files) != 1 else ''} (+{n_ins}/-{n_del})"
+
+        # Get name-status for file list
+        name_status = repo.git.diff("--name-status", base_ref, target_branch).strip()
+        if not name_status:
+            return summary_line
+
+        file_entries = []
+        for line in name_status.splitlines()[:max_files]:
+            parts = line.split("\t")
+            if len(parts) >= 2:
+                status = parts[0][:1].upper()
+                filepath = parts[-1]
+                file_entries.append(f"{status} {filepath}")
+
+        total_files = len(name_status.splitlines())
+        file_list = " | ".join(file_entries)
+        if total_files > max_files:
+            file_list += f" | ... (+{total_files - max_files} more)"
+
+        return f"{summary_line}\n  {file_list}"
+
+    except Exception:
+        return ""

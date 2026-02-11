@@ -7,8 +7,9 @@ or shadow repositories (for non-git directories). This enables safe review and
 approval workflows before changes are applied to the original context.
 
 Each coordination round, agents get a fresh worktree with a `.massgen_scratch/`
-directory (git-excluded) for experiments. Branches are preserved across rounds
-so agents can see each other's work via `git branch` / `git diff`.
+directory (git-excluded) for experiments. Branches accumulate across rounds
+(never deleted mid-session) so agents can see each other's work via diff summaries.
+All branches are cleaned up in `cleanup_session()` at session end.
 """
 
 import logging
@@ -39,9 +40,9 @@ class IsolationContextManager:
     - Worktree: Uses git worktrees for git repositories (efficient, branch-based)
     - Shadow: Creates temporary git repos for non-git directories (full copy)
 
-    Branch lifecycle (one branch per agent at a time):
-    - On initialize_context(): if previous_branch is set, delete it first
-    - cleanup_round(): removes worktree, keeps branch (for cross-agent visibility)
+    Branch lifecycle (branches accumulate across rounds for cross-agent visibility):
+    - initialize_context(): creates a new branch (old branches are kept)
+    - cleanup_round(): removes worktree, keeps branch (for cross-agent diffs)
     - cleanup_session(): removes worktrees AND all remaining branches
     """
 
@@ -51,7 +52,6 @@ class IsolationContextManager:
         write_mode: str = "auto",
         temp_base: Optional[str] = None,
         workspace_path: Optional[str] = None,
-        previous_branch: Optional[str] = None,
         base_commit: Optional[str] = None,
         branch_label: Optional[str] = None,
     ):
@@ -65,8 +65,6 @@ class IsolationContextManager:
             workspace_path: Optional agent workspace path. When set, worktrees are
                 created inside {workspace_path}/.worktree/ instead of temp directories.
                 This makes the worktree accessible to the agent as a workspace subdirectory.
-            previous_branch: Optional branch name from this agent's previous round.
-                Will be deleted during initialize_context() to maintain one-branch-per-agent.
             base_commit: Optional commit/branch to use as the starting point for new
                 worktrees. When set, the worktree starts from this commit instead of HEAD.
                 Used for final presentation to start from the winner's branch.
@@ -77,7 +75,6 @@ class IsolationContextManager:
         self.write_mode = write_mode
         self.temp_base = temp_base
         self.workspace_path = workspace_path
-        self.previous_branch = previous_branch
         self.base_commit = base_commit
         self.branch_label = branch_label
 
@@ -98,9 +95,6 @@ class IsolationContextManager:
     def initialize_context(self, context_path: str, agent_id: Optional[str] = None) -> str:
         """
         Initialize an isolated context for the given path.
-
-        If previous_branch was provided at construction, it will be deleted
-        before creating the new branch (one-branch-per-agent invariant).
 
         Args:
             context_path: Original path to create isolated context for
@@ -128,10 +122,6 @@ class IsolationContextManager:
             }
             return context_path
 
-        # Delete previous branch if provided (one-branch-per-agent)
-        if self.previous_branch:
-            self._delete_previous_branch(context_path)
-
         # Determine actual mode for "auto"
         actual_mode = self._determine_mode(context_path)
 
@@ -153,27 +143,6 @@ class IsolationContextManager:
         # Note: _create_worktree_context and _create_shadow_context set self._contexts
         log.info(f"Created isolated context: {context_path} -> {isolated_path} (mode={actual_mode})")
         return isolated_path
-
-    def _delete_previous_branch(self, context_path: str) -> None:
-        """Delete the previous branch for one-branch-per-agent invariant."""
-        if not self.previous_branch:
-            return
-
-        try:
-            from ..utils.git_utils import get_git_root
-
-            repo_root = get_git_root(context_path)
-            if repo_root:
-                if repo_root not in self._worktree_managers:
-                    self._worktree_managers[repo_root] = WorktreeManager(repo_root)
-                wm = self._worktree_managers[repo_root]
-                wm._delete_branch(self.previous_branch, force=True)
-                log.info(f"Deleted previous branch: {self.previous_branch}")
-                # Remove from session tracking if present
-                if self.previous_branch in self._session_branches:
-                    self._session_branches.remove(self.previous_branch)
-        except Exception as e:
-            log.warning(f"Failed to delete previous branch {self.previous_branch}: {e}")
 
     def _determine_mode(self, context_path: str) -> str:
         """Determine the actual isolation mode based on write_mode and path type."""
@@ -374,6 +343,99 @@ class IsolationContextManager:
         """
         return list(self._session_branches)
 
+    def generate_branch_summaries(
+        self,
+        branches: Dict[str, str],
+        base_ref: str = "HEAD",
+    ) -> Dict[str, str]:
+        """Generate diff summaries for a set of branches.
+
+        Args:
+            branches: Dict mapping label -> branch_name (e.g., {"agent1": "massgen/abc123"})
+            base_ref: Base reference to diff against (default: HEAD)
+
+        Returns:
+            Dict mapping label -> formatted diff summary string.
+            Labels with no diff or on error are omitted.
+        """
+        from ..utils.git_utils import get_branch_diff_summary
+
+        summaries: Dict[str, str] = {}
+
+        # Find a repo path — prefer repo_root from contexts (worktree branches
+        # live in the original repo), fall back to workspace_path
+        repo_path = None
+        for ctx in self._contexts.values():
+            rr = ctx.get("repo_root")
+            if rr:
+                repo_path = rr
+                break
+        if not repo_path:
+            repo_path = self.workspace_path
+
+        if not repo_path:
+            return summaries
+
+        try:
+            for label, branch_name in branches.items():
+                summary = get_branch_diff_summary(repo_path, base_ref, branch_name)
+                if summary:
+                    summaries[label] = summary
+        except Exception as e:
+            log.warning(f"Failed to generate branch summaries: {e}")
+
+        return summaries
+
+    @staticmethod
+    def cleanup_orphaned_branches(repo_path: str) -> int:
+        """Delete massgen/* branches not backed by an active worktree.
+
+        Only removes branches that are truly orphaned (no associated worktree).
+        Branches with active worktrees are left alone so concurrent MassGen
+        sessions sharing the same repo are not disrupted.
+
+        This should be called at session start to clean up stale branches
+        left behind by crashed or interrupted sessions.
+
+        Args:
+            repo_path: Path to the git repository
+
+        Returns:
+            Number of branches deleted
+        """
+        deleted = 0
+        try:
+            from git import Repo
+
+            repo = Repo(repo_path, search_parent_directories=True)
+
+            # Collect branches that have an active worktree — those must not be deleted.
+            active_worktree_branches: set[str] = set()
+            try:
+                worktree_output = repo.git.worktree("list", "--porcelain")
+                for line in worktree_output.splitlines():
+                    if line.startswith("branch refs/heads/"):
+                        active_worktree_branches.add(line.removeprefix("branch refs/heads/"))
+            except Exception:
+                # If worktree list fails, be conservative — skip cleanup entirely
+                log.debug("Could not list worktrees; skipping orphaned branch cleanup")
+                return 0
+
+            for branch in list(repo.branches):
+                if branch.name.startswith("massgen/") and branch.name not in active_worktree_branches:
+                    try:
+                        repo.delete_head(branch.name, force=True)
+                        deleted += 1
+                        log.info(f"Cleaned up orphaned branch: {branch.name}")
+                    except Exception as e:
+                        log.warning(f"Failed to delete orphaned branch {branch.name}: {e}")
+        except Exception as e:
+            log.warning(f"Failed to scan for orphaned branches in {repo_path}: {e}")
+
+        if deleted:
+            log.info(f"Cleaned up {deleted} orphaned massgen/* branches from {repo_path}")
+        return deleted
+
     def _is_own_git_root(self, path: str) -> bool:
         """Check if path is the root of its own git repo (has .git/ directly in it).
 
@@ -416,10 +478,6 @@ class IsolationContextManager:
             # Create initial commit so branches can be created
             repo.index.commit("[INIT] MassGen workspace")
             log.info(f"Git-initialized workspace at {workspace_path}")
-
-        # Delete previous branch if set (one-branch-per-agent)
-        if self.previous_branch:
-            self._delete_previous_branch(workspace_path)
 
         # Create a branch for this round: use branch_label if explicitly provided
         if self.branch_label:
@@ -758,8 +816,10 @@ class IsolationContextManager:
                 # then unstage so ChangeApplier can still detect changes via
                 # repo.index.diff(None) and repo.untracked_files.
                 repo.git.add("-A")
-                diff_output = repo.git.diff("--staged")
-                repo.git.reset("HEAD")
+                try:
+                    diff_output = repo.git.diff("--staged")
+                finally:
+                    repo.git.reset("HEAD")
                 return diff_output
             except (InvalidGitRepositoryError, GitCommandError):
                 return ""

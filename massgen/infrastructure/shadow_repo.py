@@ -104,14 +104,24 @@ class ShadowRepo:
         except GitCommandError:
             return ""
 
+    def close(self) -> None:
+        """Close the underlying Repo object to release file descriptors."""
+        if hasattr(self, "repo") and self.repo:
+            self.repo.close()
+
     def cleanup(self) -> None:
         """Remove the shadow repository and all its contents."""
+        self.close()
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
             logger.info(f"Cleaned up shadow repo at {self.temp_dir}")
 
     def _copy_source_files(self) -> None:
-        """Copy files from source to temp_dir, respecting .gitignore if present."""
+        """Copy files from source to temp_dir, skipping .git directories.
+
+        Symlinks are preserved as symlinks (not followed) to prevent
+        path traversal outside the source directory.
+        """
         for item in os.listdir(self.source_path):
             if item == ".git":
                 continue
@@ -120,7 +130,7 @@ class ShadowRepo:
             d = os.path.join(self.temp_dir, item)
 
             if os.path.isdir(s):
-                shutil.copytree(s, d, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git"))
+                shutil.copytree(s, d, symlinks=True, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git"))
             else:
                 shutil.copy2(s, d)
 

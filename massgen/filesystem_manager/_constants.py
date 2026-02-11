@@ -306,6 +306,7 @@ FRAMEWORK_MCPS = frozenset(
         "planning",  # Task planning MCP
         "memory",  # Memory management MCP
         "subagent",  # Subagent spawning (built-in when enabled)
+        "skills",  # Skill discovery and reading MCP
     },
 )
 

@@ -227,7 +227,26 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.49 - Latest
+### v0.1.50 - Latest
+**New Features:** Chunked Plan Execution, Skill Lifecycle Management, Iterative Planning Review
+
+**Key Features:**
+- **Chunked Plan Execution**: Plans divided into chunks and executed one at a time with progress checkpoints
+- **Iterative Planning Review**: New modal with Continue Planning / Quick Edit / Finalize Plan options
+- **Skill Lifecycle Management**: New lifecycle modes, skill organizer, `SKILL_REGISTRY.md`, previous-session skills
+- **Local Skills MCP**: New MCP tool for skill access in Docker/local execution
+- **Worktree Improvements**: Branch accumulation, cross-agent diff visibility, orphan cleanup
+- **Responsive TUI Mode Bar**: Adaptive layout with compact labels on narrow terminals
+
+**Try It:**
+```bash
+# Launch with chunked plan execution and skill lifecycle
+uv run massgen
+```
+
+> Press `Shift+Tab` then press the three dots above the input bar to see plan settings.
+
+### v0.1.49
 **New Features:** Log Analysis TUI Mode, Fairness Gate, Checklist Voting, Testing Infrastructure
 
 **Key Features:**

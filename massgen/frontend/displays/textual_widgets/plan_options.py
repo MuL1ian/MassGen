@@ -5,17 +5,18 @@ Plan Options Popover Widget for MassGen TUI.
 Provides a dropdown popover for plan mode configuration:
 - Plan selection (choose existing plans)
 - Plan details preview (tasks, status, created date)
-- Depth selector (shallow/medium/deep) - shown only in "plan" mode
+- Depth selector (dynamic/shallow/medium/deep) - shown only in "plan" mode
+- Optional explicit task/chunk target selectors - shown only in "plan" mode
 - Broadcast toggle (human/agents/off) - shown only in "plan" mode
 """
 
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from textual.app import ComposeResult
-from textual.containers import VerticalScroll
+from textual.containers import Container, VerticalScroll
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, Label, Select, Static
@@ -47,9 +48,25 @@ class PlanDepthChanged(Message):
         """Initialize the message.
 
         Args:
-            depth: The new depth value ("shallow", "medium", or "deep").
+            depth: The new depth value ("dynamic", "shallow", "medium", or "deep").
         """
         self.depth = depth
+        super().__init__()
+
+
+class PlanStepTargetChanged(Message):
+    """Message emitted when explicit task-count target is changed."""
+
+    def __init__(self, target_steps: Optional[int]) -> None:
+        self.target_steps = target_steps
+        super().__init__()
+
+
+class PlanChunkTargetChanged(Message):
+    """Message emitted when explicit chunk-count target is changed."""
+
+    def __init__(self, target_chunks: Optional[int]) -> None:
+        self.target_chunks = target_chunks
         super().__init__()
 
 
@@ -81,6 +98,38 @@ class ViewPlanRequested(Message):
         super().__init__()
 
 
+class ExecutePrefillRequested(Message):
+    """Message emitted when execute input should be prefilled from chunk controls."""
+
+    def __init__(self, value: str) -> None:
+        self.value = value
+        super().__init__()
+
+
+class ExecuteAutoContinueChanged(Message):
+    """Message emitted when execute auto-continue setting changes."""
+
+    def __init__(self, enabled: bool) -> None:
+        self.enabled = enabled
+        super().__init__()
+
+
+class ExecuteRefinementModeChanged(Message):
+    """Message emitted when execute refinement mode changes."""
+
+    def __init__(self, mode: str) -> None:
+        self.mode = mode
+        super().__init__()
+
+
+class AnalysisTargetTypeChanged(Message):
+    """Message emitted when analysis target type is changed (log vs skills)."""
+
+    def __init__(self, target: str) -> None:
+        self.target = target
+        super().__init__()
+
+
 class AnalysisProfileChanged(Message):
     """Message emitted when analysis profile is changed."""
 
@@ -98,6 +147,14 @@ class AnalysisTargetChanged(Message):
         super().__init__()
 
 
+class AnalysisSkillLifecycleChanged(Message):
+    """Message emitted when analysis skill lifecycle mode is changed."""
+
+    def __init__(self, mode: str) -> None:
+        self.mode = mode
+        super().__init__()
+
+
 class ViewAnalysisRequested(Message):
     """Message emitted when user wants to view an analysis report."""
 
@@ -105,10 +162,6 @@ class ViewAnalysisRequested(Message):
         self.log_dir = log_dir
         self.turn = turn
         super().__init__()
-
-
-class OpenSkillsRequested(Message):
-    """Message emitted when user wants to open the skills manager."""
 
 
 def _popover_log(msg: str) -> None:
@@ -134,14 +187,18 @@ class PlanOptionsPopover(Widget):
     Shows:
     - Plan selector (in execute mode) - choose from existing plans
     - Plan details preview - shows selected plan info
-    - Depth selector (in plan mode) - shallow/medium/deep
+    - Depth selector (in plan mode) - dynamic/shallow/medium/deep
+    - Optional explicit step/chunk targets (in plan mode)
     - Broadcast toggle (in plan mode) - human/agents/off
     """
+
+    LOG_CONTROLS_ID = "analysis_log_controls"
+    SKILLS_CONTROLS_ID = "analysis_skills_controls"
 
     DEFAULT_CSS = """
     PlanOptionsPopover {
         layer: overlay;
-        dock: right;
+        dock: left;
         width: 84;
         min-width: 64;
         max-width: 92;
@@ -151,7 +208,7 @@ class PlanOptionsPopover(Widget):
         border: solid $primary;
         padding: 1 2;
         margin-bottom: 3;
-        margin-right: 1;
+        margin-left: 1;
         display: none;
     }
 
@@ -230,9 +287,35 @@ class PlanOptionsPopover(Widget):
         text-wrap: wrap;
     }
 
+    PlanOptionsPopover .chunk-browser-label {
+        color: $text-muted;
+        margin-top: 1;
+        margin-bottom: 0;
+    }
+
+    PlanOptionsPopover .chunk-prefill-btn {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
+    PlanOptionsPopover #chunk_range_selector {
+        width: 100%;
+        margin-top: 0;
+        margin-bottom: 1;
+    }
+
+    PlanOptionsPopover #prefill_range_btn {
+        width: 100%;
+        margin-bottom: 1;
+    }
+
     PlanOptionsPopover #close_btn {
         margin-top: 1;
         width: 100%;
+    }
+
+    PlanOptionsPopover .hidden-controls {
+        display: none;
     }
     """
 
@@ -242,14 +325,20 @@ class PlanOptionsPopover(Widget):
         plan_mode: str = "normal",
         available_plans: Optional[List["PlanSession"]] = None,
         current_plan_id: Optional[str] = None,
-        current_depth: "PlanDepth" = "medium",
+        current_depth: "PlanDepth" = "dynamic",
+        current_step_target: Optional[int] = None,
+        current_chunk_target: Optional[int] = None,
+        current_execute_auto_continue: bool = True,
+        current_execute_refinement_mode: str = "inherit",
         current_broadcast: Any = "human",
+        analysis_target_type: str = "log",
         analysis_profile: str = "dev",
         analysis_log_options: Optional[List[tuple[str, str]]] = None,
         analysis_selected_log_dir: Optional[str] = None,
         analysis_turn_options: Optional[List[tuple[str, str]]] = None,
         analysis_selected_turn: Optional[int] = None,
         analysis_preview_text: str = "",
+        analysis_skill_lifecycle_mode: str = "create_or_update",
         id: Optional[str] = None,
         classes: Optional[str] = None,
     ) -> None:
@@ -260,6 +349,10 @@ class PlanOptionsPopover(Widget):
             available_plans: List of available plan sessions.
             current_plan_id: Currently selected plan ID.
             current_depth: Current plan depth setting.
+            current_step_target: Optional explicit task-count target.
+            current_chunk_target: Optional explicit chunk-count target.
+            current_execute_auto_continue: Execute auto-continue toggle state.
+            current_execute_refinement_mode: Execute refinement mode ("inherit", "on", "off").
             current_broadcast: Current broadcast setting.
             id: Optional DOM ID.
             classes: Optional CSS classes.
@@ -269,14 +362,23 @@ class PlanOptionsPopover(Widget):
         self._available_plans = available_plans or []
         self._current_plan_id = current_plan_id
         self._current_depth = current_depth
+        self._current_step_target = current_step_target
+        self._current_chunk_target = current_chunk_target
+        self._current_execute_auto_continue = current_execute_auto_continue
+        self._current_execute_refinement_mode = current_execute_refinement_mode
         self._current_broadcast = current_broadcast
+        self._analysis_target_type = analysis_target_type
         self._analysis_profile = analysis_profile
         self._analysis_log_options = analysis_log_options or []
         self._analysis_selected_log_dir = analysis_selected_log_dir
         self._analysis_turn_options = analysis_turn_options or []
         self._analysis_selected_turn = analysis_selected_turn
         self._analysis_preview_text = analysis_preview_text
+        self._analysis_skill_lifecycle_mode = analysis_skill_lifecycle_mode
         self._plan_details_widget: Optional[Static] = None
+        self._chunk_button_values: Dict[str, str] = {}
+        self._chunk_range_options: List[Tuple[str, str]] = []
+        self._selected_chunk_range: Optional[str] = None
         self._initialized = False  # Track if popover has been shown (to ignore events during recompose)
 
     @staticmethod
@@ -295,13 +397,14 @@ class PlanOptionsPopover(Widget):
         Content differs by mode:
         - "plan" mode: Shows depth and human feedback options only
         - "execute" mode: Shows plan selector and plan details only
-        - "analysis" mode: Shows profile, log target, turn target, and skills controls
+        - "analysis" mode: Shows profile, log target, and turn target controls
         """
         # Title changes based on mode
         if self._plan_mode == "plan":
             yield Label("Planning Options", id="popover_title")
         elif self._plan_mode == "analysis":
-            yield Label("Log Analysis Options", id="popover_title")
+            title = "Skill Organization" if self._analysis_target_type == "skills" else "Log Analysis Options"
+            yield Label(title, id="popover_title")
         else:
             yield Label("Select Plan", id="popover_title")
 
@@ -311,7 +414,17 @@ class PlanOptionsPopover(Widget):
                 yield Label("Select Plan:", classes="section-label")
 
                 # Build plan options
-                plan_options = [("Latest (auto)", "latest")]
+                has_resumable = False
+                for plan in self._available_plans:
+                    try:
+                        metadata = plan.load_metadata()
+                        if metadata.status == "resumable":
+                            has_resumable = True
+                            break
+                    except Exception:
+                        continue
+                latest_label = "Latest resumable (auto)" if has_resumable else "Latest (auto)"
+                plan_options = [(latest_label, "latest")]
                 for plan in self._available_plans[:5]:  # Limit to 5 most recent
                     try:
                         metadata = plan.load_metadata()
@@ -337,18 +450,118 @@ class PlanOptionsPopover(Widget):
                 # View Plan button - opens full task list modal
                 yield Button("View Full Plan", id="view_plan_btn", variant="primary")
 
+                yield Label("Execution Flow:", classes="section-label")
+                execute_auto_options = [
+                    ("Auto-continue next chunk", "auto"),
+                    ("Pause after each chunk", "manual"),
+                ]
+                auto_value = "auto" if self._current_execute_auto_continue else "manual"
+                yield Select(
+                    execute_auto_options,
+                    value=self._safe_select_value(execute_auto_options, auto_value),
+                    id="execute_auto_continue_selector",
+                )
+
+                yield Label("Execute Refinement:", classes="section-label")
+                execute_refine_options = [
+                    ("Inherit mode bar setting", "inherit"),
+                    ("Force refine ON", "on"),
+                    ("Force refine OFF", "off"),
+                ]
+                yield Select(
+                    execute_refine_options,
+                    value=self._safe_select_value(execute_refine_options, self._current_execute_refinement_mode),
+                    id="execute_refinement_mode_selector",
+                )
+
+                # Chunk browser / prefill controls
+                selected_plan = self._get_selected_plan_session()
+                chunk_entries = self._build_chunk_browser_entries(selected_plan)
+                self._chunk_button_values = {}
+                self._chunk_range_options = []
+
+                if chunk_entries:
+                    yield Label("Chunk Browser:", classes="chunk-browser-label")
+                    for idx, entry in enumerate(chunk_entries):
+                        chunk_value = entry["chunk"]
+                        button_id = f"chunk_prefill_btn_{idx}"
+                        button_label = f"{entry['icon']} {chunk_value} " f"({entry['completed']}/{entry['total']})"
+                        self._chunk_button_values[button_id] = chunk_value
+                        variant = "success" if entry["status"] == "completed" else "default"
+                        yield Button(
+                            button_label,
+                            id=button_id,
+                            classes="chunk-prefill-btn",
+                            variant=variant,
+                        )
+
+                    chunk_names = [entry["chunk"] for entry in chunk_entries]
+                    self._chunk_range_options = self._build_chunk_range_options(chunk_names)
+                    if self._chunk_range_options:
+                        self._selected_chunk_range = self._safe_select_value(
+                            self._chunk_range_options,
+                            self._selected_chunk_range,
+                        )
+                        yield Select(
+                            self._chunk_range_options,
+                            value=self._selected_chunk_range,
+                            id="chunk_range_selector",
+                        )
+                        yield Button(
+                            "Prefill Range",
+                            id="prefill_range_btn",
+                            variant="default",
+                        )
+                else:
+                    yield Static("[dim]Chunk data unavailable for selected plan[/]", markup=True)
+
             # Plan mode: Show depth and human feedback options
             if self._plan_mode == "plan":
                 yield Label("Plan Depth:", classes="section-label")
                 depth_options = [
+                    ("Dynamic (scope-adaptive)", "dynamic"),
                     ("Shallow (5-10 tasks)", "shallow"),
                     ("Medium (20-50 tasks)", "medium"),
                     ("Deep (100-200+ tasks)", "deep"),
                 ]
                 yield Select(
                     depth_options,
-                    value=self._current_depth,
+                    value=self._safe_select_value(depth_options, self._current_depth),
                     id="depth_selector",
+                )
+
+                yield Label("Task Count Target:", classes="section-label")
+                step_target_options = [
+                    ("Dynamic", "dynamic"),
+                    ("10 tasks", "10"),
+                    ("20 tasks", "20"),
+                    ("30 tasks", "30"),
+                    ("50 tasks", "50"),
+                    ("80 tasks", "80"),
+                    ("120 tasks", "120"),
+                ]
+                current_steps_value = str(self._current_step_target) if self._current_step_target and self._current_step_target > 0 else "dynamic"
+                yield Select(
+                    step_target_options,
+                    value=self._safe_select_value(step_target_options, current_steps_value),
+                    id="step_target_selector",
+                )
+
+                yield Label("Chunk Count Target:", classes="section-label")
+                chunk_target_options = [
+                    ("Dynamic", "dynamic"),
+                    ("1 chunk (single run)", "1"),
+                    ("3 chunks", "3"),
+                    ("5 chunks", "5"),
+                    ("7 chunks", "7"),
+                    ("10 chunks", "10"),
+                    ("12 chunks", "12"),
+                ]
+                current_chunks_value = str(self._current_chunk_target) if self._current_chunk_target and self._current_chunk_target > 0 else "dynamic"
+                yield Select(
+                    chunk_target_options,
+                    value=self._safe_select_value(chunk_target_options, current_chunks_value),
+                    id="chunk_target_selector",
                 )
 
                 yield Label("Human Feedback:", classes="section-label")
@@ -367,60 +580,100 @@ class PlanOptionsPopover(Widget):
                     id="broadcast_selector",
                 )
 
-            # Analysis mode: profile + target controls
+            # Analysis mode: target type + profile + target controls
             if self._plan_mode == "analysis":
-                turn_label = f"turn_{self._analysis_selected_turn}" if self._analysis_selected_turn is not None else "latest"
-                if self._analysis_selected_log_dir:
-                    log_name = Path(self._analysis_selected_log_dir).name
-                    report_exists = False
-                    if self._analysis_selected_turn is not None:
-                        report_exists = (Path(self._analysis_selected_log_dir) / f"turn_{self._analysis_selected_turn}" / "ANALYSIS_REPORT.md").exists()
-                    report_label = "available" if report_exists else "not generated yet"
-                    yield Static(
-                        f"Target: {log_name} / {turn_label}\nReport: {report_label}",
-                        id="analysis_target_meta",
-                    )
-
-                yield Label("Analysis Profile:", classes="section-label")
+                yield Label("Analysis Target:", classes="section-label")
                 yield Select(
                     [
-                        ("Dev (internals)", "dev"),
-                        ("User (skills)", "user"),
+                        ("Log Session", "log"),
+                        ("Organize Skills", "skills"),
                     ],
-                    value=self._analysis_profile if self._analysis_profile in ("dev", "user") else "dev",
-                    id="analysis_profile_selector",
+                    value=self._analysis_target_type if self._analysis_target_type in ("log", "skills") else "log",
+                    id="analysis_target_type_selector",
                 )
 
-                yield Label("Log Session:", classes="section-label")
-                if self._analysis_log_options:
-                    selected_log = self._safe_select_value(self._analysis_log_options, self._analysis_selected_log_dir)
+                # Log-specific controls — always composed, visibility toggled via CSS
+                log_classes = "hidden-controls" if self._analysis_target_type == "skills" else ""
+                with Container(id=self.LOG_CONTROLS_ID, classes=log_classes):
+                    turn_label = f"turn_{self._analysis_selected_turn}" if self._analysis_selected_turn is not None else "latest"
+                    if self._analysis_selected_log_dir:
+                        log_name = Path(self._analysis_selected_log_dir).name
+                        report_exists = False
+                        if self._analysis_selected_turn is not None:
+                            report_exists = (Path(self._analysis_selected_log_dir) / f"turn_{self._analysis_selected_turn}" / "ANALYSIS_REPORT.md").exists()
+                        report_label = "available" if report_exists else "not generated yet"
+                        yield Static(
+                            f"Target: {log_name} / {turn_label}\nReport: {report_label}",
+                            id="analysis_target_meta",
+                        )
+
+                    yield Label("Analysis Profile:", classes="section-label")
                     yield Select(
-                        self._analysis_log_options,
-                        value=selected_log,
-                        id="analysis_log_selector",
+                        [
+                            ("Dev (internals)", "dev"),
+                            ("User (skills)", "user"),
+                        ],
+                        value=self._analysis_profile if self._analysis_profile in ("dev", "user") else "dev",
+                        id="analysis_profile_selector",
                     )
-                else:
-                    yield Static("[dim]No log sessions found[/]", markup=True)
 
-                yield Label("Turn:", classes="section-label")
-                if self._analysis_turn_options:
-                    selected_turn = self._safe_select_value(
-                        self._analysis_turn_options,
-                        str(self._analysis_selected_turn) if self._analysis_selected_turn is not None else None,
+                    yield Label("Skill Lifecycle:", classes="section-label")
+                    lifecycle_options = [
+                        ("Create or Update (recommended)", "create_or_update"),
+                        ("Create New Only", "create_new"),
+                    ]
+                    lifecycle_selected = self._safe_select_value(
+                        lifecycle_options,
+                        self._analysis_skill_lifecycle_mode,
                     )
                     yield Select(
-                        self._analysis_turn_options,
-                        value=selected_turn,
-                        id="analysis_turn_selector",
+                        lifecycle_options,
+                        value=lifecycle_selected,
+                        id="analysis_skill_lifecycle_selector",
                     )
-                else:
-                    yield Static("[dim]No turns found for selected log[/]", markup=True)
 
-                preview_text = self._analysis_preview_text or "Preview unavailable for this selection."
-                yield Static(preview_text, id="analysis_preview")
+                    yield Label("Log Session:", classes="section-label")
+                    if self._analysis_log_options:
+                        selected_log = self._safe_select_value(self._analysis_log_options, self._analysis_selected_log_dir)
+                        yield Select(
+                            self._analysis_log_options,
+                            value=selected_log,
+                            id="analysis_log_selector",
+                        )
+                    else:
+                        yield Static("[dim]No log sessions found[/]", markup=True)
 
-                yield Button("View Analysis Report", id="view_analysis_btn", variant="primary")
-                yield Button("Manage Skills", id="open_skills_btn", variant="default")
+                    yield Label("Turn:", classes="section-label")
+                    if self._analysis_turn_options:
+                        selected_turn = self._safe_select_value(
+                            self._analysis_turn_options,
+                            str(self._analysis_selected_turn) if self._analysis_selected_turn is not None else None,
+                        )
+                        yield Select(
+                            self._analysis_turn_options,
+                            value=selected_turn,
+                            id="analysis_turn_selector",
+                        )
+                    else:
+                        yield Static("[dim]No turns found for selected log[/]", markup=True)
+
+                    preview_text = self._analysis_preview_text or "Preview unavailable for this selection."
+                    yield Static(preview_text, id="analysis_preview")
+
+                    yield Button("View Analysis Report", id="view_analysis_btn", variant="primary")
+
+                # Skills organization controls — always composed, visibility toggled via CSS
+                skills_classes = "hidden-controls" if self._analysis_target_type == "log" else ""
+                with Container(id=self.SKILLS_CONTROLS_ID, classes=skills_classes):
+                    yield Static(
+                        "Reads all installed skills, merges overlapping ones, "
+                        "and generates a compact SKILL_REGISTRY.md routing guide.\n\n"
+                        "[dim]Tip: Track skills in git by adding to .gitignore:[/]\n"
+                        "[dim]  !.agent/skills/[/]\n"
+                        "[dim]  !.agent/skills/**[/]",
+                        markup=True,
+                        id="analysis_skills_preview",
+                    )
 
             yield Button("Close", id="close_btn", variant="default")
 
@@ -430,6 +683,121 @@ class PlanOptionsPopover(Widget):
             if plan.plan_id == plan_id:
                 return plan
         return None
+
+    def _get_selected_plan_session(self) -> Optional["PlanSession"]:
+        """Return the currently selected plan session."""
+        plan_id = self._current_plan_id or "latest"
+        if plan_id == "latest":
+            for plan in self._available_plans:
+                try:
+                    if plan.load_metadata().status == "resumable":
+                        return plan
+                except Exception:
+                    continue
+            return self._available_plans[0] if self._available_plans else None
+        return self._get_plan_by_id(plan_id)
+
+    @staticmethod
+    def _load_plan_payload(plan: "PlanSession") -> Dict[str, Any]:
+        """Load plan.json payload from a plan session workspace."""
+        plan_file = plan.workspace_dir / "plan.json"
+        if not plan_file.exists():
+            return {}
+        try:
+            data = json.loads(plan_file.read_text())
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _build_chunk_browser_entries(self, plan: Optional["PlanSession"]) -> List[Dict[str, Any]]:
+        """Build chunk status entries for execute popover chunk browser."""
+        if not plan:
+            return []
+
+        payload = self._load_plan_payload(plan)
+        tasks = payload.get("tasks", [])
+        if not isinstance(tasks, list):
+            tasks = []
+
+        try:
+            metadata = plan.load_metadata()
+        except Exception:
+            return []
+
+        chunk_order = list(getattr(metadata, "chunk_order", []) or [])
+        if not chunk_order:
+            for task in tasks:
+                if not isinstance(task, dict):
+                    continue
+                chunk = str(task.get("chunk", "")).strip()
+                if chunk and chunk not in chunk_order:
+                    chunk_order.append(chunk)
+
+        if not chunk_order:
+            return []
+
+        chunk_counts: Dict[str, Dict[str, int]] = {}
+        for chunk in chunk_order:
+            chunk_counts[chunk] = {"total": 0, "completed": 0}
+
+        for task in tasks:
+            if not isinstance(task, dict):
+                continue
+            chunk = str(task.get("chunk", "")).strip()
+            if chunk not in chunk_counts:
+                continue
+            chunk_counts[chunk]["total"] += 1
+            status = str(task.get("status", "pending")).strip().lower()
+            if status in {"completed", "verified"}:
+                chunk_counts[chunk]["completed"] += 1
+
+        completed_chunks = set(getattr(metadata, "completed_chunks", []) or [])
+        current_chunk = getattr(metadata, "current_chunk", None)
+        next_chunk = None
+        for chunk in chunk_order:
+            if chunk not in completed_chunks and chunk != current_chunk:
+                next_chunk = chunk
+                break
+
+        entries: List[Dict[str, Any]] = []
+        for chunk in chunk_order:
+            counts = chunk_counts.get(chunk, {"total": 0, "completed": 0})
+            status = "pending"
+            icon = "○"
+            if chunk in completed_chunks:
+                status = "completed"
+                icon = "✓"
+            elif chunk == current_chunk:
+                status = "current"
+                icon = "▶"
+            elif chunk == next_chunk:
+                status = "next"
+                icon = "→"
+
+            entries.append(
+                {
+                    "chunk": chunk,
+                    "status": status,
+                    "icon": icon,
+                    "completed": counts["completed"],
+                    "total": counts["total"],
+                },
+            )
+
+        return entries
+
+    @staticmethod
+    def _build_chunk_range_options(chunk_names: List[str]) -> List[Tuple[str, str]]:
+        """Build bounded range options for chunk prefill controls."""
+        options: List[Tuple[str, str]] = []
+        max_options = 12
+        for start_idx in range(len(chunk_names)):
+            for end_idx in range(start_idx + 1, len(chunk_names)):
+                value = f"{chunk_names[start_idx]}-{chunk_names[end_idx]}"
+                options.append((value, value))
+                if len(options) >= max_options:
+                    return options
+        return options
 
     def _update_plan_details(self, plan_id: str) -> None:
         """Update the plan details display for the selected plan."""
@@ -441,10 +809,8 @@ class PlanOptionsPopover(Widget):
             return
 
         if plan_id == "latest":
-            # Use the first (latest) plan
-            if self._available_plans:
-                plan = self._available_plans[0]
-            else:
+            plan = self._get_selected_plan_session()
+            if not plan:
                 self._plan_details_widget.update("[dim]No plans available[/]")
                 return
         else:
@@ -492,6 +858,7 @@ class PlanOptionsPopover(Widget):
                 "planning": "yellow",
                 "ready": "green",
                 "executing": "blue",
+                "resumable": "yellow",
                 "completed": "green",
                 "failed": "red",
             }.get(status, "white")
@@ -499,6 +866,23 @@ class PlanOptionsPopover(Widget):
             details = f"[bold]Status:[/] [{status_color}]{status}[/]\n"
             details += f"[bold]Created:[/] {created_str}\n"
             details += f"[bold]Tasks:[/] {task_count}"
+
+            chunk_entries = self._build_chunk_browser_entries(plan)
+            if chunk_entries:
+                completed_chunks = sum(1 for entry in chunk_entries if entry["status"] == "completed")
+                details += f"\n[bold]Chunks:[/] {completed_chunks}/{len(chunk_entries)} complete"
+                current_chunk = next(
+                    (entry["chunk"] for entry in chunk_entries if entry["status"] == "current"),
+                    None,
+                )
+                next_chunk = next(
+                    (entry["chunk"] for entry in chunk_entries if entry["status"] == "next"),
+                    None,
+                )
+                if current_chunk:
+                    details += f"\n[dim]Current:[/] {current_chunk}"
+                if next_chunk:
+                    details += f"\n[dim]Next:[/] {next_chunk}"
 
             # Show the original planning prompt if available (most useful info)
             planning_prompt = getattr(metadata, "planning_prompt", None)
@@ -519,6 +903,23 @@ class PlanOptionsPopover(Widget):
 
         except Exception as e:
             self._plan_details_widget.update(f"[red]Error loading plan: {e}[/]")
+
+    def _toggle_analysis_controls(self, target: str) -> None:
+        """Toggle visibility of log vs skills controls and update title."""
+        try:
+            log_controls = self.query_one(f"#{self.LOG_CONTROLS_ID}")
+            skills_controls = self.query_one(f"#{self.SKILLS_CONTROLS_ID}")
+            title_label = self.query_one("#popover_title", Label)
+            if target == "skills":
+                log_controls.add_class("hidden-controls")
+                skills_controls.remove_class("hidden-controls")
+                title_label.update("Skill Organization")
+            else:
+                log_controls.remove_class("hidden-controls")
+                skills_controls.add_class("hidden-controls")
+                title_label.update("Log Analysis Options")
+        except Exception as e:
+            _popover_log(f"_toggle_analysis_controls error: {e}")
 
     def show(self) -> None:
         """Show the popover."""
@@ -575,8 +976,8 @@ class PlanOptionsPopover(Widget):
         try:
             metadata = plan.load_metadata()
             status = metadata.status
-            if status not in ("ready", "completed"):
-                return False, f"Plan status is '{status}' (expected 'ready' or 'completed')"
+            if status not in ("ready", "completed", "resumable", "executing"):
+                return False, (f"Plan status is '{status}' " "(expected ready/completed/resumable/executing)")
         except FileNotFoundError:
             return False, "Plan metadata file not found"
         except Exception as e:
@@ -592,6 +993,19 @@ class PlanOptionsPopover(Widget):
             tasks = plan_data.get("tasks", [])
             if not tasks:
                 return False, "Plan has no tasks"
+            missing_chunk_ids = []
+            for idx, task in enumerate(tasks, start=1):
+                if not isinstance(task, dict):
+                    continue
+                chunk = str(task.get("chunk", "")).strip()
+                if not chunk:
+                    task_id = str(task.get("id", f"task[{idx}]"))
+                    missing_chunk_ids.append(task_id)
+            if missing_chunk_ids:
+                return (
+                    False,
+                    f"Tasks missing chunk metadata: {', '.join(missing_chunk_ids[:8])}",
+                )
         except json.JSONDecodeError as e:
             return False, f"Plan file is corrupted: {e}"
         except Exception as e:
@@ -612,6 +1026,7 @@ class PlanOptionsPopover(Widget):
 
         if selector_id == "plan_selector":
             value = str(event.value)
+            self._current_plan_id = None if value == "latest" else value
 
             # Update plan details display
             self._update_plan_details(value)
@@ -620,9 +1035,10 @@ class PlanOptionsPopover(Widget):
                 self.post_message(PlanSelected(None, is_new=True))
             elif value == "latest":
                 # Validate latest plan if one exists
-                if self._available_plans:
+                latest_plan = self._get_selected_plan_session()
+                if latest_plan:
                     is_valid, error_msg = self._validate_plan_for_execution(
-                        self._available_plans[0].plan_id,
+                        latest_plan.plan_id,
                     )
                     if not is_valid:
                         _popover_log(f"  -> latest plan validation failed: {error_msg}")
@@ -638,14 +1054,43 @@ class PlanOptionsPopover(Widget):
                     return
                 self.post_message(PlanSelected(value, is_new=False))
 
+            # Recompose in execute mode so chunk browser reflects selected plan.
+            if self._plan_mode == "execute":
+                self._initialized = False
+                self.refresh(recompose=True)
+                self.call_later(self.show)
+
         elif selector_id == "depth_selector":
             self.post_message(PlanDepthChanged(str(event.value)))
+        elif selector_id == "step_target_selector":
+            raw_value = str(event.value)
+            target_steps = int(raw_value) if raw_value.isdigit() else None
+            self.post_message(PlanStepTargetChanged(target_steps))
+        elif selector_id == "chunk_target_selector":
+            raw_value = str(event.value)
+            target_chunks = int(raw_value) if raw_value.isdigit() else None
+            self.post_message(PlanChunkTargetChanged(target_chunks))
+        elif selector_id == "execute_auto_continue_selector":
+            self.post_message(ExecuteAutoContinueChanged(str(event.value) == "auto"))
+        elif selector_id == "execute_refinement_mode_selector":
+            mode = str(event.value)
+            if mode not in {"inherit", "on", "off"}:
+                mode = "inherit"
+            self.post_message(ExecuteRefinementModeChanged(mode))
 
         elif selector_id == "broadcast_selector":
             value = str(event.value)
             # Convert "off" back to False
             broadcast = False if value == "off" else value
             self.post_message(BroadcastModeChanged(broadcast))
+        elif selector_id == "analysis_target_type_selector":
+            target = str(event.value)
+            if target == self._analysis_target_type:
+                return
+            self._analysis_target_type = target
+            self.post_message(AnalysisTargetTypeChanged(target))
+            # Toggle container visibility and update title
+            self._toggle_analysis_controls(target)
         elif selector_id == "analysis_profile_selector":
             profile = str(event.value)
             if profile == self._analysis_profile:
@@ -659,6 +1104,12 @@ class PlanOptionsPopover(Widget):
             self._analysis_selected_log_dir = log_dir
             # turn=None signals app to pick latest valid turn for this log
             self.post_message(AnalysisTargetChanged(log_dir, None))
+        elif selector_id == "analysis_skill_lifecycle_selector":
+            mode = str(event.value)
+            if mode == self._analysis_skill_lifecycle_mode:
+                return
+            self._analysis_skill_lifecycle_mode = mode
+            self.post_message(AnalysisSkillLifecycleChanged(mode))
         elif selector_id == "analysis_turn_selector":
             turn_raw = str(event.value)
             turn = int(turn_raw) if turn_raw.isdigit() else None
@@ -666,6 +1117,8 @@ class PlanOptionsPopover(Widget):
                 return
             self._analysis_selected_turn = turn
             self.post_message(AnalysisTargetChanged(self._analysis_selected_log_dir, turn))
+        elif selector_id == "chunk_range_selector":
+            self._selected_chunk_range = str(event.value)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""
@@ -675,11 +1128,17 @@ class PlanOptionsPopover(Widget):
         elif event.button.id == "view_plan_btn":
             self._handle_view_plan()
             event.stop()
+        elif event.button.id.startswith("chunk_prefill_btn_"):
+            chunk_value = self._chunk_button_values.get(event.button.id)
+            if chunk_value:
+                self.post_message(ExecutePrefillRequested(chunk_value))
+            event.stop()
+        elif event.button.id == "prefill_range_btn":
+            if self._selected_chunk_range:
+                self.post_message(ExecutePrefillRequested(self._selected_chunk_range))
+            event.stop()
         elif event.button.id == "view_analysis_btn":
             self._handle_view_analysis()
-            event.stop()
-        elif event.button.id == "open_skills_btn":
-            self.post_message(OpenSkillsRequested())
             event.stop()
 
     def _handle_view_plan(self) -> None:
@@ -693,8 +1152,8 @@ class PlanOptionsPopover(Widget):
             # Can't view a plan that doesn't exist yet
             return
 
-        if plan_id == "latest" and self._available_plans:
-            plan = self._available_plans[0]
+        if plan_id == "latest":
+            plan = self._get_selected_plan_session()
         else:
             plan = self._get_plan_by_id(plan_id)
 

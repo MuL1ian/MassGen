@@ -202,3 +202,20 @@ class TestExcludeFileOperationMCPs:
         # Verify media tools are NOT excluded
         assert "generate_and_store_image_with_input_images" not in excluded_tools
         assert "generate_and_store_audio_with_input_audios" not in excluded_tools
+
+    def test_workspace_tools_no_longer_contains_skills(self, temp_workspace):
+        """Skills tool has been extracted to its own MCP server.
+
+        Workspace tools should not reference skills at all — neither
+        including nor excluding them.
+        """
+        manager = FilesystemManager(
+            cwd=temp_workspace["workspace"],
+            agent_temporary_workspace_parent=temp_workspace["temp_workspace_parent"],
+            enable_mcp_command_line=True,
+        )
+
+        workspace_config = manager.get_workspace_tools_mcp_config()
+        excluded_tools = workspace_config.get("exclude_tools", [])
+        assert "skills" not in excluded_tools
+        assert "MASSGEN_DISABLE_SKILLS_TOOL" not in workspace_config.get("env", {})

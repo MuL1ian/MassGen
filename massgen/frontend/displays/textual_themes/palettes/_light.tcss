@@ -209,5 +209,5 @@ $separator-border: #eaeef2;
 $tool-card-border: #c9d1d9;
 
 /* Toast Notification Colors */
-$toast-bg: #f6f8fa;
-$toast-border: #e1e4e8;
+$toast-bg: #f0f4fa;
+$toast-border: #c5d0de;

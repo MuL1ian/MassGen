@@ -20,6 +20,7 @@ from .widgets import (  # Base classes; Browser modals; Status modals; Coordinat
     BaseModal,
     BroadcastPromptModal,
     BrowserTabsModal,
+    ChunkAdvanceModal,
     ContextModal,
     ConversationHistoryModal,
     CoordinationTableModal,
@@ -69,6 +70,7 @@ __all__ = [
     "TurnDetailModal",
     # Input modals
     "BroadcastPromptModal",
+    "ChunkAdvanceModal",
     "DecompositionGenerationModal",
     "DecompositionSubtasksModal",
     "StructuredBroadcastPromptModal",

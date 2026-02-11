@@ -416,25 +416,16 @@ Be honest — do not inflate or deflate your scores.
 
 ### Submit Your Scores
 
-Call `submit_checklist` with per-item reasoning and an improvements summary.
-Each score entry MUST include `"reasoning"` explaining why you gave that score —
-reference specific evidence from your analysis.
+Call `submit_checklist` with your scores for each checklist item (T1 through T5).
+Each score must include a `reasoning` field that cites specific evidence from your
+analysis explaining why you gave that score. Also include an `improvements` summary
+describing the specific gaps from your Ideal Version / Gap Analysis that would make
+the answer substantially better.
 
 **Important**: Do not hedge your improvements with language like "optional", "not
 required", "could include", or "nice-to-have". If you identify something that would
 make the answer better, state it as something that **should** be done. If the verdict
 tells you to iterate, you are expected to implement what you identified.
-
-  submit_checklist(
-    scores={{
-      "T1": {{"score": <0-100>, "reasoning": "<why — cite specific evidence>"}},
-      "T2": {{"score": <0-100>, "reasoning": "<why>"}},
-      "T3": {{"score": <0-100>, "reasoning": "<why>"}},
-      "T4": {{"score": <0-100>, "reasoning": "<why>"}},
-      "T5": {{"score": <0-100>, "reasoning": "<why>"}}
-    }},
-    improvements="<specific gaps from your Ideal Version / Gap Analysis that would make the answer substantially better>"
-  )
 
 The tool will evaluate your scores and return a verdict telling you whether
 to call `{terminate_action}` or `{iterate_action}`. Follow the verdict.
@@ -713,20 +704,88 @@ class SkillsSection(SystemPromptSection):
     CRITICAL priority (3) ensures skills appear before general behaviors.
     Skills define fundamental capabilities that must be known before task execution.
 
+    When a SKILL_REGISTRY.md exists, uses its compact content as the primary
+    routing guide and appends a "Recently Added" section for skills not yet
+    cataloged in the registry.  Falls back to per-skill XML when no registry
+    exists.
+
     Args:
         skills: List of all skills (both builtin and project) with name, description, location
+        skills_dir: Optional path to the skills directory (for registry lookup)
     """
 
-    def __init__(self, skills: List[Dict[str, Any]]):
+    REGISTRY_FILENAME = "SKILL_REGISTRY.md"
+
+    def __init__(
+        self,
+        skills: List[Dict[str, Any]],
+        skills_dir: Optional["Path"] = None,
+    ):
         super().__init__(
             title="Available Skills",
             priority=3,  # After agent_identity(1) and massgen_coordination(2), before core_behaviors(4)
             xml_tag="skills",
         )
         self.skills = skills
+        self.skills_dir = skills_dir
+
+    def _try_load_registry(self) -> Optional[str]:
+        """Attempt to load registry content if it exists."""
+        if self.skills_dir is None:
+            return None
+        try:
+            from pathlib import Path
+
+            registry_path = Path(self.skills_dir) / self.REGISTRY_FILENAME
+            if registry_path.exists():
+                return registry_path.read_text(encoding="utf-8")
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _strip_frontmatter(content: str) -> str:
+        """Strip YAML frontmatter from registry content."""
+        import re
+
+        return re.sub(r"^---\n.*?\n---\n?", "", content, flags=re.DOTALL).strip()
+
+    @staticmethod
+    def _extract_registry_skill_names(registry_body: str) -> set:
+        """Extract skill names mentioned in the registry body.
+
+        Looks for patterns like **skill-name** in markdown bullet lists.
+        """
+        import re
+
+        return {m.group(1).lower() for m in re.finditer(r"\*\*([^*]+)\*\*", registry_body)}
+
+    def _build_usage_instructions(self) -> List[str]:
+        """Build the common usage instructions block."""
+        parts = []
+        parts.append("<usage>")
+        parts.append("When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively.")
+        parts.append("")
+        parts.append("How to use skills:")
+        parts.append("- To load a skill's full instructions, read its SKILL.md file from the skills directory (.agent/skills/<skill-name>/SKILL.md)")
+        parts.append(
+            "- Skills may be hierarchical: a single SKILL.md can contain multiple sections covering related sub-capabilities (e.g., a web-app-dev skill with frontend, backend, and testing sections)",
+        )
+        parts.append("- Each skill directory may also contain bundled resources (templates, examples, configs) in subdirectories")
+        parts.append("")
+        parts.append("Usage notes:")
+        parts.append("- Only use skills listed below")
+        parts.append("- Do not invoke a skill that is already loaded in your context")
+        parts.append("</usage>")
+        return parts
 
     def build_content(self) -> str:
-        """Build skills in XML format with full descriptions."""
+        """Build skills section content.
+
+        Uses compact registry when available, with a 'Recently Added' section
+        for skills not yet in the registry.  Falls back to per-skill XML
+        listing when no registry exists.
+        """
         content_parts = []
 
         # Header
@@ -735,24 +794,38 @@ class SkillsSection(SystemPromptSection):
         content_parts.append("<!-- SKILLS_TABLE_START -->")
 
         # Usage instructions
-        content_parts.append("<usage>")
-        content_parts.append("When users ask you to perform tasks, check if any of the available skills below can help complete the task more effectively.")
-        content_parts.append("")
-        content_parts.append("How to use skills:")
-        content_parts.append("- Invoke: run the command `openskills read <skill-name>`")
-        content_parts.append("- The skill content will load with detailed instructions")
-        content_parts.append("- Base directory provided in output for resolving bundled resources")
-        content_parts.append("")
-        content_parts.append("Usage notes:")
-        content_parts.append("- Only use skills listed in <available_skills> below")
-        content_parts.append("- Do not invoke a skill that is already loaded in your context")
-        content_parts.append("</usage>")
+        content_parts.extend(self._build_usage_instructions())
         content_parts.append("")
 
-        # Skills list (project skills only - builtin skills are auto-loaded elsewhere)
+        # Try registry path
+        registry_content = self._try_load_registry()
+        if registry_content:
+            body = self._strip_frontmatter(registry_content)
+            content_parts.append("<skill_registry>")
+            content_parts.append(body)
+            content_parts.append("</skill_registry>")
+
+            # Find skills not mentioned in registry -> "Recently Added"
+            registry_names = self._extract_registry_skill_names(body)
+            unregistered = [s for s in self.skills if s.get("name", "").lower() not in registry_names]
+            if unregistered:
+                content_parts.append("")
+                content_parts.append("<recently_added>")
+                content_parts.append("## Recently Added")
+                content_parts.append("Skills created since last registry update:")
+                for skill in unregistered:
+                    name = skill.get("name", "Unknown")
+                    desc = skill.get("description", "No description")
+                    loc = skill.get("location", "project")
+                    content_parts.append(f"- **{name}** ({loc}): {desc}")
+                content_parts.append("</recently_added>")
+
+            content_parts.append("<!-- SKILLS_TABLE_END -->")
+            return "\n".join(content_parts)
+
+        # Per-skill XML listing (no registry)
         content_parts.append("<available_skills>")
 
-        # Add project skills only
         for skill in self.skills:
             name = skill.get("name", "Unknown")
             description = skill.get("description", "No description")
@@ -1351,6 +1424,7 @@ class WorkspaceStructureSection(SystemPromptSection):
         worktree_paths: Optional[Dict[str, str]] = None,
         branch_name: Optional[str] = None,
         other_branches: Optional[Dict[str, str]] = None,
+        branch_diff_summaries: Optional[Dict[str, str]] = None,
     ):
         super().__init__(
             title="Workspace Structure",
@@ -1364,6 +1438,7 @@ class WorkspaceStructureSection(SystemPromptSection):
         self.worktree_paths = worktree_paths  # {worktree_path: original_path}
         self.branch_name = branch_name  # This agent's current branch
         self.other_branches = other_branches  # {anon_id: branch_name}
+        self.branch_diff_summaries = branch_diff_summaries  # {anon_id: diff_summary}
 
     def build_content(self) -> str:
         """Build workspace structure documentation."""
@@ -1378,12 +1453,10 @@ class WorkspaceStructureSection(SystemPromptSection):
         # Worktree-based workspace (new unified model) takes precedence
         if self.worktree_paths:
             for wt_path in self.worktree_paths:
-                content_parts.append("### Project Checkout\n")
-                content_parts.append(f"The project is checked out at `{wt_path}`. Full read/write access.\n")
-                content_parts.append("**Scratch Space**: `.massgen_scratch/` inside the checkout")
-                content_parts.append("- For experiments, eval scripts, notes")
-                content_parts.append("- Git-excluded, invisible to reviewers")
-                content_parts.append("- Can import from project naturally (e.g., `from src.foo import bar`)\n")
+                content_parts.append("## Project Workspace\n")
+                content_parts.append(f"Your project code is at `{wt_path}`. **All code changes must be made here.**")
+                content_parts.append(f"Run `cd {wt_path}` before starting any code work.\n")
+                content_parts.append(f"Scratch space: `{wt_path}/.massgen_scratch/` (git-excluded, for experiments)\n")
 
                 content_parts.append("### Code Branches\n")
                 if self.branch_name:
@@ -1392,12 +1465,23 @@ class WorkspaceStructureSection(SystemPromptSection):
                     content_parts.append("All changes are auto-committed when your turn ends.\n")
 
                 if self.other_branches:
-                    content_parts.append("**Other agents' branches:**")
-                    for label, branch in self.other_branches.items():
-                        content_parts.append(f"- {label}: `{branch}`")
-                    content_parts.append("\nUse `git diff <branch>` to compare, `git merge <branch>` to incorporate.\n")
-
-                content_parts.append("**Previous scratch files**: Check `.scratch_archive/` in your workspace for experiments from prior rounds.\n")
+                    if self.branch_diff_summaries:
+                        content_parts.append("**Other agents' code changes:**")
+                        for label, branch in self.other_branches.items():
+                            summary = self.branch_diff_summaries.get(label, "")
+                            if summary:
+                                # First line is the stats, second line (indented) is the file list
+                                summary_lines = summary.split("\n", 1)
+                                content_parts.append(f"- {label} (`{branch}`) — {summary_lines[0]}")
+                                if len(summary_lines) > 1:
+                                    content_parts.append(f"  {summary_lines[1].strip()}")
+                            else:
+                                content_parts.append(f"- {label}: `{branch}`")
+                    else:
+                        content_parts.append("**Other agents' branches:**")
+                        for label, branch in self.other_branches.items():
+                            content_parts.append(f"- {label}: `{branch}`")
+                    content_parts.append("\nUse `git diff <branch>` for full details, `git merge <branch>` to incorporate.\n")
 
         # Legacy two-tier workspace (deprecated, skipped when worktree_paths set)
         elif self.use_two_tier_workspace:

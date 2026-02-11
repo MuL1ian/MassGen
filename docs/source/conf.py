@@ -8,6 +8,8 @@ import os
 import sys
 from datetime import datetime
 
+import sphinx
+
 # Add project root to Python path
 sys.path.insert(0, os.path.abspath("../.."))
 
@@ -49,9 +51,20 @@ except ImportError:
     print("Warning: sphinx_design not installed. Grid support disabled.")
 
 try:
-    extensions.append("hoverxref.extension")
-except ImportError:
-    print("Warning: sphinx-hoverxref not installed. Glossary tooltips disabled.")
+    _sphinx_version = getattr(sphinx, "version_info", (0, 0, 0))
+    _hoverxref_supported = tuple(_sphinx_version[:2]) < (9, 0)
+except Exception:
+    _hoverxref_supported = False
+
+_hoverxref_enabled = False
+if _hoverxref_supported:
+    try:
+        extensions.append("hoverxref.extension")
+        _hoverxref_enabled = True
+    except ImportError:
+        print("Warning: sphinx-hoverxref not installed. Glossary tooltips disabled.")
+else:
+    print("Warning: sphinx-hoverxref currently disabled for Sphinx 9+ compatibility.")
 
 try:
     extensions.append("sphinx_tabs.tabs")
@@ -194,10 +207,11 @@ intersphinx_mapping = {
 todo_include_todos = True
 
 # Hoverxref configuration for glossary tooltips
-hoverxref_auto_ref = True
-hoverxref_domains = ["std"]
-hoverxref_role_types = {
-    "term": "tooltip",  # Show glossary terms as tooltips on hover
-}
-hoverxref_tooltip_maxwidth = 600
-hoverxref_tooltip_theme = "tooltipster-shadow"
+if _hoverxref_enabled:
+    hoverxref_auto_ref = True
+    hoverxref_domains = ["std"]
+    hoverxref_role_types = {
+        "term": "tooltip",  # Show glossary terms as tooltips on hover
+    }
+    hoverxref_tooltip_maxwidth = 600
+    hoverxref_tooltip_theme = "tooltipster-shadow"

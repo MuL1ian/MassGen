@@ -68,7 +68,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.49 Features](#-latest-features-v0149)
+- [v0.1.50 Features](#-latest-features-v0150)
 </details>
 
 <details open>
@@ -121,15 +121,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.49)](#recent-achievements-v0149)
-- [Previous Achievements (v0.0.3 - v0.1.48)](#previous-achievements-v003---v0148)
+- [Recent Achievements (v0.1.50)](#recent-achievements-v0150)
+- [Previous Achievements (v0.0.3 - v0.1.49)](#previous-achievements-v003---v0149)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.50 Roadmap](#v0150-roadmap)
+- [v0.1.51 Roadmap](#v0151-roadmap)
 </details>
 
 <details open>
@@ -154,26 +154,27 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.49)
+## 🆕 Latest Features (v0.1.50)
 
-**🎉 Released: February 9, 2026**
+**🎉 Released: February 11, 2026**
 
-**What's New in v0.1.49:**
-- **🔍 Log Analysis in TUI** - New "Analyzing" mode in the TUI mode bar for in-app run analysis with configurable profiles
-- **⚖️ Fairness Gate** - Prevents fast agents from dominating coordination with configurable lead caps
-- **✅ Checklist Voting** - Structured quality evaluation with binary pass/fail scoring via MCP server
-- **🧪 Testing Infrastructure** - CI/CD workflow, SVG snapshot baselines, 16+ new test files
-- **🎛️ Persona Easing in TUI** - Persona easing toggle now available in the TUI mode bar
-- **🐛 Bug Fixes** - Fixed shadow agent "[No response generated]" errors, round banner timing, hook injection
+**What's New in v0.1.50:**
+- **📦 Chunked Plan Execution** - Plans divided into chunks (e.g., `C01_foundation`) and executed one at a time with progress checkpoints, chunk browsing in TUI, and frozen plan snapshots
+- **🔄 Iterative Planning Review** - New modal with Continue Planning / Quick Edit / Finalize Plan options for plan iteration before execution
+- **🛠️ Skill Lifecycle Management** - New lifecycle modes (`create_or_update`, `create_new`, `consolidate`), skill organizer for merging overlapping skills, `SKILL_REGISTRY.md` routing guide
+- **📂 Previous-Session Skills** - Load evolving skills from past run logs with `load_previous_session_skills` config
+- **🌿 Worktree Improvements** - Branch accumulation across rounds, cross-agent diff visibility via branch summaries, orphan cleanup
+- **📱 Responsive TUI Mode Bar** - Vertical/horizontal adaptive layout with compact labels on narrow terminals
 
-**Try v0.1.49 Features:**
+**Try v0.1.50 Features:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
 
-# Launch with coordination quality improvements
+# Launch with chunked plan execution and skill lifecycle
 uv run massgen
 ```
+> Press `Shift+Tab` then press the three dots above the input bar to see plan settings.
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
 
@@ -1223,45 +1224,44 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.49)
+### Recent Achievements (v0.1.50)
 
-**🎉 Released: February 9, 2026**
+**🎉 Released: February 11, 2026**
 
-#### Log Analysis Mode in TUI
-- **TUI Mode Bar**: New "Analyzing" state in the mode bar cycle (Normal → Planning → Executing → Analyzing)
-- **In-App Analysis**: Browse and select log directories and turns directly in the TUI
-- **Configurable Profiles**: Different analysis depths for different needs
+#### Chunked Plan Execution
+- **Progress Checkpoints**: Plans divided into chunks (e.g., `C01_foundation`) executed one at a time
+- **Chunk Browsing**: Browse chunks in TUI with chunk-level progress tracking
+- **Frozen Snapshots**: Original plan state preserved during execution
+- **Plan Sizing**: `target_steps` and `target_chunks` parameters with dynamic mode
 
-#### Fairness Gate for Coordination
-- **Balanced Participation**: Prevents fast agents from dominating coordination rounds
-- **Configurable Controls**: `fairness_lead_cap_answers` and `max_midstream_injections_per_round`
-- **Use Case**: Ensures all agents contribute meaningfully regardless of speed
+#### Iterative Planning Review Modal
+- **Plan Iteration**: New modal with Continue Planning / Quick Edit / Finalize Plan options
+- **Quick Edit**: Inline plan adjustments before execution begins
 
-#### Checklist Voting Tool
-- **MCP Server**: New `checklist_tools_server.py` for structured quality evaluation
-- **Binary Scoring**: Pass/fail scoring for objective quality assessment
-- **Consistency**: Repeatable evaluation across coordination rounds
+#### Skill Lifecycle Management
+- **Lifecycle Modes**: `create_or_update`, `create_new`, `consolidate` for evolving skills
+- **Skill Organizer**: Merge overlapping skills into consolidated workflows
+- **SKILL_REGISTRY.md**: Routing guide for skill discovery and selection
+- **Previous-Session Skills**: Load skills from past run logs with `load_previous_session_skills`
+- **Local Skills MCP**: New MCP tool for skill access in Docker/local execution
 
-#### Automated Testing Infrastructure
-- **CI/CD Pipeline**: GitHub Actions workflow (`tests.yml`) for automated test execution
-- **SVG Snapshots**: Baseline testing for TUI visual regression
-- **Coverage**: 16+ new test files with comprehensive testing strategy
+#### Worktree Improvements
+- **Branch Accumulation**: Branches accumulate across rounds instead of being recreated
+- **Cross-Agent Visibility**: Other agents see diffs from worktree branches via `generate_branch_summaries()`
+- **Orphan Cleanup**: Automatic cleanup of orphan worktrees
 
 #### Changed
-- **Persona Easing in TUI Mode Bar**: Persona easing toggle now accessible from the TUI mode bar
+- **Responsive TUI Mode Bar**: Vertical/horizontal adaptive layout with compact labels on narrow terminals
+- **TUI Homescreen & Theming**: Improved welcome screen layout, CSS refinements, palette updates
+- **Skills Modal**: Source grouping (builtin/project/user/previous_session), quick actions (Enable All/Disable All)
 
 #### Bug Fixes
-- **Shadow Agent Responses**: Fixed "[No response generated]" errors from chunk type comparison (PR #861)
-- **Round Banner Timing**: No longer appears before final answer is locked
-- **Hook Injection**: Corrected decomposition prompt injection for non-hook backends
-- **Final Answer Lock**: Improved lock timing and reduced hover lag
+- Test fixes across hooks, Docker mounts, and snapshots (PR #877)
 
-#### Documentation, Configurations and Resources
-- `docs/modules/testing.md` — new testing strategy and architecture documentation
-- `.github/workflows/tests.yml` — CI/CD pipeline for automated testing
-- `massgen/tests/snapshot_tests/` — SVG snapshot baselines
+### Previous Achievements (v0.0.3 - v0.1.49)
 
-### Previous Achievements (v0.0.3 - v0.1.48)
+✅ **Coordination Quality: Log Analysis TUI, Fairness Gate & Checklist Voting (v0.1.49)**: Log analysis mode built into TUI mode bar for in-app run analysis. Fairness gate prevents fast agents from dominating coordination. Checklist voting tool for structured quality evaluation. Automated testing infrastructure with CI/CD and SVG snapshot baselines.
+
 
 ✅ **Decomposition Mode & Worktree Isolation (v0.1.48)**: New decomposition coordination mode that decomposes tasks into subtasks assigned to individual agents with a presenter role, git worktree-based isolation for agent file writes with review modal, quickstart wizard Docker setup with animated pull progress, stop tool for agent completion signaling
 
@@ -1503,13 +1503,13 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.50 Roadmap
+### v0.1.51 Roadmap
 
-Version 0.1.50 focuses on log analysis improvements and worktree isolation:
+Version 0.1.51 focuses on worktree isolation improvements and targeted agent queries:
 
 #### Planned Features
-- **Log Analysis Model Selector** ([#766](https://github.com/massgen/MassGen/issues/766)): Allow users to choose which model to use for `massgen logs analyze` self-analysis mode
 - **Git Worktree Isolation** ([#853](https://github.com/massgen/MassGen/issues/853)): Worktree isolation improvements for agent file changes
+- **Targeted Agent Queries** ([#809](https://github.com/massgen/MassGen/issues/809)): Support targeted queries to specific agents via subagent for more efficient coordination
 
 ---
 

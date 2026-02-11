@@ -209,5 +209,5 @@ $separator-border: #30363d;
 $tool-card-border: #484f58;
 
 /* Toast Notification Colors - subtle dark border in dark mode */
-$toast-bg: transparent;
-$toast-border: #21262d;
+$toast-bg: #1a212c;
+$toast-border: #3d4550;
