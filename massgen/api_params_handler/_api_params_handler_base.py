@@ -125,6 +125,7 @@ class APIParamsHandlerBase(ABC):
             # Per-agent voting sensitivity (coordination config, not API param)
             "voting_sensitivity",
             "voting_threshold",
+            "checklist_require_gap_report",
             # Decomposition mode parameters (handled by orchestrator, not passed to API)
             "coordination_mode",
             "presenter_agent",

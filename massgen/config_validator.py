@@ -155,6 +155,7 @@ class ConfigValidator:
         "checklist",
         "checklist_scored",
         "checklist_gated",
+        "critique",
     }
 
     # Valid answer novelty requirements
@@ -988,6 +989,15 @@ class ConfigValidator:
                     f"'{field_name}' must be a positive integer or null, got {type(value).__name__}",
                     f"{location}.{field_name}",
                     "Use null (unlimited) or a positive integer like 1, 2, or 3",
+                )
+
+        if "checklist_require_gap_report" in orchestrator_config:
+            checklist_report_gate = orchestrator_config["checklist_require_gap_report"]
+            if not isinstance(checklist_report_gate, bool):
+                result.add_error(
+                    f"'checklist_require_gap_report' must be a boolean, got {type(checklist_report_gate).__name__}",
+                    f"{location}.checklist_require_gap_report",
+                    "Use true or false",
                 )
 
         # Validate fairness controls if present

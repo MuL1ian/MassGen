@@ -125,7 +125,7 @@ A good first draft is rarely perfect. Look for what can be *better*, not just wh
 
 _CHECKLIST_ITEMS = [
     "The best answer comprehensively addresses all important aspects of the question.",
-    "The best answer achieves a high level of quality, depth, and polish — not just adequacy.",
+    "Looking at the actual output or deliverable — not the code — it achieves a high level of quality, depth, and polish that goes well beyond adequacy.",
     "I cannot identify specific, concrete improvements that would make the answer meaningfully better.",
     "The best answer would genuinely impress the person who asked — they would not wish it were better.",
     "Any remaining ideas for improvement are truly minor or cosmetic, not substantive.",
@@ -193,7 +193,10 @@ the decision criteria influence your assessment.
 ### Per-Answer Assessment
 
 For each answer, assess:
-- Quality and completeness
+- **Output quality**: Look at the actual result the user receives — the artifact,
+  deliverable, or answer itself. Is it something you would be proud to deliver? Does
+  it feel crafted and impressive, or merely functional? Be honest and specific.
+- Completeness relative to what the question actually demands
 - Approach taken and its strengths/weaknesses
 
 ### Best Answer Identification
@@ -218,22 +221,29 @@ different approach or additional depth would meaningfully improve it.*
 Before evaluating whether the current answer is "good enough," first establish what
 **excellent** looks like. Step back from the existing answers entirely.
 
-Given the original question, describe in concrete bullet points what the **best
-possible answer** would include. Be ambitious — think about:
-- What features, content, depth, or capabilities would make a user genuinely impressed?
-- What dimensions of quality (interactivity, visual polish, accessibility, edge-case
-  handling, depth) would distinguish an outstanding answer from a merely adequate one?
-- What would a user *wish* the answer included?
+Start from the **output** — what the user actually receives and experiences — not
+the code or implementation details. Given the original question, describe in concrete
+bullet points what the **best possible result** would deliver. Be ambitious:
+- What would make someone receiving this genuinely impressed — not just satisfied?
+- What would distinguish a *crafted* result from a *competent* one?
+- Think about richness, depth, surprise, and overall impact — not just correctness.
+- What would a user *wish* it included that they didn't think to ask for?
 
-Do not limit yourself to what the existing answers have attempted. Describe the ideal
-as if designing a spec for it.
+Do not anchor to what already exists. Describe the ideal as if designing a spec from
+scratch for a result that would make someone say "this is exceptional."
 
 ### Gap Analysis
 
 Now compare the current best answer against your ideal:
+- **Output quality first**: Look at the actual result the user receives. Does it feel
+  crafted, rich, and impressive — or merely functional and adequate? Be honest.
 - What specific elements from your ideal are missing or under-delivered?
 - How large is the gap between current and ideal — minor polish, or meaningful substance?
 - If you were to produce a `new_answer`, what specifically would it add or improve?
+
+Do not confuse *correctness fixes* with *quality improvements*. Fixing a bug is
+necessary but does not make an adequate answer excellent. An answer can be technically
+correct and still mediocre in quality, depth, or craft.
 
 *If there is only one answer, the gap analysis is especially important — the first
 attempt is rarely the best possible version.*
@@ -383,6 +393,7 @@ def _build_checklist_gated_decision(
     checklist_items: list,
     terminate_action: str = "vote",
     iterate_action: str = "new_answer",
+    require_gap_report: bool = True,
 ) -> str:
     """Build checklist_gated decision section (tool-gated, hidden threshold).
 
@@ -391,6 +402,34 @@ def _build_checklist_gated_decision(
     submits scores via the submit_checklist MCP tool, and follows the verdict.
     """
     numbered = "\n".join(f"  T{i+1}. {item}  → **___% confidence**" for i, item in enumerate(checklist_items))
+    report_requirement = (
+        "### Gap Report (Required)\n\n"
+        "Before calling `submit_checklist`, you MUST write a markdown gap report in your workspace\n"
+        "(for example: `tasks/checklist_gap_report.md`).\n\n"
+        "The report must be comprehensive and concrete:\n"
+        "- Start with **Output Quality**: evaluate the actual result from the user's perspective.\n"
+        "  Is this something you would be proud to deliver? What would make it more impressive,\n"
+        "  richer, or more polished? Do not conflate 'works correctly' with 'high quality.'\n"
+        "  **Before writing this section**, use whatever tools you have to experience the output\n"
+        "  the way a user would — render it, screenshot it, open it, listen to it, read the final\n"
+        "  artifact. Do not evaluate output quality from source code alone.\n"
+        "- Then cover additional angles: requirements fit, correctness, depth/richness, UX/polish,\n"
+        "  accessibility, performance, reliability, security, maintainability, and testing/validation.\n"
+        "- For each gap, explain what is missing and what specific change should be made.\n"
+        "- Include a section named `Already Good Enough` listing only aspects that genuinely meet\n"
+        "  a high quality bar — not things that merely exist or function. 'Has responsive layout'\n"
+        "  is not a strength worth listing; 'layout handles all breakpoints with considered\n"
+        "  typography' might be.\n"
+    )
+    if not require_gap_report:
+        report_requirement = (
+            "### Gap Report (Recommended)\n\n"
+            "Write a markdown gap report in your workspace (for example:\n"
+            "`tasks/checklist_gap_report.md`). Start with output quality from the user's perspective —\n"
+            "experience the output the way a user would before evaluating it. Then cover other angles.\n"
+            "Include an `Already Good Enough` section listing only aspects that genuinely meet a high\n"
+            "bar. If you create one, pass it via `report_path`.\n"
+        )
 
     return f"""---
 
@@ -414,9 +453,11 @@ Be honest — do not inflate or deflate your scores.
 
 {numbered}
 
+{report_requirement}
+
 ### Submit Your Scores
 
-Call `submit_checklist` with per-item reasoning and an improvements summary.
+Call `submit_checklist` with per-item reasoning, an improvements summary, and a report path.
 Each score entry MUST include `"reasoning"` explaining why you gave that score —
 reference specific evidence from your analysis.
 
@@ -433,6 +474,7 @@ tells you to iterate, you are expected to implement what you identified.
       "T4": {{"score": <0-100>, "reasoning": "<why>"}},
       "T5": {{"score": <0-100>, "reasoning": "<why>"}}
     }},
+    report_path="<path to your markdown gap report>",
     improvements="<specific gaps from your Ideal Version / Gap Analysis that would make the answer substantially better>"
   )
 
@@ -444,6 +486,240 @@ substantially better** — not just marginally different. A user should immediat
 notice the improvement. Do NOT simply copy or resubmit the same content with minor
 tweaks. Use your improvements analysis to guide what to build differently, and
 implement the changes you identified — not just acknowledge them."""
+
+
+def _build_critique_analysis() -> str:
+    """Build analysis section for critique mode.
+
+    Replaces checklist's Per-Answer/Ideal/Gap analysis with approach
+    assessment and mandatory category inspection followed by deficiency
+    ticket writing. The category sweep is the forcing function that
+    prevents agents from rubber-stamping their own work.
+    """
+    return """## Critique Analysis
+
+Complete your full analysis before reading the Decision section below. Do not let
+the decision criteria influence your assessment.
+
+**Your job is to find what's wrong, not to confirm what's right.** Assume deficiencies
+exist until you have specifically looked for them and ruled them out with evidence.
+"Tests pass" is not evidence of quality — tests only cover what they test.
+
+### Approach Assessment
+
+Before examining details, assess the **approach** taken by the best answer:
+- **Strategy name**: Give the approach a short descriptive name.
+- **Ceiling (0-100)**: If this approach were perfectly polished, how good could it be?
+  A fundamentally limited strategy has a low ceiling no matter how well it's executed.
+- **Ceiling reasoning**: Why that number?
+- **Alternative approach**: Describe a meaningfully different approach, or state
+  "none identified" if the current approach is clearly optimal.
+
+### Mandatory Category Inspection
+
+You MUST inspect every category below and write your findings for each one. Do not
+skip any category. For each, state what you actually checked and what you found.
+
+1. **Overall Impression & Ambition**: Step back and evaluate holistically — would you
+   be genuinely impressed showing this to someone? Is this ambitious, thoughtful work
+   or a competent minimum? Compare against what the best human practitioner would produce,
+   not against "does it technically work." This is the most important category.
+2. **Completeness & Depth**: Does the answer fully address the request with genuine
+   substance? Is the content rich, detailed, and comprehensive — or surface-level?
+   What would a demanding user expect that isn't here? What dimensions of quality
+   (depth, breadth, interactivity, visual design) are underexplored?
+3. **Correctness**: Is the core logic/content actually right? Focus on things that
+   materially break the user experience — not minor edge cases or spec-compliance nits.
+4. **User Experience**: As a real user, would you find this delightful? Not "does it
+   meet accessibility checklists" but "would someone actually enjoy using this?"
+5. **Structural Integrity**: Does the overall architecture serve the content well?
+   Is it well-organized, maintainable, and does it scale to the complexity needed?
+
+### Deficiency Tickets
+
+Based on your category inspection, write **deficiency tickets** for problems that
+**materially affect quality**. Each ticket must be concrete and testable.
+
+**Critical**: Only write tickets for issues that would make a real user's experience
+noticeably worse. Do NOT write tickets for:
+- Accessibility spec-compliance nits that don't affect real usability
+- Minor JS behavior edge cases that most users will never encounter
+- "Best practice" violations that have no user-visible impact
+- Issues that could be described as "quick fixes" — if it's quick, it's polish
+
+For each deficiency:
+- **ID**: D1, D2, D3, etc.
+- **Deficiency** (>= 30 chars): What specifically is wrong? Be precise enough that
+  someone unfamiliar could find and fix the issue.
+- **Severity**: `approach` (wrong strategy), `feature` (missing or broken functionality),
+  or `polish` (cosmetic, minor UX, style).
+- **Impact**: Why does this matter to the user?
+- **Verification**: How would you confirm it's fixed? (>= 10 chars)
+- **Smallest fix**: What is the minimal change needed?
+
+**Severity guide — be honest, not generous:**
+- `approach`: The overall strategy is wrong or fundamentally limited. A different
+  approach would produce substantially better results. Your `smallest_fix` must
+  describe a substantial redesign (>= 50 chars).
+- `feature`: A **major** user-visible capability is missing or broken. The user would
+  immediately notice and care. NOT: minor behavior quirks, edge cases, accessibility
+  attributes, or anything you'd describe as a "quick fix."
+- `polish`: Everything else — cosmetic issues, minor behavior, accessibility nits,
+  spec-compliance, edge cases. If you're unsure between feature and polish, it's polish.
+
+**Zero tickets requires justification.** If you truly cannot find a single deficiency
+across all five categories, you must explain for each category why it is already at
+a level that would impress a demanding expert. "Tests pass" and "looks good" are not
+sufficient — cite specific evidence from the actual content."""
+
+
+def _build_critique_decision(
+    terminate_action: str = "vote",
+    iterate_action: str = "new_answer",
+) -> str:
+    """Build critique decision section (tool-gated deficiency tickets)."""
+    return f"""---
+
+## Decision
+
+Now decide: call `{iterate_action}` or `{terminate_action}`.
+
+- `{iterate_action}`: produce an improved answer addressing the deficiencies you identified.
+- `{terminate_action}`: select the best existing answer and stop.
+
+### Submit Your Critique
+
+Call `submit_critique` with your approach assessment, deficiency tickets, and recommendation.
+
+  submit_critique(
+    approach_assessment={{
+      "strategy_name": "<name the approach>",
+      "ceiling": <0-100>,
+      "ceiling_reasoning": "<why that ceiling>",
+      "alternative_approach": "<different approach or 'none identified'>"
+    }},
+    tickets=[
+      {{
+        "id": "D1",
+        "deficiency": "<specific problem, >= 30 chars>",
+        "severity": "approach | feature | polish",
+        "impact": "<why it matters>",
+        "verification": "<how to confirm fixed>",
+        "smallest_fix": "<minimal edit>"
+      }}
+    ],
+    recommendation="vote | iterate",
+    recommendation_reasoning="<why you recommend this>"
+  )
+
+The tool will evaluate your tickets and return a verdict:
+- **`{iterate_action}`**: Significant deficiencies remain — fix them.
+- **`{terminate_action}`**: Only polish-level issues or none — the answer is ready.
+- **`rejected`**: Your tickets were too vague or duplicative — rewrite with specific,
+  concrete deficiencies before resubmitting.
+
+**Follow the verdict**, not your recommendation. If the verdict says `{iterate_action}`,
+your new answer MUST directly address the tickets that triggered it. If the verdict is
+`rejected`, rewrite your tickets with more specificity and resubmit.
+
+**Important**: You cannot iterate without articulating testable deficiencies first.
+If the only tickets you can write are polish-level, the tool will tell you to
+`{terminate_action}` — and you should."""
+
+
+def build_critique_subagent_prompt(task: str, answer_text: str, agent_label: str) -> str:
+    """Build the system prompt for an independent critique subagent.
+
+    The critiquer is a separate agent that did NOT produce the work. It gets
+    full tool access to inspect the workspace and must produce a structured
+    critique with deficiency tickets.
+
+    Args:
+        task: The original user task.
+        answer_text: The agent's answer text being reviewed.
+        agent_label: Anonymous label for the agent (e.g. "Agent 1").
+    """
+    return f"""# Independent Critique Task
+
+You are an independent reviewer. You did NOT write this work. Your job is to
+find what's wrong — there is ALWAYS something wrong. An empty critique is a
+failed critique.
+
+## Original Task
+{task}
+
+## Answer Being Reviewed ({agent_label})
+{answer_text}
+
+## Instructions
+
+Examine the workspace thoroughly using your tools (read files, run code, inspect
+outputs). Then produce a structured critique.
+
+### Approach Assessment
+
+Before examining details, assess the **approach** taken:
+- **Strategy name**: Give the approach a short descriptive name.
+- **Ceiling (0-100)**: If this approach were perfectly polished, how good could it be?
+  A fundamentally limited strategy has a low ceiling no matter how well it's executed.
+- **Ceiling reasoning**: Why that number?
+- **Alternative approach**: Describe a meaningfully different approach, or state
+  "none identified" if the current approach is clearly optimal.
+
+### Mandatory Category Inspection
+
+You MUST inspect every category below and write your findings for each one. Do not
+skip any category. For each, state what you actually checked and what you found.
+
+1. **Overall Impression & Ambition**: Step back and evaluate holistically — would you
+   be genuinely impressed showing this to someone? Is this ambitious, thoughtful work
+   or a competent minimum? Compare against what the best human practitioner would produce.
+2. **Completeness & Depth**: Does the answer fully address the request with genuine
+   substance? What would a demanding user expect that isn't here?
+3. **Correctness**: Is the core logic/content actually right? Focus on things that
+   materially break the user experience.
+4. **User Experience**: As a real user, would you find this delightful?
+5. **Structural Integrity**: Does the overall architecture serve the content well?
+
+### Deficiency Tickets
+
+Based on your inspection, write deficiency tickets for problems that materially
+affect quality. Each ticket must be concrete and testable.
+
+For each deficiency:
+- **ID**: D1, D2, D3, etc.
+- **Deficiency** (>= 30 chars): What specifically is wrong?
+- **Severity**: `approach` (wrong strategy), `feature` (missing/broken functionality),
+  or `polish` (cosmetic, minor UX).
+- **Impact**: Why does this matter to the user?
+- **Verification**: How would you confirm it's fixed?
+
+**Severity guide — be honest, not generous:**
+- `approach`: The overall strategy is wrong or fundamentally limited.
+- `feature`: A major user-visible capability is missing or broken.
+- `polish`: Cosmetic issues, minor behavior, edge cases.
+
+You MUST find at least one deficiency. Dig deeper if your first pass finds nothing
+obvious. "Tests pass" and "looks good" are not sufficient justification for zero tickets."""
+
+
+def format_critique_injection(critique_text: str) -> str:
+    """Format a completed critique for injection into the working agent's system message.
+
+    Args:
+        critique_text: The raw critique output from the critique subagent.
+
+    Returns:
+        Formatted critique text ready for system message injection.
+    """
+    return f"""## Independent Critique of Your Latest Work
+
+An independent reviewer has examined your work and found the following deficiencies:
+
+{critique_text}
+
+**You MUST address the deficiencies marked as "approach" or "feature" severity in your
+next iteration. Do not ignore this critique.**"""
 
 
 class Priority(IntEnum):
@@ -2131,6 +2407,7 @@ class EvaluationSection(SystemPromptSection):
         voting_threshold: Optional[int] = None,
         answers_used: int = 0,
         answer_cap: Optional[int] = None,
+        checklist_require_gap_report: bool = True,
     ):
         super().__init__(
             title="MassGen Coordination",
@@ -2144,6 +2421,7 @@ class EvaluationSection(SystemPromptSection):
         self.voting_threshold = voting_threshold
         self.answers_used = answers_used
         self.answer_cap = answer_cap
+        self.checklist_require_gap_report = checklist_require_gap_report
 
     def build_content(self) -> str:
         # Vote-only mode: agent has exhausted their answer limit
@@ -2259,7 +2537,16 @@ Your goal is to iteratively refine answers until they meet the quality bar.
 {decision}"""
         elif effective_sensitivity == "checklist_gated":
             analysis = _build_checklist_analysis()
-            decision = _build_checklist_gated_decision(_CHECKLIST_ITEMS)
+            decision = _build_checklist_gated_decision(
+                _CHECKLIST_ITEMS,
+                require_gap_report=self.checklist_require_gap_report,
+            )
+            evaluation_section = f"""{analysis}
+
+{decision}"""
+        elif effective_sensitivity == "critique":
+            analysis = _build_critique_analysis()
+            decision = _build_critique_decision()
             evaluation_section = f"""{analysis}
 
 {decision}"""
@@ -2364,7 +2651,15 @@ class DecompositionSection(SystemPromptSection):
         subtask: The agent's assigned subtask description (if any)
     """
 
-    def __init__(self, subtask: Optional[str] = None, voting_threshold: Optional[int] = None, voting_sensitivity: str = "roi", answers_used: int = 0, answer_cap: Optional[int] = None):
+    def __init__(
+        self,
+        subtask: Optional[str] = None,
+        voting_threshold: Optional[int] = None,
+        voting_sensitivity: str = "roi",
+        answers_used: int = 0,
+        answer_cap: Optional[int] = None,
+        checklist_require_gap_report: bool = True,
+    ):
         super().__init__(
             title="MassGen Decomposition Coordination",
             priority=2,  # Same slot as EvaluationSection
@@ -2375,6 +2670,7 @@ class DecompositionSection(SystemPromptSection):
         self.voting_sensitivity = voting_sensitivity
         self.answers_used = answers_used
         self.answer_cap = answer_cap
+        self.checklist_require_gap_report = checklist_require_gap_report
 
     def _build_decision_block(self) -> str:
         """Build the new_answer vs stop decision block, threshold-aware if set."""
@@ -2412,6 +2708,19 @@ Both are terminal actions that end your round.
                 analysis = _build_checklist_analysis()
                 decision = _build_checklist_gated_decision(
                     _CHECKLIST_ITEMS,
+                    terminate_action="stop",
+                    iterate_action="new_answer",
+                    require_gap_report=self.checklist_require_gap_report,
+                )
+                return f"""**CHOOSING THE RIGHT TOOL — `new_answer` vs `stop`:**
+Both are terminal actions that end your round.
+
+{analysis}
+
+{decision}"""
+            elif self.voting_sensitivity == "critique":
+                analysis = _build_critique_analysis()
+                decision = _build_critique_decision(
                     terminate_action="stop",
                     iterate_action="new_answer",
                 )

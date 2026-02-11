@@ -7604,10 +7604,12 @@ async def main(args):
                 # User provided a question but no config exists - this is an error
                 print(
                     "❌ Configuration error: No default configuration found.",
+                    file=sys.stderr,
                     flush=True,
                 )
                 print(
                     "Run 'massgen --init' to create one, or use 'massgen --model MODEL \"question\"'",
+                    file=sys.stderr,
                     flush=True,
                 )
                 sys.exit(EXIT_CONFIG_ERROR)
@@ -7635,6 +7637,7 @@ async def main(args):
         if not args.model and not args.config:
             print(
                 "❌ Configuration error: Either --config, --model, or --backend must be specified",
+                file=sys.stderr,
                 flush=True,
             )
             sys.exit(EXIT_CONFIG_ERROR)
@@ -8304,7 +8307,7 @@ async def main(args):
                                     )
 
     except ConfigurationError as e:
-        print(f"❌ Configuration error: {e}", flush=True)
+        print(f"❌ Configuration error: {e}", file=sys.stderr, flush=True)
         sys.exit(EXIT_CONFIG_ERROR)
     except KeyboardInterrupt:
         # Show spinner while cleaning up
@@ -8544,7 +8547,7 @@ def cli_main():
                 if resolved_config:
                     print(f"📁 Using default config: {resolved_config}")
         except ConfigurationError as e:
-            print(f"❌ Configuration error: {e}", flush=True)
+            print(f"❌ Configuration error: {e}", file=sys.stderr, flush=True)
             sys.exit(EXIT_CONFIG_ERROR)
 
         # Build settings from env, then apply CLI overrides using replace()

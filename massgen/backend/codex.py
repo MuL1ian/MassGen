@@ -426,6 +426,23 @@ class CodexBackend(NativeToolBackendMixin, LLMBackend):
             self.mcp_servers = [s for s in self.mcp_servers if not (isinstance(s, dict) and s.get("name") == "massgen_checklist")]
             self.mcp_servers.append(checklist_mcp)
 
+        # Write critique specs file and add stdio MCP config if critique is active.
+        if hasattr(self, "_critique_state"):
+            from ..mcp_tools.critique_tools_server import (
+                build_server_config as build_critique_config,
+            )
+            from ..mcp_tools.critique_tools_server import write_critique_specs
+
+            specs_path = config_dir / "critique_specs.json"
+            write_critique_specs(
+                state=self._critique_state,
+                output_path=specs_path,
+            )
+            critique_mcp = build_critique_config(specs_path)
+            # Replace any previous critique entry
+            self.mcp_servers = [s for s in self.mcp_servers if not (isinstance(s, dict) and s.get("name") == "massgen_critique")]
+            self.mcp_servers.append(critique_mcp)
+
         # Convert MassGen mcp_servers list to Codex config.toml format
         # Merge orchestrator-injected servers (self.config) with init-time servers (self.mcp_servers)
         # which may include custom_tools MCP added by _setup_custom_tools_mcp()

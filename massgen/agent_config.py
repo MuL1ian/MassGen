@@ -234,6 +234,7 @@ class AgentConfig:
         voting_sensitivity: Controls how critical agents are when voting ("lenient", "balanced", "strict")
         max_new_answers_per_agent: Maximum number of new answers each agent can provide (None = unlimited)
         max_new_answers_global: Maximum number of new answers across all agents (None = unlimited)
+        checklist_require_gap_report: In checklist_gated mode, require a markdown gap report before verdict (default: True)
         answer_novelty_requirement: How different new answers must be from existing ones ("lenient", "balanced", "strict")
         fairness_enabled: Enable fairness controls across all coordination modes (default: True)
         fairness_lead_cap_answers: Maximum allowed lead in answer revisions over slowest active peer
@@ -251,6 +252,7 @@ class AgentConfig:
     voting_threshold: Optional[int] = None  # Numeric threshold for ROI-style voting (e.g., 15 = 15% improvement required)
     max_new_answers_per_agent: Optional[int] = None
     max_new_answers_global: Optional[int] = None
+    checklist_require_gap_report: bool = True
     answer_novelty_requirement: str = "lenient"
     fairness_enabled: bool = True
     fairness_lead_cap_answers: int = 2
@@ -953,6 +955,7 @@ class AgentConfig:
             "voting_threshold": self.voting_threshold,
             "max_new_answers_per_agent": self.max_new_answers_per_agent,
             "max_new_answers_global": self.max_new_answers_global,
+            "checklist_require_gap_report": self.checklist_require_gap_report,
             "answer_novelty_requirement": self.answer_novelty_requirement,
             "fairness_enabled": self.fairness_enabled,
             "fairness_lead_cap_answers": self.fairness_lead_cap_answers,
@@ -1002,6 +1005,7 @@ class AgentConfig:
         voting_threshold = data.get("voting_threshold")
         max_new_answers_per_agent = data.get("max_new_answers_per_agent")
         max_new_answers_global = data.get("max_new_answers_global")
+        checklist_require_gap_report = data.get("checklist_require_gap_report", True)
         answer_novelty_requirement = data.get("answer_novelty_requirement", "lenient")
         fairness_enabled = data.get("fairness_enabled", True)
         fairness_lead_cap_answers = data.get("fairness_lead_cap_answers", 2)
@@ -1038,6 +1042,7 @@ class AgentConfig:
             voting_threshold=voting_threshold,
             max_new_answers_per_agent=max_new_answers_per_agent,
             max_new_answers_global=max_new_answers_global,
+            checklist_require_gap_report=checklist_require_gap_report,
             answer_novelty_requirement=answer_novelty_requirement,
             fairness_enabled=fairness_enabled,
             fairness_lead_cap_answers=fairness_lead_cap_answers,
