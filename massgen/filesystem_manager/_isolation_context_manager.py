@@ -388,7 +388,11 @@ class IsolationContextManager:
 
     @staticmethod
     def cleanup_orphaned_branches(repo_path: str) -> int:
-        """Delete any massgen/* branches from previous crashed sessions.
+        """Delete massgen/* branches not backed by an active worktree.
+
+        Only removes branches that are truly orphaned (no associated worktree).
+        Branches with active worktrees are left alone so concurrent MassGen
+        sessions sharing the same repo are not disrupted.
 
         This should be called at session start to clean up stale branches
         left behind by crashed or interrupted sessions.
@@ -404,8 +408,21 @@ class IsolationContextManager:
             from git import Repo
 
             repo = Repo(repo_path, search_parent_directories=True)
+
+            # Collect branches that have an active worktree — those must not be deleted.
+            active_worktree_branches: set[str] = set()
+            try:
+                worktree_output = repo.git.worktree("list", "--porcelain")
+                for line in worktree_output.splitlines():
+                    if line.startswith("branch refs/heads/"):
+                        active_worktree_branches.add(line.removeprefix("branch refs/heads/"))
+            except Exception:
+                # If worktree list fails, be conservative — skip cleanup entirely
+                log.debug("Could not list worktrees; skipping orphaned branch cleanup")
+                return 0
+
             for branch in list(repo.branches):
-                if branch.name.startswith("massgen/"):
+                if branch.name.startswith("massgen/") and branch.name not in active_worktree_branches:
                     try:
                         repo.delete_head(branch.name, force=True)
                         deleted += 1
@@ -799,8 +816,10 @@ class IsolationContextManager:
                 # then unstage so ChangeApplier can still detect changes via
                 # repo.index.diff(None) and repo.untracked_files.
                 repo.git.add("-A")
-                diff_output = repo.git.diff("--staged")
-                repo.git.reset("HEAD")
+                try:
+                    diff_output = repo.git.diff("--staged")
+                finally:
+                    repo.git.reset("HEAD")
                 return diff_output
             except (InvalidGitRepositoryError, GitCommandError):
                 return ""

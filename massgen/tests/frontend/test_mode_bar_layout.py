@@ -560,3 +560,46 @@ async def test_ctrl_p_toggle_emits_full_cwd_toast(monkeypatch, tmp_path: Path) -
         assert toasts
         assert "Ctrl+P: CWD context read-only" in toasts[-1]
         assert str(Path.cwd()) in toasts[-1]
+
+
+@pytest.mark.asyncio
+async def test_ctrl_p_hint_uses_short_mode_tokens(monkeypatch, tmp_path: Path) -> None:
+    """Right-side CWD hint should use short mode tokens (ro/rw) to preserve space."""
+    monkeypatch.setattr(textual_display_module, "get_event_emitter", lambda: None)
+    monkeypatch.setattr(
+        textual_display_module,
+        "get_user_settings",
+        lambda: SimpleNamespace(theme="dark", vim_mode=False),
+    )
+
+    display = TextualTerminalDisplay(
+        ["agent_a"],
+        agent_models={"agent_a": "gpt-5.3-codex"},
+        keyboard_interactive_mode=False,
+        output_dir=tmp_path,
+        theme="dark",
+    )
+    app = textual_display_module.TextualApp(
+        display=display,
+        question="Welcome! Type your question below...",
+        buffers=display._buffers,
+        buffer_lock=display._buffer_lock,
+        buffer_flush_interval=display.buffer_flush_interval,
+    )
+    display._app = app
+
+    async with app.run_test(headless=True, size=(110, 24)) as pilot:
+        await pilot.pause()
+        input_hint = app.query_one("#input_hint")
+
+        app._toggle_cwd_auto_include()  # off -> read
+        await pilot.pause()
+        hint_text = _widget_text(input_hint)
+        assert "CWD ro" in hint_text
+        assert "read-only" not in hint_text
+
+        app._toggle_cwd_auto_include()  # read -> write
+        await pilot.pause()
+        hint_text = _widget_text(input_hint)
+        assert "CWD rw" in hint_text
+        assert "read+write" not in hint_text

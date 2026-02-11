@@ -3668,7 +3668,11 @@ Your answer:"""
         current_answers = {aid: state.answer for aid, state in self.agent_states.items() if state.answer}
         if getattr(self.config, "coordination_mode", "voting") == "decomposition":
             # Decomposition mode: use config-designated presenter or last agent
-            self._selected_agent = getattr(self.config, "presenter_agent", None) or list(self.agents.keys())[-1]
+            presenter = getattr(self.config, "presenter_agent", None)
+            if presenter and presenter not in self.agents:
+                logger.warning(f"[Orchestrator] presenter_agent '{presenter}' not found in agents, falling back to last agent")
+                presenter = None
+            self._selected_agent = presenter or list(self.agents.keys())[-1]
         else:
             self._selected_agent = self._determine_final_agent_from_votes(
                 votes,
@@ -6396,7 +6400,10 @@ Your answer:"""
         if not unseen_sources:
             return (True, None)
 
-        source_list = ", ".join(unseen_sources)
+        # Anonymize agent IDs before including in model-facing error message
+        reverse_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+        anon_sources = [reverse_mapping.get(src, src) for src in unseen_sources]
+        source_list = ", ".join(anon_sources)
         terminal_action = self._terminal_action_wording()
         error_msg = f"Fairness gate: before you {terminal_action}, you must first observe the latest update(s) " f"from: {source_list}. Continue working and wait for context injection."
         return (False, error_msg)
@@ -9601,13 +9608,11 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             for wt_path, orig_path in self._isolation_worktree_paths.items():
                 # Compute the specific subdirectory within the worktree
                 # that corresponds to the original context path
-                import os as _os
-
                 ctx_info = self._isolation_manager.get_context_info(orig_path) if self._isolation_manager else None
                 repo_root = ctx_info.get("repo_root") if ctx_info else None
                 if repo_root and repo_root != orig_path:
-                    relative = _os.path.relpath(orig_path, repo_root)
-                    target_dir = _os.path.join(wt_path, relative)
+                    relative = os.path.relpath(orig_path, repo_root)
+                    target_dir = os.path.join(wt_path, relative)
                     worktree_instructions += (
                         f"The project files are at `{target_dir}` " f"(inside worktree at `{wt_path}`). " f"Write all your changes there. " f"Changes will be reviewed before being applied.\n"
                     )
@@ -10361,8 +10366,10 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
         if not all_changes:
             logger.info("[Orchestrator] No isolated changes to review")
             # Move scratch to archive before cleanup
-            for ctx_path in list(isolation_manager._contexts.keys()):
-                isolation_manager.move_scratch_to_workspace(ctx_path)
+            for ctx_info in isolation_manager.list_contexts():
+                ctx_path = ctx_info.get("original_path") if ctx_info else None
+                if ctx_path:
+                    isolation_manager.move_scratch_to_workspace(ctx_path)
             isolation_manager.cleanup_session()
             return
 
@@ -10472,8 +10479,10 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             logger.info("[Orchestrator] User rejected isolated changes")
 
         # 6. Move scratch to archive and cleanup all isolated contexts + branches
-        for ctx_path in list(isolation_manager._contexts.keys()):
-            isolation_manager.move_scratch_to_workspace(ctx_path)
+        for ctx_info in isolation_manager.list_contexts():
+            ctx_path = ctx_info.get("original_path") if ctx_info else None
+            if ctx_path:
+                isolation_manager.move_scratch_to_workspace(ctx_path)
         isolation_manager.cleanup_session()
 
     async def post_evaluate_answer(
@@ -11635,6 +11644,9 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
         self._active_tasks = {}
         self._fairness_pause_log_reasons = {}
         self._fairness_block_log_states = {}
+        self._round_isolation_managers = {}
+        self._round_worktree_paths = {}
+        self._agent_current_branches = {}
 
         if self.dspy_paraphraser:
             self.dspy_paraphraser.clear_cache()

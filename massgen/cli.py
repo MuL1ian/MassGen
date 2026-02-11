@@ -398,7 +398,7 @@ def get_task_planning_prompt_prefix(
     Args:
         plan_depth: One of "dynamic", "shallow", "medium", or "deep" controlling task granularity.
         target_steps: Optional explicit target number of tasks (None = dynamic sizing).
-        target_chunks: Optional explicit target number of chunks (None = dynamic sizing).
+        target_chunks: Optional explicit target number of chunks (None = default single-chunk planning).
         enable_subagents: Whether subagents are enabled for research tasks.
         broadcast_mode: One of "human", "agents", or False. Controls whether ask_others() is available.
 
@@ -424,7 +424,7 @@ def get_task_planning_prompt_prefix(
     if target_chunks is not None and target_chunks > 0:
         chunk_target_line = f"- Target chunks: around {target_chunks}"
     else:
-        chunk_target_line = "- Target chunks: dynamic based on dependency boundaries"
+        chunk_target_line = "- Target chunks: around 1 (single-run default unless dependencies require splitting)"
 
     # Subagent research section (only if enabled)
     subagent_section = ""
@@ -7884,7 +7884,7 @@ async def run_plan_and_execute(
         question: User's task/question
         plan_depth: dynamic/shallow/medium/deep
         plan_target_steps: Optional explicit target number of tasks.
-        plan_target_chunks: Optional explicit target number of chunks.
+        plan_target_chunks: Optional explicit target number of chunks (defaults to 1).
         broadcast_mode: human/agents/false
         automation: Whether in automation mode
         debug: Debug mode flag
@@ -7905,11 +7905,11 @@ async def run_plan_and_execute(
 
     # ========== PHASE 1: Planning ==========
     console.print("\n[bold blue]═══ PHASE 1: PLANNING ═══[/bold blue]")
+    effective_plan_target_chunks = plan_target_chunks if isinstance(plan_target_chunks, int) and plan_target_chunks > 0 else 1
     planning_controls = [f"depth={plan_depth}"]
     if plan_target_steps is not None:
         planning_controls.append(f"target_steps={plan_target_steps}")
-    if plan_target_chunks is not None:
-        planning_controls.append(f"target_chunks={plan_target_chunks}")
+    planning_controls.append(f"target_chunks={effective_plan_target_chunks}")
     console.print(f"Running agents to create task plan ({', '.join(planning_controls)})...")
 
     # Create plan storage
@@ -7949,8 +7949,7 @@ async def run_plan_and_execute(
     ]
     if plan_target_steps is not None:
         cmd.extend(["--plan-steps", str(plan_target_steps)])
-    if plan_target_chunks is not None:
-        cmd.extend(["--plan-chunks", str(plan_target_chunks)])
+    cmd.extend(["--plan-chunks", str(effective_plan_target_chunks)])
 
     if debug:
         cmd.append("--debug")
@@ -8376,17 +8375,24 @@ async def main(args):
                 "plan_steps",
                 None,
             )
-            orchestrator_cfg_plan["coordination"]["plan_target_chunks"] = getattr(
+            resolved_plan_target_chunks = getattr(
                 args,
                 "plan_chunks",
                 None,
             )
+            if resolved_plan_target_chunks is None:
+                existing_chunk_target = orchestrator_cfg_plan["coordination"].get("plan_target_chunks")
+                if isinstance(existing_chunk_target, int) and existing_chunk_target > 0:
+                    resolved_plan_target_chunks = existing_chunk_target
+                else:
+                    resolved_plan_target_chunks = 1
+            orchestrator_cfg_plan["coordination"]["plan_target_chunks"] = resolved_plan_target_chunks
 
             logger.info(
                 "[Plan Mode] Enabled with depth=%s, target_steps=%s, target_chunks=%s, broadcast=%s",
                 args.plan_depth,
                 getattr(args, "plan_steps", None),
-                getattr(args, "plan_chunks", None),
+                resolved_plan_target_chunks,
                 orchestrator_cfg_plan["coordination"].get("broadcast"),
             )
 
@@ -8529,6 +8535,8 @@ async def main(args):
                 cfg_chunks = coordination_cfg.get("plan_target_chunks")
                 if isinstance(cfg_chunks, int) and cfg_chunks > 0:
                     plan_target_chunks = cfg_chunks
+            if plan_target_chunks is None:
+                plan_target_chunks = 1
 
             # Broadcast mode priority: CLI arg > config > default "human"
             cli_broadcast = getattr(args, "broadcast", None)
@@ -9406,7 +9414,7 @@ Environment Variables:
         "--plan-chunks",
         type=int,
         default=None,
-        help="Optional explicit planning target for chunk count (for example 5). Omit for dynamic sizing.",
+        help="Optional explicit planning target for chunk count (for example 5). Default in plan mode: 1 chunk.",
     )
     parser.add_argument(
         "--broadcast",

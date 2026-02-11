@@ -416,25 +416,16 @@ Be honest — do not inflate or deflate your scores.
 
 ### Submit Your Scores
 
-Call `submit_checklist` with per-item reasoning and an improvements summary.
-Each score entry MUST include `"reasoning"` explaining why you gave that score —
-reference specific evidence from your analysis.
+Call `submit_checklist` with your scores for each checklist item (T1 through T5).
+Each score must include a `reasoning` field that cites specific evidence from your
+analysis explaining why you gave that score. Also include an `improvements` summary
+describing the specific gaps from your Ideal Version / Gap Analysis that would make
+the answer substantially better.
 
 **Important**: Do not hedge your improvements with language like "optional", "not
 required", "could include", or "nice-to-have". If you identify something that would
 make the answer better, state it as something that **should** be done. If the verdict
 tells you to iterate, you are expected to implement what you identified.
-
-  submit_checklist(
-    scores={{
-      "T1": {{"score": <0-100>, "reasoning": "<why — cite specific evidence>"}},
-      "T2": {{"score": <0-100>, "reasoning": "<why>"}},
-      "T3": {{"score": <0-100>, "reasoning": "<why>"}},
-      "T4": {{"score": <0-100>, "reasoning": "<why>"}},
-      "T5": {{"score": <0-100>, "reasoning": "<why>"}}
-    }},
-    improvements="<specific gaps from your Ideal Version / Gap Analysis that would make the answer substantially better>"
-  )
 
 The tool will evaluate your scores and return a verdict telling you whether
 to call `{terminate_action}` or `{iterate_action}`. Follow the verdict.

@@ -550,6 +550,7 @@ class PlanOptionsPopover(Widget):
                 yield Label("Chunk Count Target:", classes="section-label")
                 chunk_target_options = [
                     ("Dynamic", "dynamic"),
+                    ("1 chunk (single run)", "1"),
                     ("3 chunks", "3"),
                     ("5 chunks", "5"),
                     ("7 chunks", "7"),

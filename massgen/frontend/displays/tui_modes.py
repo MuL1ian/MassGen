@@ -29,7 +29,7 @@ class PlanConfig:
             - "medium": 20-50 tasks
             - "deep": 100-200+ granular tasks
         target_steps: Optional explicit target number of tasks (None = dynamic)
-        target_chunks: Optional explicit target number of chunks (None = dynamic)
+        target_chunks: Optional explicit target number of chunks (default = 1, None = dynamic)
         execute_auto_continue_chunks: If True, auto-continue to next chunk after completion.
         execute_refinement_mode: Execute-time refinement mode:
             - "inherit": Use mode-bar refinement toggle
@@ -44,7 +44,7 @@ class PlanConfig:
 
     depth: PlanDepth = "dynamic"
     target_steps: Optional[int] = None
-    target_chunks: Optional[int] = None
+    target_chunks: Optional[int] = 1
     execute_auto_continue_chunks: bool = True
     execute_refinement_mode: Literal["inherit", "on", "off"] = "inherit"
     auto_execute: bool = False

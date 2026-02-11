@@ -9212,11 +9212,6 @@ Type your question and press Enter to ask the agents.
             """Build compact Ctrl+P context hint for the right-side status panel."""
             mode_label = {
                 "off": "off",
-                "read": "read-only",
-                "write": "read+write",
-            }.get(self._cwd_context_mode, "off")
-            mode_short = {
-                "off": "off",
                 "read": "ro",
                 "write": "rw",
             }.get(self._cwd_context_mode, "off")
@@ -9232,7 +9227,7 @@ Type your question and press Enter to ask the agents.
                 return f"Ctrl+P: CWD {mode_label} ({cwd_medium}) • @path include"
             if width >= 90:
                 return f"Ctrl+P: CWD {mode_label} ({cwd_name}) • @path include"
-            return f"Ctrl+P: CWD {mode_short} ({cwd_name})"
+            return f"Ctrl+P: CWD {mode_label} ({cwd_name})"
 
         def _refresh_welcome_context_hint(self) -> None:
             """Refresh right-side vim/path panel when layout or mode changes."""
