@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 # Type alias for plan depth
 PlanDepth = Literal["dynamic", "shallow", "medium", "deep"]
 AnalysisProfile = Literal["dev", "user"]
+AnalysisTarget = Literal["log", "skills"]
+SkillLifecycleMode = Literal["create_new", "create_or_update"]
 
 
 @dataclass
@@ -63,7 +65,12 @@ class PlanConfig:
 class AnalysisConfig:
     """Configuration for log analysis mode behavior."""
 
-    # Profile focus:
+    # Analysis target:
+    # - "log": analyze a specific log session/turn (existing behavior)
+    # - "skills": analyze all installed skills for organization/merging/registry
+    target: AnalysisTarget = "log"
+
+    # Profile focus (used when target is "log"):
     # - "dev": internal MassGen debugging/improvement focus
     # - "user": reusable skill creation/refinement focus
     profile: AnalysisProfile = "user"
@@ -74,6 +81,12 @@ class AnalysisConfig:
 
     # Session-only skill allowlist. None means "no filtering" (all discovered skills).
     enabled_skill_names: Optional[List[str]] = None
+
+    # Include evolving skills discovered from previous sessions.
+    include_previous_session_skills: bool = False
+
+    # How newly discovered analysis skills are applied to project skills.
+    skill_lifecycle_mode: SkillLifecycleMode = "create_or_update"
 
     # Pre-analysis snapshot for detecting new skills. Internal state only.
     _pre_analysis_skill_dirs: Optional[Set[str]] = field(default=None, repr=False)
@@ -200,8 +213,13 @@ class TuiModeState:
         """
         overrides: Dict[str, Any] = {}
 
-        # Coordination mode mapping from TUI labels to orchestrator config values
-        overrides["coordination_mode"] = "decomposition" if self.coordination_mode == "decomposition" else "voting"
+        # Coordination mode mapping from TUI labels to orchestrator config values.
+        # Decomposition requires multiple active agents, so single-agent mode
+        # always falls back to voting/parallel.
+        effective_coordination_mode = self.coordination_mode
+        if self.agent_mode == "single" and effective_coordination_mode == "decomposition":
+            effective_coordination_mode = "parallel"
+        overrides["coordination_mode"] = "decomposition" if effective_coordination_mode == "decomposition" else "voting"
 
         # Refinement disabled = quick mode
         if not self.refinement_enabled:
@@ -342,8 +360,11 @@ class TuiModeState:
         elif self.plan_mode == "execute":
             parts.append("Plan: Executing")
         elif self.plan_mode == "analysis":
-            profile = self.analysis_config.profile.capitalize()
-            parts.append(f"Analyze: {profile}")
+            if self.analysis_config.target == "skills":
+                parts.append("Analyze: Organize Skills")
+            else:
+                profile = self.analysis_config.profile.capitalize()
+                parts.append(f"Analyze: {profile}")
 
         # Agent mode
         if self.agent_mode == "single":
@@ -366,3 +387,10 @@ class TuiModeState:
             return "Normal mode"
 
         return " | ".join(parts)
+
+
+def get_analysis_placeholder_text(target: str) -> str:
+    """Return input bar placeholder text for the given analysis target type."""
+    if target == "skills":
+        return "Enter to organize skills • or describe what to organize • Shift+Enter newline • @ for files • \u22ee for analysis options"
+    return "Enter to analyze selected log • or describe what to analyze • Shift+Enter newline • @ for files • \u22ee for analysis options"

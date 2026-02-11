@@ -85,6 +85,8 @@ class APIParamsHandlerBase(ABC):
             "command_line_docker_credentials",
             "command_line_docker_packages",
             "exclude_file_operation_mcps",
+            "use_mcpwrapped_for_tool_filtering",
+            "use_no_roots_wrapper",
             # Code-based tools (CodeAct paradigm)
             "enable_code_based_tools",
             "custom_tools_path",

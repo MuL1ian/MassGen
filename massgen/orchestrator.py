@@ -1161,33 +1161,16 @@ class Orchestrator(ChatAgent):
 
     def _validate_skills_config(self) -> None:
         """
-        Validate skills configuration before orchestration.
+        Validate skills configuration.
 
-        Checks that:
-        1. Command line execution is enabled for at least one agent
-        2. Skills directory exists and is not empty
+        Checks that skills directory exists and is not empty. Agents access skills
+        directly from the filesystem via workspace tools MCP (no dedicated skills
+        MCP server needed).
 
         Raises:
-            RuntimeError: If skills requirements are not met
+            RuntimeError: If no skills are found
         """
         from pathlib import Path
-
-        # Check if command execution is available
-        has_command_execution = False
-        for agent_id, agent in self.agents.items():
-            if hasattr(agent, "config") and agent.config:
-                enable_cmd = agent.backend.config.get("enable_mcp_command_line", False)
-                if enable_cmd:
-                    has_command_execution = True
-                    logger.info(
-                        f"[Orchestrator] Agent {agent_id} has command execution enabled",
-                    )
-                    break
-
-        if not has_command_execution:
-            raise RuntimeError(
-                "Skills require command line execution to be enabled. " "Set enable_mcp_command_line: true in at least one agent's backend config.",
-            )
 
         # Check if skills are available (external or built-in)
         skills_dir = Path(self.config.coordination_config.skills_directory)

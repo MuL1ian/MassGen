@@ -499,6 +499,7 @@ class DockerManager:
         shared_tools_directory: Optional[Path] = None,
         load_previous_session_skills: bool = False,
         extra_mount_paths: Optional[List[tuple]] = None,
+        skills_writable: bool = False,
     ) -> Optional[Path]:
         """
         Create and start a persistent Docker container for an agent.
@@ -519,13 +520,16 @@ class DockerManager:
                           {host_path: {"bind": container_path, "mode": "ro"}}. When provided,
                           enables automatic visibility of all turn workspaces without container
                           recreation between turns.
-            skills_directory: Path to skills directory (e.g., .agent/skills) to mount read-only
+            skills_directory: Path to skills directory (e.g., .agent/skills) to mount
             massgen_skills: List of MassGen built-in skills to enable (optional)
             shared_tools_directory: Path to shared tools directory (servers/, custom_tools/, .mcp/) to mount read-only
             load_previous_session_skills: If True, include evolving skills from previous sessions
+            skills_writable: If True, mount the actual project skills directory with write access
+                instead of creating a read-only temp merged directory. Used during final presentation
+                so the agent can persist skill reorganization changes directly.
 
         Returns:
-            Path to temporary merged skills directory if skills are enabled, None otherwise
+            Path to temporary merged skills directory if skills are enabled (and not writable), None otherwise
 
         Raises:
             RuntimeError: If container creation fails
@@ -666,9 +670,25 @@ class DockerManager:
                 volumes[host_path_resolved] = {"bind": container_path_str, "mode": mode}
                 mount_info.append(f"      {host_path_resolved} ← {container_path_str} ({mode}, extra)")
 
-        # Create merged skills directory (user skills + massgen skills)
+        # Mount skills directory
         # openskills expects skills in ~/.agent/skills
-        if skills_directory or massgen_skills:
+        container_skills_path = "/home/massgen/.agent/skills"
+
+        if skills_writable and skills_directory:
+            # Presentation mode: mount the actual project skills dir with write access
+            # so the agent can persist skill reorganization (create/delete/modify) directly.
+            # Built-in/home skills are NOT merged — the agent already analyzed them during
+            # coordination and has their content in its conversation context.
+            skills_path = Path(skills_directory).resolve()
+            if not skills_path.exists():
+                skills_path.mkdir(parents=True, exist_ok=True)
+                logger.info(f"[Docker] Created skills directory for write access: {skills_path}")
+            volumes[str(skills_path)] = {"bind": container_skills_path, "mode": "rw"}
+            mount_info.append(f"      {skills_path} → {container_skills_path} (rw, direct)")
+            logger.info(f"[Docker] Mounted skills directory with WRITE access: {skills_path} → {container_skills_path}")
+
+        elif skills_directory or massgen_skills:
+            # Normal mode: create a read-only temp merged directory with all skill sources
             import shutil
             import tempfile
 
@@ -742,7 +762,6 @@ class DockerManager:
                             logger.info(f"[Docker] Added previous session skill: {skill_name} from {source}")
 
             # Mount the temp merged directory to ~/.agent/skills
-            container_skills_path = "/home/massgen/.agent/skills"
             volumes[str(temp_skills_dir)] = {"bind": container_skills_path, "mode": "ro"}
             mount_info.append(f"      {temp_skills_dir} → {container_skills_path} (ro, merged)")
             logger.info(f"[Docker] Mounted merged skills directory: {temp_skills_dir} → {container_skills_path}")

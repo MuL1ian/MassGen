@@ -4969,6 +4969,28 @@ PlanOptionsPopover #close_btn:hover {
     display: none;
 }
 
+#skills_btn {
+    width: auto;
+    height: 2;
+    min-width: 8;
+    background: transparent;
+    color: $fg-muted;
+    border: none;
+    border-bottom: tall $border-default;
+    padding: 0 1;
+    margin-left: 1;
+}
+
+#skills_btn:hover {
+    background: transparent;
+    color: $accent-primary;
+    border-bottom: tall $accent-primary;
+}
+
+#skills_btn.hidden {
+    display: none;
+}
+
 /* Plan status label in mode bar */
 #plan_status {
     color: $fg-muted;

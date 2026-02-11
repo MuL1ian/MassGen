@@ -38,6 +38,7 @@ from .mode_bar import (
     OverrideRequested,
     PlanConfigChanged,
     PlanSettingsClicked,
+    SkillsClicked,
     SubtasksClicked,
 )
 from .multi_line_input import MultiLineInput
@@ -46,12 +47,13 @@ from .phase_indicator_bar import PhaseIndicatorBar
 from .plan_approval_modal import PlanApprovalModal, PlanApprovalResult
 from .plan_options import (
     AnalysisProfileChanged,
+    AnalysisSkillLifecycleChanged,
     AnalysisTargetChanged,
+    AnalysisTargetTypeChanged,
     BroadcastModeChanged,
     ExecuteAutoContinueChanged,
     ExecutePrefillRequested,
     ExecuteRefinementModeChanged,
-    OpenSkillsRequested,
     PlanChunkTargetChanged,
     PlanDepthChanged,
     PlanOptionsPopover,
@@ -93,6 +95,7 @@ __all__ = [
     "OverrideRequested",
     "PlanConfigChanged",
     "PlanSettingsClicked",
+    "SkillsClicked",
     "SubtasksClicked",
     # Plan options popover
     "PlanOptionsPopover",
@@ -106,9 +109,10 @@ __all__ = [
     "ExecuteRefinementModeChanged",
     "ExecutePrefillRequested",
     "AnalysisProfileChanged",
+    "AnalysisSkillLifecycleChanged",
     "AnalysisTargetChanged",
+    "AnalysisTargetTypeChanged",
     "ViewAnalysisRequested",
-    "OpenSkillsRequested",
     # Tab bar
     "AgentTab",
     "AgentTabBar",

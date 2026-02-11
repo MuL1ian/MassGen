@@ -490,6 +490,28 @@ ModeToggle.state-off {
     display: none;
 }
 
+#skills_btn {
+    width: auto;
+    height: 2;
+    min-width: 8;
+    background: transparent;
+    color: $fg-muted;
+    border: none;
+    border-bottom: tall #d5dce7;
+    padding: 0 1;
+    margin-left: 1;
+}
+
+#skills_btn:hover {
+    background: transparent;
+    color: #1f5faa;
+    border-bottom: tall #1f5faa;
+}
+
+#skills_btn.hidden {
+    display: none;
+}
+
 /* Plan info display */
 #plan_info {
     color: #2e7d4a;
