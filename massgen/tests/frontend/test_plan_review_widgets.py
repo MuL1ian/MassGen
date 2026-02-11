@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from massgen.frontend.displays import textual_terminal_display as textual_display_module
 from massgen.frontend.displays.textual_widgets.plan_approval_modal import (
     PlanApprovalModal,
+    PlanJsonEditorModal,
 )
 from massgen.frontend.displays.textual_widgets.plan_options import (
     ExecuteAutoContinueChanged,
@@ -161,11 +162,64 @@ def test_plan_review_modal_toggle_expand():
         plan_data={"tasks": [{"id": "T001", "chunk": "C01"}]},
     )
     modal.refresh = lambda *args, **kwargs: None
-    assert modal._expanded is False
-    modal.action_toggle_expand()
     assert modal._expanded is True
     modal.action_toggle_expand()
     assert modal._expanded is False
+    modal.action_toggle_expand()
+    assert modal._expanded is True
+
+
+def test_plan_review_modal_edit_plan_json_opens_modal_and_applies_changes():
+    modal = PlanApprovalModal(
+        tasks=[{"id": "T001", "chunk": "C01", "description": "Task"}],
+        plan_path=Path("/tmp/plan.json"),
+        plan_data={"tasks": [{"id": "T001", "chunk": "C01", "description": "Task"}]},
+    )
+    modal.refresh = lambda *args, **kwargs: None
+
+    edited_json = json.dumps(
+        {
+            "tasks": [
+                {"id": "T001", "chunk": "C02_refined", "description": "Task"},
+            ],
+        },
+    )
+
+    captured = {}
+
+    def _fake_push_screen(screen, callback):
+        captured["screen"] = screen
+        callback(edited_json)
+
+    modal.push_screen = _fake_push_screen
+    modal.on_button_pressed(_ButtonEvent("edit_plan_json_btn"))
+
+    assert isinstance(captured["screen"], PlanJsonEditorModal)
+    assert modal.plan_data["tasks"][0]["chunk"] == "C02_refined"
+    assert "Applied JSON edits" in modal._json_edit_status
+
+
+def test_plan_review_modal_edit_plan_json_cancel_keeps_existing_plan():
+    modal = PlanApprovalModal(
+        tasks=[{"id": "T001", "chunk": "C01", "description": "Task"}],
+        plan_path=Path("/tmp/plan.json"),
+        plan_data={"tasks": [{"id": "T001", "chunk": "C01", "description": "Task"}]},
+    )
+    modal.refresh = lambda *args, **kwargs: None
+    before = json.dumps(modal.plan_data, sort_keys=True)
+
+    captured = {}
+
+    def _fake_push_screen(screen, callback):
+        captured["screen"] = screen
+        callback(None)
+
+    modal.push_screen = _fake_push_screen
+    modal.on_button_pressed(_ButtonEvent("edit_plan_json_btn"))
+
+    assert isinstance(captured["screen"], PlanJsonEditorModal)
+    after = json.dumps(modal.plan_data, sort_keys=True)
+    assert after == before
 
 
 def test_plan_options_builds_chunk_browser_entries(tmp_path):

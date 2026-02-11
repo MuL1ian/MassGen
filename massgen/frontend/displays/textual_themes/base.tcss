@@ -5618,7 +5618,7 @@ PlanApprovalModal .task-row:hover {
     background: $surface;
 }
 
-PlanApprovalModal .plan-json-edit {
+PlanApprovalModal .plan-json-actions {
     height: auto;
     width: 100%;
     margin-top: 1;
@@ -5626,21 +5626,8 @@ PlanApprovalModal .plan-json-edit {
     border-top: solid $surface-lighten-1;
 }
 
-PlanApprovalModal .plan-json-edit-label {
-    height: auto;
-    color: $text-muted;
-    margin-bottom: 1;
-}
-
-PlanApprovalModal #plan_json_editor {
-    width: 100%;
-    height: 12;
-    border: solid $surface-lighten-1;
-}
-
-PlanApprovalModal .apply-plan-json-button {
+PlanApprovalModal .edit-plan-json-button {
     width: auto;
-    margin-top: 1;
 }
 
 PlanApprovalModal .plan-json-edit-status {
@@ -5696,6 +5683,76 @@ PlanApprovalModal .execute-button {
 PlanApprovalModal .plan-action-status {
     margin-top: 1;
     color: $warning;
+}
+
+/* === Plan JSON Editor Modal === */
+PlanJsonEditorModal {
+    align: center middle;
+}
+
+PlanJsonEditorModal > Container {
+    width: 98%;
+    max-width: 180;
+    height: 96%;
+    background: $panel;
+    border: solid $secondary;
+    padding: 1 2;
+}
+
+PlanJsonEditorModal .modal-header {
+    height: auto;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+PlanJsonEditorModal .header-row {
+    height: auto;
+    width: 100%;
+    layout: horizontal;
+}
+
+PlanJsonEditorModal .modal-title {
+    text-style: bold;
+    width: 1fr;
+    color: $secondary;
+}
+
+PlanJsonEditorModal .modal-close {
+    width: auto;
+    min-width: 3;
+    background: transparent;
+    border: none;
+    color: $text-muted;
+}
+
+PlanJsonEditorModal .modal-close:hover {
+    color: $text;
+}
+
+PlanJsonEditorModal .modal-body {
+    height: 1fr;
+    width: 100%;
+    overflow-y: auto;
+}
+
+PlanJsonEditorModal #plan_json_editor {
+    width: 100%;
+    height: 1fr;
+    border: solid $surface-lighten-1;
+}
+
+PlanJsonEditorModal .modal-footer {
+    height: auto;
+    width: 100%;
+    margin-top: 1;
+    padding-top: 1;
+    border-top: solid $surface-lighten-1;
+}
+
+PlanJsonEditorModal .footer-buttons {
+    width: 100%;
+    height: auto;
+    layout: horizontal;
 }
 
 /* === Queued Input Banner === */

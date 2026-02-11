@@ -764,6 +764,43 @@ USER'S REQUEST:
 """
 
 
+def build_plan_review_refinement_appendix(
+    *,
+    question: str,
+    planning_feedback: str,
+    include_quick_edit_hint: bool,
+) -> str:
+    """Build optional prompt appendix for planning-review refinement turns.
+
+    Avoids duplicating feedback blocks when the current question already embeds
+    plan-review feedback text (common when users include it directly).
+    """
+    sections: List[str] = []
+
+    feedback = (planning_feedback or "").strip()
+    normalized_question = " ".join((question or "").lower().split())
+    normalized_feedback = " ".join(feedback.lower().split())
+
+    feedback_already_present = False
+    if feedback:
+        if normalized_feedback and normalized_feedback in normalized_question:
+            feedback_already_present = True
+        elif "plan review feedback" in normalized_question:
+            feedback_already_present = True
+
+    if feedback and not feedback_already_present:
+        sections.append(
+            "## Plan Review Feedback\n" f"{feedback}\n\n" "Apply this feedback while keeping a valid chunk-labeled task DAG.",
+        )
+
+    if include_quick_edit_hint:
+        sections.append(
+            "## Quick Edit Planning Turn\n" "Make precise updates and preserve valid chunk/dependency structure.",
+        )
+
+    return "\n\n".join(sections)
+
+
 def _load_skill_creator_reference() -> str:
     """Load the skill-creator SKILL.md for prompt inclusion."""
     try:
@@ -6153,21 +6190,14 @@ async def run_textual_interactive_mode(
                     effective_planning_mode = planning_turn_mode or ("single" if len(agents) == 1 else "multi")
                     mode_state.last_planning_mode = effective_planning_mode
 
-                    planning_refinement_sections: List[str] = []
-                    if planning_feedback:
-                        planning_refinement_sections.append(
-                            "## Plan Review Feedback\n" f"{planning_feedback}\n\n" "Apply this feedback while keeping a valid chunk-labeled task DAG.",
-                        )
-                    if effective_planning_mode == "single":
-                        planning_refinement_sections.append(
-                            "## Quick Edit Planning Turn\n"
-                            "This refinement turn is intentionally single-agent for focused edits."
-                            " Make precise updates and preserve valid chunk/dependency structure.",
-                        )
-
                     question = planning_prefix + question
-                    if planning_refinement_sections:
-                        question += "\n\n" + "\n\n".join(planning_refinement_sections)
+                    planning_refinement_appendix = build_plan_review_refinement_appendix(
+                        question=question,
+                        planning_feedback=planning_feedback,
+                        include_quick_edit_hint=effective_planning_mode == "single",
+                    )
+                    if planning_refinement_appendix:
+                        question += "\n\n" + planning_refinement_appendix
                     logger.info(
                         f"[Textual] Plan mode: Prepended task planning instructions "
                         f"(depth={mode_state.plan_config.depth}, subagents={enable_subagents}, "

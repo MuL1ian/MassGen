@@ -278,6 +278,7 @@ class ModeBar(Widget):
         self._plan_info: Optional[Label] = None
         self._plan_settings_btn: Optional[Button] = None
         self._plan_status: Optional[Static] = None
+        self._last_responsive_width: int = 0
 
     def compose(self) -> ComposeResult:
         """Create mode bar contents."""
@@ -371,7 +372,11 @@ class ModeBar(Widget):
     def _refresh_responsive_labels(self) -> None:
         """Switch to compact labels and shorter button text when constrained."""
         width = self.size.width
-        if width <= 0 and self.app is not None:
+        if width > 0:
+            self._last_responsive_width = width
+        elif self._last_responsive_width > 0:
+            width = self._last_responsive_width
+        elif self.app is not None:
             width = self.app.size.width
         compact_labels = width < 92
 

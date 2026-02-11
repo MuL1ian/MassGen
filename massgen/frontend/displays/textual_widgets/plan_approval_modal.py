@@ -28,6 +28,73 @@ class PlanApprovalResult:
     plan_path: Optional[Path] = None
 
 
+class PlanJsonEditorModal(ModalScreen[Optional[str]]):
+    """Full-screen modal for editing plan JSON."""
+
+    BINDINGS = [
+        ("escape", "cancel", "Cancel"),
+    ]
+
+    DEFAULT_CSS = ""
+
+    def __init__(
+        self,
+        initial_json: str,
+        name: Optional[str] = None,
+        id: Optional[str] = None,
+        classes: Optional[str] = None,
+    ) -> None:
+        super().__init__(name=name, id=id, classes=classes)
+        self._json_value = initial_json
+
+    def compose(self) -> ComposeResult:
+        with Container():
+            with Container(classes="modal-header"):
+                with Horizontal(classes="header-row"):
+                    yield Static("Edit Plan JSON", classes="modal-title")
+                    yield Button("✕", variant="default", classes="modal-close", id="close_btn")
+
+            with ScrollableContainer(classes="modal-body"):
+                editor = TextArea(
+                    self._json_value,
+                    id="plan_json_editor",
+                )
+                yield editor
+
+            with Container(classes="modal-footer"):
+                with Horizontal(classes="footer-buttons"):
+                    yield Button(
+                        "Apply JSON Edits",
+                        variant="primary",
+                        id="apply_btn",
+                    )
+                    yield Button(
+                        "Cancel (Esc)",
+                        variant="default",
+                        id="cancel_btn",
+                    )
+
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        if event.text_area.id == "plan_json_editor":
+            self._json_value = event.text_area.text
+
+    def _dismiss_with_value(self) -> None:
+        try:
+            self._json_value = self.query_one("#plan_json_editor", TextArea).text
+        except Exception:
+            pass
+        self.dismiss(self._json_value)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "apply_btn":
+            self._dismiss_with_value()
+        elif event.button.id in ("cancel_btn", "close_btn"):
+            self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class PlanApprovalModal(ModalScreen[PlanApprovalResult]):
     """Modal screen for planning review and action routing."""
 
@@ -76,7 +143,7 @@ class PlanApprovalModal(ModalScreen[PlanApprovalResult]):
             self.plan_data["tasks"] = self.tasks
         self.plan_path = plan_path
         self.revision = revision
-        self._expanded = False
+        self._expanded = True
         self._feedback_value = ""
         self._json_edit_status = ""
         self._action_status = ""
@@ -144,21 +211,12 @@ class PlanApprovalModal(ModalScreen[PlanApprovalResult]):
                     for task in chunk_tasks:
                         yield Static(self._format_task_row(task), classes="task-row")
 
-            with Container(classes="plan-json-edit"):
-                yield Static(
-                    "Editable Plan JSON:",
-                    classes="plan-json-edit-label",
-                )
-                json_editor = TextArea(
-                    self._plan_json_value,
-                    id="plan_json_editor",
-                )
-                yield json_editor
+            with Container(classes="plan-json-actions"):
                 yield Button(
-                    "Apply JSON Edits",
+                    "Edit Plan JSON",
                     variant="default",
-                    id="apply_plan_json_btn",
-                    classes="apply-plan-json-button",
+                    id="edit_plan_json_btn",
+                    classes="edit-plan-json-button",
                 )
                 if self._json_edit_status:
                     yield Static(self._json_edit_status, classes="plan-json-edit-status")
@@ -251,10 +309,19 @@ class PlanApprovalModal(ModalScreen[PlanApprovalResult]):
             self._feedback_value = self.query_one("#planning_feedback_input", Input).value
         except Exception:
             pass
-        try:
-            self._plan_json_value = self.query_one("#plan_json_editor", TextArea).text
-        except Exception:
-            pass
+
+    def _open_plan_json_editor(self) -> None:
+        """Open full-screen JSON editor and apply edits if confirmed."""
+        self._snapshot_input_values()
+        editor = PlanJsonEditorModal(self._plan_json_value)
+
+        def _on_dismiss(updated_json: Optional[str]) -> None:
+            if updated_json is None:
+                return
+            self._plan_json_value = updated_json
+            self._apply_plan_json_edit()
+
+        self.push_screen(editor, _on_dismiss)
 
     def _apply_plan_json_edit(self) -> bool:
         """Apply plan JSON edits from inline editor."""
@@ -339,8 +406,8 @@ class PlanApprovalModal(ModalScreen[PlanApprovalResult]):
             self._dismiss_with_action("finalize")
         elif button_id == "expand_btn":
             self.action_toggle_expand()
-        elif button_id == "apply_plan_json_btn":
-            self._apply_plan_json_edit()
+        elif button_id == "edit_plan_json_btn":
+            self._open_plan_json_editor()
         elif button_id in ("cancel_btn", "close_btn"):
             self._dismiss_with_action("cancel")
 

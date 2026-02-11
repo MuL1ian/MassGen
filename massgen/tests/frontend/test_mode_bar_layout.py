@@ -7,10 +7,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from textual.geometry import Size
 
 from massgen.frontend.displays import textual_terminal_display as textual_display_module
 from massgen.frontend.displays.textual_terminal_display import TextualTerminalDisplay
-from massgen.frontend.displays.textual_widgets.mode_bar import ModeToggle
+from massgen.frontend.displays.textual_widgets.mode_bar import ModeBar, ModeToggle
 
 
 def _widget_text(widget: object) -> str:
@@ -75,6 +76,61 @@ def test_mode_toggle_persona_off_label_is_neutral() -> None:
     full_rendered = str(full_toggle.render())
     assert "Personas OFF" not in full_rendered
     assert "Personas" in full_rendered
+
+
+@pytest.mark.asyncio
+async def test_mode_bar_keeps_compact_labels_when_width_temporarily_unavailable(monkeypatch, tmp_path: Path) -> None:
+    """Transient zero-width measurements should not flip compact labels to long variants."""
+    monkeypatch.setattr(textual_display_module, "get_event_emitter", lambda: None)
+    monkeypatch.setattr(
+        textual_display_module,
+        "get_user_settings",
+        lambda: SimpleNamespace(theme="dark", vim_mode=False),
+    )
+
+    display = TextualTerminalDisplay(
+        ["agent_a"],
+        agent_models={"agent_a": "gpt-5.3-codex"},
+        keyboard_interactive_mode=False,
+        output_dir=tmp_path,
+        theme="dark",
+    )
+    app = textual_display_module.TextualApp(
+        display=display,
+        question="Welcome! Type your question below...",
+        buffers=display._buffers,
+        buffer_lock=display._buffer_lock,
+        buffer_flush_interval=display.buffer_flush_interval,
+    )
+    display._app = app
+
+    async with app.run_test(headless=True, size=(120, 24)) as pilot:
+        await pilot.pause()
+        assert app._mode_bar is not None
+        app._mode_bar.set_plan_mode("plan")
+        await pilot.pause()
+
+        for toggle in (
+            app._mode_bar._plan_toggle,
+            app._mode_bar._agent_toggle,
+            app._mode_bar._coordination_toggle,
+            app._mode_bar._refinement_toggle,
+            app._mode_bar._persona_toggle,
+        ):
+            if toggle:
+                toggle.set_compact(True)
+        app._mode_bar._last_responsive_width = 80
+
+        monkeypatch.setattr(
+            ModeBar,
+            "size",
+            property(lambda _self: Size(0, 0)),
+        )
+
+        app._mode_bar._refresh_responsive_labels()
+        rendered = _widget_text(app.query_one("#plan_toggle"))
+        assert "Plan" in rendered
+        assert "Planning" not in rendered
 
 
 @pytest.mark.asyncio
