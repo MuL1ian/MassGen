@@ -227,7 +227,42 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.48 - Latest
+### v0.1.50 - Latest
+**New Features:** Chunked Plan Execution, Skill Lifecycle Management, Iterative Planning Review
+
+**Key Features:**
+- **Chunked Plan Execution**: Plans divided into chunks and executed one at a time with progress checkpoints
+- **Iterative Planning Review**: New modal with Continue Planning / Quick Edit / Finalize Plan options
+- **Skill Lifecycle Management**: New lifecycle modes, skill organizer, `SKILL_REGISTRY.md`, previous-session skills
+- **Local Skills MCP**: New MCP tool for skill access in Docker/local execution
+- **Worktree Improvements**: Branch accumulation, cross-agent diff visibility, orphan cleanup
+- **Responsive TUI Mode Bar**: Adaptive layout with compact labels on narrow terminals
+
+**Try It:**
+```bash
+# Launch with chunked plan execution and skill lifecycle
+uv run massgen
+```
+
+> Press `Shift+Tab` then press the three dots above the input bar to see plan settings.
+
+### v0.1.49
+**New Features:** Log Analysis TUI Mode, Fairness Gate, Checklist Voting, Testing Infrastructure
+
+**Key Features:**
+- **Log Analysis in TUI**: New "Analyzing" mode in TUI mode bar for in-app run analysis with configurable profiles
+- **Fairness Gate**: Prevents fast agents from dominating coordination with configurable lead caps
+- **Checklist Voting**: Structured quality evaluation with binary pass/fail scoring via MCP server
+- **Skills Modal**: TUI modal for discovering and toggling skills in interactive mode
+- **Persona Easing in TUI**: Persona easing toggle now available in the TUI mode bar
+
+**Try It:**
+```bash
+# Launch and cycle to Analysis mode via the TUI mode bar
+uv run massgen
+```
+
+### v0.1.48
 **New Features:** Decomposition Mode, Worktree Isolation, Quickstart Docker Setup
 
 **Key Features:**

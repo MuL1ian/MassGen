@@ -137,6 +137,7 @@ class SystemMessageBuilder:
         worktree_paths: Optional[Dict[str, str]] = None,
         branch_name: Optional[str] = None,
         other_branches: Optional[Dict[str, str]] = None,
+        branch_diff_summaries: Optional[Dict[str, str]] = None,
     ) -> str:
         """Build system message for coordination phase.
 
@@ -164,6 +165,8 @@ class SystemMessageBuilder:
             worktree_paths: Dict of worktree_path -> original_path for worktree-based workspaces
             branch_name: This agent's current git branch name (for display in system prompt)
             other_branches: Dict mapping anonymous ID to branch name (e.g. {"agent1": "massgen/abc123"})
+            branch_diff_summaries: Dict mapping anonymous ID to diff summary string
+                                   (e.g. {"agent1": "3 files (+45/-12)\n  M src/auth.py | ..."})
 
         Returns:
             Complete system prompt string with XML structure
@@ -250,9 +253,10 @@ class SystemMessageBuilder:
             # Log what we found
             builtin_count = len([s for s in all_skills if s["location"] == "builtin"])
             project_count = len([s for s in all_skills if s["location"] == "project"])
+            user_count = len([s for s in all_skills if s["location"] == "user"])
             previous_count = len([s for s in all_skills if s["location"] == "previous_session"])
             logger.info(
-                f"[SystemMessageBuilder] Scanned skills: {builtin_count} builtin, " f"{project_count} project, {previous_count} previous_session",
+                f"[SystemMessageBuilder] Scanned skills: {builtin_count} builtin, " f"{project_count} project, {user_count} user, {previous_count} previous_session",
             )
             if enabled_skill_names is not None:
                 logger.info(
@@ -271,7 +275,7 @@ class SystemMessageBuilder:
 
             # Add skills section with all skills (both project and builtin)
             # Builtin skills are now treated the same as project skills - invoke with openskills read
-            builder.add_section(SkillsSection(all_skills))
+            builder.add_section(SkillsSection(all_skills, skills_dir=skills_dir))
 
         # PRIORITY 5 (HIGH): Memory - Proactive usage
         if enable_memory:
@@ -336,6 +340,7 @@ class SystemMessageBuilder:
                     worktree_paths=worktree_paths,
                     branch_name=branch_name,
                     other_branches=other_branches,
+                    branch_diff_summaries=branch_diff_summaries,
                 ),
             )
 

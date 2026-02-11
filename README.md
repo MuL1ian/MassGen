@@ -69,7 +69,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.48 Features](#-latest-features-v0148)
+- [v0.1.50 Features](#-latest-features-v0150)
 </details>
 
 <details open>
@@ -122,15 +122,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.48)](#recent-achievements-v0148)
-- [Previous Achievements (v0.0.3 - v0.1.47)](#previous-achievements-v003---v0147)
+- [Recent Achievements (v0.1.50)](#recent-achievements-v0150)
+- [Previous Achievements (v0.0.3 - v0.1.49)](#previous-achievements-v003---v0149)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.49 Roadmap](#v0149-roadmap)
+- [v0.1.51 Roadmap](#v0151-roadmap)
 </details>
 
 <details open>
@@ -155,25 +155,27 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.48)
+## 🆕 Latest Features (v0.1.50)
 
-**🎉 Released: February 6, 2026**
+**🎉 Released: February 11, 2026**
 
-**What's New in v0.1.48:**
-- **🧩 Decomposition Mode** - New coordination mode that decomposes tasks into subtasks assigned to individual agents
-- **🔒 Worktree Isolation** - Git worktree-based isolation for agent file writes with review modal
-- **🐳 Quickstart Docker Setup** - Docker setup step in quickstart wizard with animated pull progress
-- **🛑 Stop Tool** - Agents can signal completion and exit workflows
-- **🐛 Bug Fixes** - Fixed subagent timeout, light theme visibility, post-evaluation restart crash
+**What's New in v0.1.50:**
+- **📦 Chunked Plan Execution** - Plans divided into chunks (e.g., `C01_foundation`) and executed one at a time with progress checkpoints, chunk browsing in TUI, and frozen plan snapshots
+- **🔄 Iterative Planning Review** - New modal with Continue Planning / Quick Edit / Finalize Plan options for plan iteration before execution
+- **🛠️ Skill Lifecycle Management** - New lifecycle modes (`create_or_update`, `create_new`, `consolidate`), skill organizer for merging overlapping skills, `SKILL_REGISTRY.md` routing guide
+- **📂 Previous-Session Skills** - Load evolving skills from past run logs with `load_previous_session_skills` config
+- **🌿 Worktree Improvements** - Branch accumulation across rounds, cross-agent diff visibility via branch summaries, orphan cleanup
+- **📱 Responsive TUI Mode Bar** - Vertical/horizontal adaptive layout with compact labels on narrow terminals
 
-**Try v0.1.48 Features:**
+**Try v0.1.50 Features:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
 
-# Launch the quickstart wizard and select Decomposition mode
+# Launch with chunked plan execution and skill lifecycle
 uv run massgen
 ```
+> Press `Shift+Tab` then press the three dots above the input bar to see plan settings.
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
 
@@ -1223,40 +1225,46 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.48)
+### Recent Achievements (v0.1.50)
 
-**🎉 Released: February 6, 2026**
+**🎉 Released: February 11, 2026**
 
-#### Decomposition Coordination Mode
-- **Task Decomposition**: New coordination mode that decomposes complex tasks into subtasks assigned to individual agents
-- **Presenter Agent**: Designated agent synthesizes subtask results into a final answer
-- **TUI Integration**: Mode bar toggle, subtask assignment display, and generation modals
+#### Chunked Plan Execution
+- **Progress Checkpoints**: Plans divided into chunks (e.g., `C01_foundation`) executed one at a time
+- **Chunk Browsing**: Browse chunks in TUI with chunk-level progress tracking
+- **Frozen Snapshots**: Original plan state preserved during execution
+- **Plan Sizing**: `target_steps` and `target_chunks` parameters with dynamic mode
 
-#### Worktree Isolation
-- **Write Mode**: New `write_mode` config (`auto`/`worktree`/`isolated`/`legacy`) for git worktree-based isolation of agent file writes
-- **Review Modal**: Two-panel modal with file list toggles and syntax-highlighted diff for approving/rejecting changes
-- **Infrastructure**: `WorktreeManager`, `ShadowRepo`, `IsolationContextManager`, `ChangeApplier`
+#### Iterative Planning Review Modal
+- **Plan Iteration**: New modal with Continue Planning / Quick Edit / Finalize Plan options
+- **Quick Edit**: Inline plan adjustments before execution begins
 
-#### Quickstart Wizard Docker Setup
-- **Docker Setup Step**: Integrated into quickstart wizard when Docker mode is selected
-- **Pull Progress**: Animated braille spinner with real-time `docker pull` stdout streaming
+#### Skill Lifecycle Management
+- **Lifecycle Modes**: `create_or_update`, `create_new`, `consolidate` for evolving skills
+- **Skill Organizer**: Merge overlapping skills into consolidated workflows
+- **SKILL_REGISTRY.md**: Routing guide for skill discovery and selection
+- **Previous-Session Skills**: Load skills from past run logs with `load_previous_session_skills`
+- **Local Skills MCP**: New MCP tool for skill access in Docker/local execution
+
+#### Worktree Improvements
+- **Branch Accumulation**: Branches accumulate across rounds instead of being recreated
+- **Cross-Agent Visibility**: Other agents see diffs from worktree branches via `generate_branch_summaries()`
+- **Orphan Cleanup**: Automatic cleanup of orphan worktrees
 
 #### Changed
-- **Codex Backend**: Default model updated from `gpt-5.2-codex` to `gpt-5.3-codex`
-- **Deprecation**: `use_two_tier_workspace` deprecated in favor of `write_mode`
+- **Responsive TUI Mode Bar**: Vertical/horizontal adaptive layout with compact labels on narrow terminals
+- **TUI Homescreen & Theming**: Improved welcome screen layout, CSS refinements, palette updates
+- **Skills Modal**: Source grouping (builtin/project/user/previous_session), quick actions (Enable All/Disable All)
 
 #### Bug Fixes
-- **Subagent Timeout**: Timeout exemption for subagent-related MCP tools that manage their own timeouts
-- **Light Theme Visibility**: Fixed invisible mode bar underlines, separators, and toasts
-- **Post-evaluation Restarts**: Disabled by default in quickstart to prevent TUI crash
+- Test fixes across hooks, Docker mounts, and snapshots (PR #877)
 
-#### Documentation, Configurations and Resources
-- `docs/source/user_guide/agent_workspaces.rst` — new agent workspaces and code isolation guide
-- `docs/modules/worktrees.md` — new worktrees module documentation
-- `docs/source/reference/yaml_schema.rst` — decomposition mode configuration
-- `massgen/backend/capabilities.py` — updated with `gpt-5.3-codex`
+### Previous Achievements (v0.0.3 - v0.1.49)
 
-### Previous Achievements (v0.0.3 - v0.1.47)
+✅ **Coordination Quality: Log Analysis TUI, Fairness Gate & Checklist Voting (v0.1.49)**: Log analysis mode built into TUI mode bar for in-app run analysis. Fairness gate prevents fast agents from dominating coordination. Checklist voting tool for structured quality evaluation. Automated testing infrastructure with CI/CD and SVG snapshot baselines.
+
+
+✅ **Decomposition Mode & Worktree Isolation (v0.1.48)**: New decomposition coordination mode that decomposes tasks into subtasks assigned to individual agents with a presenter role, git worktree-based isolation for agent file writes with review modal, quickstart wizard Docker setup with animated pull progress, stop tool for agent completion signaling
 
 ✅ **Codex Backend & TUI Theme Refactoring (v0.1.47)**: New Codex backend for OpenAI Codex CLI with local and Docker execution, NativeToolMixin for shared tool handling, TUI theme system refactored to palette-based architecture with dark and light variants, per-agent voting sensitivity configuration
 
@@ -1496,16 +1504,13 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.49 Roadmap
+### v0.1.51 Roadmap
 
-Version 0.1.49 focuses on enhanced log analysis capabilities:
+Version 0.1.51 focuses on worktree isolation improvements and targeted agent queries:
 
 #### Planned Features
-- **Log Analysis Model Selector** ([#766](https://github.com/massgen/MassGen/issues/766)): Allow users to choose which model to use for `massgen logs analyze` self-analysis mode
-
-Key technical approach:
-- **Flexible Analysis**: Configurable model selection for cost/quality tradeoffs in log analysis
-- **Multi-Provider Support**: Works across OpenAI, Anthropic, Google backends
+- **Git Worktree Isolation** ([#853](https://github.com/massgen/MassGen/issues/853)): Worktree isolation improvements for agent file changes
+- **Targeted Agent Queries** ([#809](https://github.com/massgen/MassGen/issues/809)): Support targeted queries to specific agents via subagent for more efficient coordination
 
 ---
 

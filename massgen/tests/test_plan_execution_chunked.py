@@ -1,0 +1,324 @@
+# -*- coding: utf-8 -*-
+"""Unit tests for chunked plan execution helpers."""
+
+import json
+from pathlib import Path
+
+import pytest
+
+from massgen.plan_execution import (
+    PlanValidationError,
+    initialize_chunk_execution_state,
+    setup_agent_workspaces_for_execution,
+    validate_chunked_plan,
+)
+from massgen.plan_storage import PlanStorage
+
+
+class _DummyFilesystemManager:
+    def __init__(self, cwd: Path) -> None:
+        self.cwd = str(cwd)
+        self.path_permission_manager = None
+        self.agent_temporary_workspace = None
+        self.enable_code_based_tools = False
+
+    def get_current_workspace(self) -> str:
+        return self.cwd
+
+    def setup_orchestration_paths(self, **kwargs) -> None:
+        return None
+
+    def setup_massgen_skill_directories(self, **kwargs) -> None:
+        return None
+
+    def setup_memory_directories(self) -> None:
+        return None
+
+    def update_backend_mcp_config(self, _backend_config) -> None:
+        return None
+
+
+class _DummyBackend:
+    def __init__(self, cwd: Path) -> None:
+        self.filesystem_manager = _DummyFilesystemManager(cwd)
+        self.config = {}
+
+
+class _DummyAgent:
+    def __init__(self, cwd: Path) -> None:
+        self.agent_id = "agent_a"
+        self.backend = _DummyBackend(cwd)
+
+
+@pytest.fixture
+def temp_plans_dir(monkeypatch, tmp_path):
+    temp_path = tmp_path / ".massgen" / "plans"
+    temp_path.mkdir(parents=True)
+    monkeypatch.setattr("massgen.plan_storage.PLANS_DIR", temp_path)
+    yield temp_path
+
+
+def _write_frozen_plan(session, plan_data):
+    session.frozen_dir.mkdir(parents=True, exist_ok=True)
+    (session.frozen_dir / "plan.json").write_text(json.dumps(plan_data, indent=2))
+
+
+def test_validate_chunked_plan_requires_chunk_labels():
+    plan_data = {
+        "tasks": [
+            {"id": "T001", "description": "Task with chunk", "chunk": "C01_setup"},
+            {"id": "T002", "description": "Task missing chunk"},
+        ],
+    }
+
+    with pytest.raises(PlanValidationError, match="missing non-empty 'chunk'"):
+        validate_chunked_plan(plan_data)
+
+
+def test_validate_chunked_plan_rejects_future_chunk_dependencies():
+    plan_data = {
+        "tasks": [
+            {"id": "T001", "description": "API", "chunk": "C02_api", "depends_on": ["T002"]},
+            {"id": "T002", "description": "Foundation", "chunk": "C01_foundation"},
+        ],
+    }
+
+    with pytest.raises(PlanValidationError, match="depends on future chunk"):
+        validate_chunked_plan(plan_data)
+
+
+def test_initialize_chunk_execution_state_sets_current_chunk(temp_plans_dir):
+    storage = PlanStorage()
+    session = storage.create_plan("planning_session", "/tmp/logs")
+    _write_frozen_plan(
+        session,
+        {
+            "tasks": [
+                {"id": "T001", "description": "Foundation", "chunk": "C01_foundation"},
+                {"id": "T002", "description": "Backend", "chunk": "C02_backend", "depends_on": ["T001"]},
+            ],
+        },
+    )
+
+    metadata = initialize_chunk_execution_state(session)
+    assert metadata.chunk_order == ["C01_foundation", "C02_backend"]
+    assert metadata.current_chunk == "C01_foundation"
+    assert metadata.execution_mode == "chunked_by_planner_v1"
+
+
+def test_initialize_chunk_execution_state_advances_past_completed_chunk(temp_plans_dir):
+    storage = PlanStorage()
+    session = storage.create_plan("planning_session", "/tmp/logs")
+    _write_frozen_plan(
+        session,
+        {
+            "tasks": [
+                {"id": "T001", "description": "Foundation", "chunk": "C01_foundation"},
+                {"id": "T002", "description": "Backend", "chunk": "C02_backend", "depends_on": ["T001"]},
+            ],
+        },
+    )
+
+    metadata = session.load_metadata()
+    metadata.completed_chunks = ["C01_foundation"]
+    metadata.current_chunk = "C01_foundation"
+    session.save_metadata(metadata)
+
+    updated = initialize_chunk_execution_state(session)
+    assert updated.current_chunk == "C02_backend"
+
+
+def test_setup_agent_workspaces_writes_chunk_only_operational_plan(
+    temp_plans_dir,
+    tmp_path,
+):
+    storage = PlanStorage()
+    session = storage.create_plan("planning_session", "/tmp/logs")
+    _write_frozen_plan(
+        session,
+        {
+            "tasks": [
+                {"id": "T001", "description": "Foundation", "chunk": "C01_foundation"},
+                {"id": "T002", "description": "API", "chunk": "C02_api", "depends_on": ["T001"]},
+                {"id": "T003", "description": "UI", "chunk": "C03_ui", "depends_on": ["T002"]},
+            ],
+        },
+    )
+
+    # Also include a planning document to verify doc copy.
+    (session.frozen_dir / "design.md").write_text("# design")
+
+    agent_workspace = tmp_path / "agent_workspace"
+    agent_workspace.mkdir(parents=True)
+    agents = {"agent_a": _DummyAgent(agent_workspace)}
+
+    copied_count = setup_agent_workspaces_for_execution(
+        agents,
+        session,
+        active_chunk="C02_api",
+    )
+    assert copied_count == 1
+
+    operational_plan = json.loads((agent_workspace / "tasks" / "plan.json").read_text())
+    assert operational_plan["execution_scope"]["active_chunk"] == "C02_api"
+    assert [task["id"] for task in operational_plan["tasks"]] == ["T002"]
+
+    full_plan_reference = agent_workspace / "planning_docs" / "full_plan.json"
+    assert full_plan_reference.exists()
+    full_plan = json.loads(full_plan_reference.read_text())
+    assert len(full_plan["tasks"]) == 3
+
+
+def test_orchestrator_clear_workspace_reseeds_plan_execution_artifacts(
+    temp_plans_dir,
+    tmp_path,
+):
+    from massgen.agent_config import AgentConfig
+    from massgen.orchestrator import Orchestrator
+
+    storage = PlanStorage()
+    session = storage.create_plan("planning_session", "/tmp/logs")
+    _write_frozen_plan(
+        session,
+        {
+            "tasks": [
+                {"id": "T001", "description": "Setup", "chunk": "C01_setup"},
+                {"id": "T002", "description": "Build", "chunk": "C02_build", "depends_on": ["T001"]},
+            ],
+        },
+    )
+
+    (session.frozen_dir / "requirements.md").write_text("# requirements")
+
+    agent_workspace = tmp_path / "agent_workspace"
+    agent_workspace.mkdir(parents=True)
+    (agent_workspace / "stale.txt").write_text("old")
+
+    agents = {"agent_a": _DummyAgent(agent_workspace)}
+    orchestrator = Orchestrator(
+        agents=agents,
+        config=AgentConfig(),
+        plan_session_id=session.plan_id,
+    )
+
+    orchestrator._clear_agent_workspaces()
+
+    assert not (agent_workspace / "stale.txt").exists()
+
+    operational_plan_path = agent_workspace / "tasks" / "plan.json"
+    assert operational_plan_path.exists()
+    operational_plan = json.loads(operational_plan_path.read_text())
+    assert operational_plan["execution_scope"]["active_chunk"] == "C01_setup"
+    assert [task["id"] for task in operational_plan["tasks"]] == ["T001"]
+
+    assert (agent_workspace / "planning_docs" / "requirements.md").exists()
+    assert (agent_workspace / "planning_docs" / "full_plan.json").exists()
+
+
+def test_orchestrator_init_seeds_plan_execution_artifacts(
+    temp_plans_dir,
+    tmp_path,
+):
+    from massgen.agent_config import AgentConfig
+    from massgen.orchestrator import Orchestrator
+
+    storage = PlanStorage()
+    session = storage.create_plan("planning_session", "/tmp/logs")
+    _write_frozen_plan(
+        session,
+        {
+            "tasks": [
+                {"id": "T001", "description": "Setup", "chunk": "C01_setup"},
+                {"id": "T002", "description": "Build", "chunk": "C02_build", "depends_on": ["T001"]},
+            ],
+        },
+    )
+
+    (session.frozen_dir / "requirements.md").write_text("# requirements")
+
+    agent_workspace = tmp_path / "agent_workspace"
+    agent_workspace.mkdir(parents=True)
+
+    agents = {"agent_a": _DummyAgent(agent_workspace)}
+    Orchestrator(
+        agents=agents,
+        config=AgentConfig(),
+        plan_session_id=session.plan_id,
+    )
+
+    operational_plan_path = agent_workspace / "tasks" / "plan.json"
+    assert operational_plan_path.exists()
+    operational_plan = json.loads(operational_plan_path.read_text())
+    assert operational_plan["execution_scope"]["active_chunk"] == "C01_setup"
+    assert [task["id"] for task in operational_plan["tasks"]] == ["T001"]
+
+    assert (agent_workspace / "planning_docs" / "requirements.md").exists()
+    assert (agent_workspace / "planning_docs" / "full_plan.json").exists()
+
+
+def test_orchestrator_execute_mode_restores_previous_workspace_and_archives_prior_chunk_plan(
+    temp_plans_dir,
+    tmp_path,
+):
+    from massgen.agent_config import AgentConfig
+    from massgen.orchestrator import Orchestrator
+
+    storage = PlanStorage()
+    session = storage.create_plan("planning_session", "/tmp/logs")
+    _write_frozen_plan(
+        session,
+        {
+            "tasks": [
+                {"id": "T001", "description": "Setup", "chunk": "C01_setup"},
+                {"id": "T002", "description": "Build", "chunk": "C02_build", "depends_on": ["T001"]},
+            ],
+        },
+    )
+
+    metadata = session.load_metadata()
+    metadata.execution_mode = "chunked_by_planner_v1"
+    metadata.chunk_order = ["C01_setup", "C02_build"]
+    metadata.completed_chunks = ["C01_setup"]
+    metadata.current_chunk = "C02_build"
+    session.save_metadata(metadata)
+
+    previous_workspace = tmp_path / "previous_turn_workspace"
+    previous_workspace.mkdir(parents=True)
+    (previous_workspace / "site").mkdir(parents=True)
+    (previous_workspace / "site" / "index.html").write_text("<h1>from previous chunk</h1>")
+    (previous_workspace / "tasks").mkdir(parents=True)
+    (previous_workspace / "tasks" / "plan.json").write_text(
+        json.dumps(
+            {
+                "tasks": [{"id": "T001", "chunk": "C01_setup", "status": "verified"}],
+                "execution_scope": {"active_chunk": "C01_setup"},
+            },
+            indent=2,
+        ),
+    )
+
+    agent_workspace = tmp_path / "agent_workspace"
+    agent_workspace.mkdir(parents=True)
+    (agent_workspace / "stale.txt").write_text("old")
+
+    agents = {"agent_a": _DummyAgent(agent_workspace)}
+    orchestrator = Orchestrator(
+        agents=agents,
+        config=AgentConfig(),
+        previous_turns=[{"path": str(previous_workspace)}],
+        plan_session_id=session.plan_id,
+    )
+
+    orchestrator._clear_agent_workspaces()
+
+    assert not (agent_workspace / "stale.txt").exists()
+    assert (agent_workspace / "site" / "index.html").read_text() == "<h1>from previous chunk</h1>"
+
+    archived_plan = agent_workspace / "tasks" / "tasks_c01.json"
+    assert archived_plan.exists()
+    archived_payload = json.loads(archived_plan.read_text())
+    assert archived_payload.get("execution_scope", {}).get("active_chunk") == "C01_setup"
+
+    active_plan = json.loads((agent_workspace / "tasks" / "plan.json").read_text())
+    assert active_plan.get("execution_scope", {}).get("active_chunk") == "C02_build"
+    assert [task["id"] for task in active_plan.get("tasks", [])] == ["T002"]

@@ -10,7 +10,7 @@ Target: ~2000 chars to leave room for per-release intro (~1000 chars) within Lin
 
 🧠Supports diverse backends — Access a wide range of open-source and proprietary models (local, Gemini 3, GPT-5.2, GPT-5.1-Codex, Claude, GLM, and other enterprise backends) and agents (AG2, AgentScope, Claude Code, LangGraph, and smolagents). 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/backends.html
 
-🤖Build collaborative multi-agent teams (in parallel) — Agents with unique personas share workspaces, answer each other's questions, generate and refine solutions, vote on the best solution, and can spawn subagents for multi-level coordination. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/concepts.html#multi-agent-coordination
+🤖Build collaborative multi-agent teams — Run agents in parallel where they share workspaces, vote on the best solution, and reach consensus, or use decomposition mode to break complex tasks into subtasks owned by individual agents with a presenter synthesizing the final result. Both modes support unique personas, refinement, and subagent spawning. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/concepts.html#multi-agent-coordination
 
 📋Task planning & execution— Agents create structured plans separating "what to build" from "how to build it", execute saved plans, and verify work at logical checkpoints with persistent storage and execution tracking. 👉 More Info: https://docs.massgen.ai/en/latest/user_guide/task_planning.html
 

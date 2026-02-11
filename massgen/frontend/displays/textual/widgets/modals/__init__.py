@@ -35,13 +35,14 @@ from .coordination_modals import (
 )
 from .input_modals import (
     BroadcastPromptModal,
+    ChunkAdvanceModal,
     DecompositionGenerationModal,
     DecompositionSubtasksModal,
     StructuredBroadcastPromptModal,
 )
 from .review_modal import GitDiffReviewModal
 from .shortcuts_modal import KeyboardShortcutsModal
-from .skills_modals import SkillConfirmModal, SkillsModal
+from .skills_modals import SkillsModal
 from .status_modals import (
     CostBreakdownModal,
     MCPStatusModal,
@@ -73,6 +74,7 @@ __all__ = [
     "TurnDetailModal",
     # Input modals
     "BroadcastPromptModal",
+    "ChunkAdvanceModal",
     "DecompositionGenerationModal",
     "DecompositionSubtasksModal",
     "StructuredBroadcastPromptModal",
@@ -82,7 +84,6 @@ __all__ = [
     "KeyboardShortcutsModal",
     # Skills modals
     "SkillsModal",
-    "SkillConfirmModal",
     # Workspace modals
     "FileInspectionModal",
     # Agent output modal

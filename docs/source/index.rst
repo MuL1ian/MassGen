@@ -157,17 +157,17 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.50 (February 11, 2026)** - Chunked Plan Execution & Skill Lifecycle Management
+
+Chunked plan execution for safer long-form task completion with progress checkpoints. Skill lifecycle management with consolidation, organizer, and previous-session skill loading. Iterative planning review modal. Responsive TUI mode bar. Worktree improvements with branch accumulation and cross-agent diff visibility.
+
+**v0.1.49 (February 9, 2026)** - Coordination Quality: Log Analysis TUI, Fairness Gate & Checklist Voting
+
+Log analysis mode built into TUI mode bar for in-app run analysis. Fairness gate prevents fast agents from dominating coordination. Checklist voting tool for structured quality evaluation. Automated testing infrastructure with CI/CD and SVG snapshot baselines. Persona easing now accessible from TUI mode bar.
+
 **v0.1.48 (February 6, 2026)** - Decomposition Mode & Worktree Isolation
 
 New decomposition coordination mode decomposes tasks into subtasks assigned to individual agents with a presenter role. Worktree isolation for file writes with review modal for approving changes. Quickstart wizard Docker setup with animated pull progress.
-
-**v0.1.47 (February 4, 2026)** - Codex Backend & TUI Theme Refactoring
-
-Comprehensive visual overhaul with modern "Conversational AI" aesthetic. Rounded corners, professional desaturated colors, redesigned agent tabs with dot indicators, and polished modals. New Human Input Queue for injecting messages to agents mid-stream. AG2 single-agent coordination fixes.
-
-**v0.1.46 (February 3, 2026)** - Subagent TUI Streaming & Event Architecture Refactor
-
-Subagents now stream in real-time with clickable preview cards that expand to full timeline views. Major TUI event architecture refactor with structured event emission pipeline. Improved final presentation display with workspace visualization and winning agent highlighting.
 
 :doc:`Full changelog → <changelog>`
 

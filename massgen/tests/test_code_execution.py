@@ -456,6 +456,7 @@ class TestVirtualEnvironment:
         assert env["PATH"] == os.environ["PATH"]
 
 
+@pytest.mark.docker
 class TestDockerExecution:
     """Test Docker-based command execution."""
 

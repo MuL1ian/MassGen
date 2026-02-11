@@ -126,6 +126,7 @@ class MultiLineInput(TextArea):
             soft_wrap=True,
             show_line_numbers=False,
             tab_behavior="indent",
+            placeholder=placeholder,
         )
         self._placeholder = placeholder
         self._show_placeholder = True

@@ -56,6 +56,8 @@ def test_persona_is_eased_after_peer_answers():
         has_peer_answers=True,
     )
     assert eased_text is not None
-    assert "preference, not a position to defend" in eased_text
-    assert "synthesize the strongest ideas" in eased_text
+    # Template wraps across a line break; normalize whitespace for assertion
+    normalized = " ".join(eased_text.split())
+    assert "preference, not a position to defend" in normalized
+    assert "synthesize the strongest ideas" in normalized
     assert "Prioritize maintainability and simplicity." in eased_text

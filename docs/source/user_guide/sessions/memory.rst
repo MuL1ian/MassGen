@@ -482,7 +482,7 @@ Persistent Memory
    * - OpenAI
      - ``provider: "openai"``, ``model: "gpt-4.1-nano-2025-04-14"`` or ``"gpt-4o-mini"``
    * - Anthropic
-     - ``provider: "anthropic"``, ``model: "claude-3-5-haiku-20241022"``
+     - ``provider: "anthropic"``, ``model: "claude-haiku-4-5-20251001"``
    * - Groq
      - ``provider: "groq"``, ``model: "llama-3.1-8b-instant"``
 

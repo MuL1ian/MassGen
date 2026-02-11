@@ -20,6 +20,7 @@ from .widgets import (  # Base classes; Browser modals; Status modals; Coordinat
     BaseModal,
     BroadcastPromptModal,
     BrowserTabsModal,
+    ChunkAdvanceModal,
     ContextModal,
     ConversationHistoryModal,
     CoordinationTableModal,
@@ -32,7 +33,6 @@ from .widgets import (  # Base classes; Browser modals; Status modals; Coordinat
     MCPStatusModal,
     MetricsModal,
     OrchestratorEventsModal,
-    SkillConfirmModal,
     SkillsModal,
     StructuredBroadcastPromptModal,
     SystemStatusModal,
@@ -70,6 +70,7 @@ __all__ = [
     "TurnDetailModal",
     # Input modals
     "BroadcastPromptModal",
+    "ChunkAdvanceModal",
     "DecompositionGenerationModal",
     "DecompositionSubtasksModal",
     "StructuredBroadcastPromptModal",
@@ -79,7 +80,6 @@ __all__ = [
     "KeyboardShortcutsModal",
     # Skills modals
     "SkillsModal",
-    "SkillConfirmModal",
     # Workspace modals
     "FileInspectionModal",
     # Agent output modal

@@ -504,3 +504,4 @@ External Resources
    code_execution
    code_based_tools
    skills
+   skills_lifecycle_and_consolidation

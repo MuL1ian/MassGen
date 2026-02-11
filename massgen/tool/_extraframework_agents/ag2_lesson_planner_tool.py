@@ -208,6 +208,7 @@ async def ag2_lesson_planner(
                 TextContent(data="Error: OPENAI_API_KEY not found. Please set the environment variable."),
             ],
         )
+        return
 
     try:
         # Call the core agent function with processed messages

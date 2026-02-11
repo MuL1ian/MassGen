@@ -1,4 +1,4 @@
-# MassGen v0.1.48 Release Announcement
+# MassGen v0.1.50 Release Announcement
 
 <!--
 This is the current release announcement. Copy this + feature-highlights.md to LinkedIn/X.
@@ -7,17 +7,17 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.48, adding Decomposition Mode! 🚀 A new coordination mode that decomposes tasks into subtasks assigned to individual agents, with a presenter agent synthesizing the final result. Plus: Worktree isolation for safe file writes with review modal, quickstart wizard Docker setup, and bug fixes.
+We're excited to release MassGen v0.1.50, focused on Chunked Plan Execution & Skill Lifecycle Management! 🚀 Chunked plan execution for safer long-form task completion with progress checkpoints. Skill lifecycle management with consolidation, organizer, and previous-session skill loading. Iterative planning review modal. Responsive TUI mode bar. Worktree improvements with branch accumulation and cross-agent diff visibility.
 
 ## Install
 
 ```bash
-pip install massgen==0.1.48
+pip install massgen==0.1.50
 ```
 
 ## Links
 
-- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.48
+- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.50
 - **X post:** [TO BE ADDED AFTER POSTING]
 - **LinkedIn post:** [TO BE ADDED AFTER POSTING]
 
@@ -29,24 +29,42 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.48, adding Decomposition Mode! 🚀 A new coordination mode that decomposes tasks into subtasks assigned to individual agents, with a presenter agent synthesizing the final result. Plus: Worktree isolation for safe file writes with review modal, quickstart wizard Docker setup, and bug fixes.
+We're excited to release MassGen v0.1.50, focused on Chunked Plan Execution & Skill Lifecycle Management! 🚀 Chunked plan execution for safer long-form task completion with progress checkpoints. Skill lifecycle management with consolidation, organizer, and previous-session skill loading. Iterative planning review modal. Responsive TUI mode bar.
 
 **Key Features:**
 
-**Decomposition Mode** - New `decomposition` coordination mode:
-- Automatically decomposes complex tasks into subtasks assigned to individual agents
-- Presenter agent role for synthesizing subtask results into a final answer
-- TUI mode bar toggle, subtask assignment display, and generation modals
-- Quickstart wizard integration for easy decomposition mode selection
+**Chunked Plan Execution** - Safer long-form task completion:
+- Plans divided into chunks (e.g., `C01_foundation`) and executed one chunk at a time
+- Progress checkpoints with chunk browsing in TUI
+- Frozen plan snapshots preserve original plan state during execution
+- `target_steps` and `target_chunks` parameters for plan sizing with dynamic mode
 
-**Worktree Isolation** - Safe file writes with review workflow:
-- New `write_mode` config for git worktree-based isolation of agent writes
-- Review modal for approving/rejecting changes before applying to original paths
-- Shadow repo support for non-git directories
+**Iterative Planning Review Modal** - Plan iteration before execution:
+- New modal with Continue Planning / Quick Edit / Finalize Plan options
+- Allows plan refinement before committing to execution
 
-**Quickstart Wizard Docker Setup** - Docker setup step with animated pull progress and real-time stdout streaming
+**Skill Lifecycle Management** - Reusable skill workflows:
+- New lifecycle modes: `create_or_update`, `create_new`, `consolidate`
+- Skill organizer for merging overlapping skills into consolidated workflows
+- `SKILL_REGISTRY.md` routing guide for skill discovery and selection
+- Previous-session skill loading with `load_previous_session_skills` config
+- Local Skills MCP for skill access in Docker/local execution contexts
 
-Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.48
+**Worktree Improvements** - Better cross-agent collaboration:
+- Branch accumulation across coordination rounds
+- Cross-agent diff visibility via `generate_branch_summaries()`
+- Orphan worktree cleanup
+
+**Also in this release:**
+- Responsive TUI mode bar with vertical/horizontal adaptive layout
+- TUI homescreen and theming improvements with CSS refinements
+- Skills modal with source grouping and quick actions (Enable All/Disable All)
+- Plan depth controls with dynamic mode
+
+**Bug Fixes:**
+- Test fixes across hooks, Docker mounts, and snapshots
+
+Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.50
 
 Feature highlights:
 

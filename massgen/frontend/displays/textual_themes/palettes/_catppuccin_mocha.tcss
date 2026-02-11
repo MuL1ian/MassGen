@@ -245,3 +245,7 @@ $checkbox-selected-border: #a6e3a1;
 $panel-border: #45475a;
 $panel-border-separator: #45475a;
 $panel-border-light: #313244;
+
+/* Toast Notification Colors */
+$toast-bg: #1f2530;
+$toast-border: #45475a;

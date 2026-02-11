@@ -18,6 +18,7 @@ from .modals import (  # Browser modals; Status modals; Coordination modals; Con
     AnswerBrowserModal,
     BroadcastPromptModal,
     BrowserTabsModal,
+    ChunkAdvanceModal,
     ContextModal,
     ConversationHistoryModal,
     CoordinationTableModal,
@@ -30,7 +31,6 @@ from .modals import (  # Browser modals; Status modals; Coordination modals; Con
     MCPStatusModal,
     MetricsModal,
     OrchestratorEventsModal,
-    SkillConfirmModal,
     SkillsModal,
     StructuredBroadcastPromptModal,
     SystemStatusModal,
@@ -68,6 +68,7 @@ __all__ = [
     "TurnDetailModal",
     # Input modals
     "BroadcastPromptModal",
+    "ChunkAdvanceModal",
     "DecompositionGenerationModal",
     "DecompositionSubtasksModal",
     "StructuredBroadcastPromptModal",
@@ -77,7 +78,6 @@ __all__ = [
     "KeyboardShortcutsModal",
     # Skills modals
     "SkillsModal",
-    "SkillConfirmModal",
     # Workspace modals
     "FileInspectionModal",
     # Agent output modal

@@ -348,6 +348,9 @@ Pre-commit hooks ensure code quality and consistency. Install them with:
 ```bash
 # Install pre-commit hooks
 pre-commit install
+
+# Install pre-push hooks (runs non-API test lane before push)
+pre-commit install --hook-type pre-push
 ```
 
 ### 4. Environment Configuration
@@ -356,7 +359,7 @@ Create a `.env` file in the `massgen` directory as described in [README](README.
 
 ## 🔧 Development Workflow
 
-> **Important**: Our next version is v0.1.49. If you want to contribute, please contribute to the `dev/v0.1.49` branch (or `main` if dev/v0.1.49 doesn't exist yet).
+> **Important**: Our next version is v0.1.51. If you want to contribute, please contribute to the `dev/v0.1.51` branch (or `main` if dev/v0.1.51 doesn't exist yet).
 
 ### 1. Create Feature Branch
 
@@ -364,8 +367,8 @@ Create a `.env` file in the `massgen` directory as described in [README](README.
 # Fetch latest changes from upstream
 git fetch upstream
 
-# Create feature branch from dev/v0.1.49 (or main if dev branch doesn't exist yet)
-git checkout -b feature/your-feature-name upstream/dev/v0.1.49
+# Create feature branch from dev/v0.1.51 (or main if dev branch doesn't exist yet)
+git checkout -b feature/your-feature-name upstream/dev/v0.1.51
 ```
 
 ### 2. Make Your Changes
@@ -418,8 +421,14 @@ pre-commit run --all-files
 ### 4. Testing
 
 ```bash
-# Default test command (skips slow/API-dependent tests)
-uv run pytest -x -q -m "not expensive and not integration and not docker" --tb=no
+# Default fast lane (recommended)
+make test-fast
+
+# Equivalent direct command
+uv run pytest massgen/tests --run-integration -m "not live_api and not docker and not expensive" -q --tb=no
+
+# Non-API push gate (used by pre-push hook)
+uv run pytest massgen/tests --run-integration -m "not live_api and not docker and not expensive" -q --tb=no
 
 # Run specific test file
 uv run pytest massgen/tests/test_specific.py
@@ -427,12 +436,14 @@ uv run pytest massgen/tests/test_specific.py
 # Run with coverage
 uv run pytest --cov=massgen massgen/tests/
 
-# Run integration tests (requires API keys, makes real API calls)
+# Run integration-scope tests (non-API + API, depending on markers)
 uv run pytest --run-integration
 
+# Run live API tests (requires API keys, may incur cost)
+uv run pytest --run-integration --run-live-api -m "integration and live_api"
+
 # Run all tests (integration, expensive, and docker)
-# Not recommended for now
-RUN_INTEGRATION=1 RUN_EXPENSIVE=1 RUN_DOCKER=1 uv run pytest
+make test-all
 
 # Test with different configurations
 massgen --config @examples/basic/single/single_agent "Test question"
@@ -442,7 +453,8 @@ massgen --config @examples/basic/single/single_agent "Test question"
 
 | Marker | When to Use | Example |
 |--------|-------------|---------|
-| `@pytest.mark.integration` | Test makes real API calls (OpenAI, Claude, etc.) | Testing actual model responses |
+| `@pytest.mark.integration` | Multi-component integration behavior (scope marker) | Orchestrator + agent + tracker coordination |
+| `@pytest.mark.live_api` | Test calls real external provider APIs | Testing actual model responses |
 | `@pytest.mark.expensive` | Test is slow (>10s) or costs money | Large-scale coordination tests |
 | `@pytest.mark.docker` | Test requires Docker to be running | Container execution tests |
 
@@ -461,8 +473,8 @@ def test_recording():
 **Best practices:**
 - Unit tests should NOT require API keys or external services
 - Mock external dependencies when possible
-- Use markers to separate fast unit tests from slow integration tests
-- All marked tests are skipped by default in CI
+- Use markers to separate scope (`integration`) from cost/runtime gates (`live_api`, `expensive`, `docker`)
+- `integration`, `live_api`, `expensive`, and `docker` tests are skipped by default unless explicitly enabled
 
 ### 5. Commit Your Changes
 
@@ -495,7 +507,7 @@ git push origin feature/your-feature-name
 ```
 
 Then create a pull request on GitHub:
-- Base branch: `dev/v0.1.49` (or `main` if dev branch doesn't exist yet)
+- Base branch: `dev/v0.1.51` (or `main` if dev branch doesn't exist yet)
 - Compare branch: `feature/your-feature-name`
 - Add clear description of changes
 - Link any related issues
@@ -526,6 +538,10 @@ Our pre-commit configuration includes:
 
 ### Package Quality
 - **pyroma**: Check package metadata quality
+
+### Test Gate
+- **run-non-api-tests-on-push** (`pre-push`): Runs the non-API lane before push:
+  - `uv run pytest massgen/tests --run-integration -m "not live_api and not docker and not expensive" -q --tb=no`
 
 ## 🎯 How to Find Where to Contribute
 
@@ -601,7 +617,7 @@ Have a significant feature idea not covered by existing tracks?
 - [ ] Tests pass locally
 - [ ] Documentation is updated if needed
 - [ ] Commit messages follow convention
-- [ ] PR targets `dev/v0.1.49` branch (or `main` if dev branch doesn't exist yet)
+- [ ] PR targets `dev/v0.1.51` branch (or `main` if dev branch doesn't exist yet)
 
 ### PR Description Should Include
 

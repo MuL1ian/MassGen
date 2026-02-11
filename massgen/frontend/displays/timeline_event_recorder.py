@@ -49,7 +49,9 @@ class _MockTimeline:
         round_number: int = 1,
         subtitle: str = "",
     ) -> None:
-        if label.startswith("Round "):
+        is_round = label.startswith("Round ")
+        is_final = "FINAL" in label.upper()
+        if is_round or is_final:
             self._shown_round_banners.add(round_number)
             self._deferred_round_banners.pop(round_number, None)
         self._cb(format_separator(label, round_number, subtitle))

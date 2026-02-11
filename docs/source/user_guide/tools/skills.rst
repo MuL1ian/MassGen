@@ -21,6 +21,9 @@ When enabled, agents can invoke skills via bash commands to access domain-specif
 .. note::
    Skills complement MCP tools but work via filesystem instead of MCP protocol. This provides better transparency and allows skills to be version-controlled.
 
+.. seealso::
+   :doc:`skills_lifecycle_and_consolidation` - Current skills UX/runtime behavior plus proposed consolidation and update lifecycle.
+
 .. important::
    **Model Recommendations**: Skills work best with frontier models (Claude Sonnet/Opus, GPT-5). Smaller models like gpt-5-mini and gpt-5-nano may not reliably recognize when to invoke skills or may skip skill invocation in favor of attempting tasks directly.
 

@@ -152,6 +152,26 @@ class TestPlanStorage:
         assert latest is not None
         assert latest.plan_id == session2.plan_id
 
+    def test_get_latest_resumable_plan(self, temp_plans_dir):
+        """Test retrieving the latest resumable plan session."""
+        storage = PlanStorage()
+
+        session1 = storage.create_plan("sess_1", "/tmp/logs1")
+        metadata1 = session1.load_metadata()
+        metadata1.status = "resumable"
+        session1.save_metadata(metadata1)
+
+        storage.create_plan("sess_2", "/tmp/logs2")
+
+        session3 = storage.create_plan("sess_3", "/tmp/logs3")
+        metadata3 = session3.load_metadata()
+        metadata3.status = "resumable"
+        session3.save_metadata(metadata3)
+
+        resumable = storage.get_latest_resumable_plan()
+        assert resumable is not None
+        assert resumable.plan_id == session3.plan_id
+
     def test_log_event(self, temp_plans_dir):
         """Test event logging."""
         storage = PlanStorage()

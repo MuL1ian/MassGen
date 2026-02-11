@@ -17,6 +17,7 @@ from massgen.backend.claude_code import ClaudeCodeBackend
 
 
 @pytest.mark.integration
+@pytest.mark.live_api
 @pytest.mark.asyncio
 async def test_real_stream_with_tools():
     """Test real streaming with Claude Code API and output stream chunks."""
@@ -24,7 +25,6 @@ async def test_real_stream_with_tools():
     # Check if API key is available
     if not os.getenv("ANTHROPIC_API_KEY"):
         pytest.skip("ANTHROPIC_API_KEY not found in environment")
-        return
 
     print("🚀 Testing ClaudeCodeBackend with real Claude Code API")
     print("=" * 60)
@@ -87,11 +87,7 @@ async def test_real_stream_with_tools():
             print(f"\n📄 Complete response:\n{total_content}")
 
     except Exception as e:
-        print(f"❌ Error during streaming: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return
+        pytest.fail(f"Error during streaming: {e}")
 
     # Test multi-turn conversation
     print("\n" + "=" * 60)
@@ -144,16 +140,13 @@ async def test_real_stream_with_tools():
             print(f"\n📄 Turn 2 response:\n{turn2_content}")
 
     except Exception as e:
-        print(f"❌ Error during multi-turn: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return
+        pytest.fail(f"Error during multi-turn: {e}")
 
     print("\n✅ Multi-turn conversation test completed successfully!")
 
 
 @pytest.mark.integration
+@pytest.mark.live_api
 @pytest.mark.asyncio
 async def test_with_workflow_tools():
     """Test with MassGen workflow tools."""
@@ -257,11 +250,7 @@ async def test_with_workflow_tools():
             print(f"\n📄 Workflow response:\n{workflow_content}")
 
     except Exception as e:
-        print(f"❌ Error during workflow test: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return
+        pytest.fail(f"Error during workflow test: {e}")
 
     print("\n✅ Workflow tools test completed!")
 

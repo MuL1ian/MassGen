@@ -317,8 +317,21 @@ class LLMBackend(ABC):
             "session_storage_base",
             # MCP configuration (handled by base class for MCP backends)
             "mcp_servers",
+            # NLIP configuration belongs to MassGen routing, never provider APIs
+            "enable_nlip",
+            "nlip",
+            "nlip_config",
+            # Parallelization
+            "instance_id",
+            # Rate limiting (handled by rate_limiter.py)
+            "enable_rate_limit",
+            "concurrent_tool_execution",  # Local execution control (not sent to API)
+            "max_concurrent_tools",  # Local execution control (not sent to API)
             # Coordination parameters (handled by orchestrator, not passed to API)
             "vote_only",  # Vote-only mode flag for coordination
+            "plan_depth",
+            "plan_target_steps",
+            "plan_target_chunks",
             "use_two_tier_workspace",  # Two-tier workspace (scratch/deliverable) + git versioning
             "write_mode",  # Isolated write context mode (auto/worktree/isolated/legacy)
             # Multimodal tools configuration (handled by CustomToolAndMCPBackend)
