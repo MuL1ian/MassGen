@@ -174,6 +174,7 @@ pip install --upgrade massgen
 # Launch with chunked plan execution and skill lifecycle
 uv run massgen
 ```
+> Press `Shift+Tab` then press the three dots above the input bar to see plan settings.
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
 
