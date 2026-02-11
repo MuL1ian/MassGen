@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.49
+**Current Version:** v0.1.50
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** February 9, 2026
+**Last Updated:** February 11, 2026
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,11 +42,11 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.50** | 02/11/26 | Add Model Selector for Log Analysis | @ncrispino | Choose model for `massgen logs analyze` self-analysis mode ([#766](https://github.com/massgen/MassGen/issues/766)) |
-| | | Git Worktree Isolation for Agent Changes | @ncrispino | Worktree isolation improvements for agent file changes ([#853](https://github.com/massgen/MassGen/issues/853)) |
-| **v0.1.51** | 02/13/26 | Refactor ask_others for Targeted Agent Queries | @ncrispino | Support targeted agent queries via subagent for more efficient coordination ([#809](https://github.com/massgen/MassGen/issues/809)) |
-| | | Curated Recommended Models List for Quickstart Wizard | @ncrispino | Curated model recommendations in quickstart wizard ([#840](https://github.com/massgen/MassGen/issues/840)) |
-| **v0.1.52** | 02/16/26 | Support dragging screenshots into TUI bar on Mac | @ncrispino | Enable drag-and-drop screenshot functionality in TUI input bar ([#831](https://github.com/massgen/MassGen/issues/831)) |
+| **v0.1.51** | 02/13/26 | Git Worktree Isolation for Agent Changes | @ncrispino | Worktree isolation improvements for agent file changes ([#853](https://github.com/massgen/MassGen/issues/853)) |
+| | | Refactor ask_others for Targeted Agent Queries | @ncrispino | Support targeted agent queries via subagent for more efficient coordination ([#809](https://github.com/massgen/MassGen/issues/809)) |
+| **v0.1.52** | 02/16/26 | Curated Recommended Models List for Quickstart Wizard | @ncrispino | Curated model recommendations in quickstart wizard ([#840](https://github.com/massgen/MassGen/issues/840)) |
+| | | Support Dragging Screenshots into TUI Bar on Mac | @ncrispino | Enable drag-and-drop screenshot functionality in TUI input bar ([#831](https://github.com/massgen/MassGen/issues/831)) |
+| **v0.1.53** | 02/18/26 | Per-agent Isolated Write Contexts During Coordination | @ncrispino | Per-agent isolated write contexts during coordination ([#854](https://github.com/massgen/MassGen/issues/854)) |
 | | | Fix Rounds Appearing and Log Dir Content in Multi-Turn | @ncrispino | Fix round display and log directory issues in multi-turn sessions ([#848](https://github.com/massgen/MassGen/issues/848)) |
 
 *All releases ship on MWF @ 9am PT when ready*
@@ -96,59 +96,103 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.50 - Log Analysis Model Selector & Worktree Isolation
+## 📋 v0.1.50 - Chunked Plan Execution & Skill Lifecycle Management
 
 ### Features
 
-**1. Add Model Selector for Log Analysis** (@ncrispino)
-- Issue: [#766](https://github.com/massgen/MassGen/issues/766)
-- Allow users to choose which model to use for `massgen logs analyze` self-analysis mode
-- Configurable model selection for different analysis requirements
-- **Use Case**: Flexibility in choosing analysis model based on cost/quality tradeoffs
+**1. Chunked Plan Execution** (@ncrispino)
+- PR: [#877](https://github.com/massgen/MassGen/pull/877)
+- Plans divided into chunks (e.g., `C01_foundation`) and executed one chunk at a time with progress checkpoints
+- Chunk browsing in TUI, frozen plan snapshots, `target_steps`/`target_chunks` parameters
+- **Use Case**: Safer long-form task completion with progress tracking
 
-**2. Git Worktree Isolation for Agent Changes** (@ncrispino)
+**2. Iterative Planning Review Modal** (@ncrispino)
+- PR: [#877](https://github.com/massgen/MassGen/pull/877)
+- New modal with Continue Planning / Quick Edit / Finalize Plan options
+- **Use Case**: Plan iteration before execution begins
+
+**3. Skill Lifecycle Management** (@ncrispino)
+- PR: [#878](https://github.com/massgen/MassGen/pull/878)
+- New lifecycle modes (`create_or_update`, `create_new`, `consolidate`), skill organizer for merging overlapping skills
+- `SKILL_REGISTRY.md` routing guide, `load_previous_session_skills` config
+- **Use Case**: Reusable skill workflows with consolidation and previous-session loading
+
+**4. Local Skills MCP** (@ncrispino)
+- PR: [#878](https://github.com/massgen/MassGen/pull/878)
+- New MCP tool for skill list/read access in Docker/local execution contexts
+- **Use Case**: Skill access without filesystem tools
+
+**5. Worktree Improvements** (@ncrispino)
+- PR: [#877](https://github.com/massgen/MassGen/pull/877)
+- Branch accumulation across rounds, cross-agent diff visibility via `generate_branch_summaries()`, orphan cleanup
+- **Use Case**: Better worktree isolation with cross-agent visibility
+
+**6. Responsive TUI Mode Bar** (@ncrispino)
+- PR: [#877](https://github.com/massgen/MassGen/pull/877)
+- Vertical/horizontal adaptive layout with compact labels on narrow terminals
+- **Use Case**: TUI usability on varying terminal sizes
+
+### Success Criteria
+- ✅ Chunked plan execution with progress checkpoints
+- ✅ Iterative planning review modal with Continue/Edit/Finalize options
+- ✅ Skill lifecycle management with consolidation and previous-session loading
+- ✅ Responsive TUI mode bar adapting to terminal width
+- ✅ Worktree branch accumulation and cross-agent diff visibility
+
+---
+
+## 📋 v0.1.51 - Worktree Isolation & Targeted Agent Queries
+
+### Features
+
+**1. Git Worktree Isolation for Agent Changes** (@ncrispino)
 - Issue: [#853](https://github.com/massgen/MassGen/issues/853)
 - Worktree isolation improvements for agent file changes
 - **Use Case**: Safer agent file operations with improved isolation workflow
 
-### Success Criteria
-- ✅ Model selector working for log analysis command
-- ✅ Worktree isolation improvements functional
-
----
-
-## 📋 v0.1.51 - Targeted Agent Queries & Quickstart Model Curation
-
-### Features
-
-**1. Refactor ask_others for Targeted Agent Queries** (@ncrispino)
+**2. Refactor ask_others for Targeted Agent Queries** (@ncrispino)
 - Issue: [#809](https://github.com/massgen/MassGen/issues/809)
 - Support targeted queries to specific agents via subagent spawning
 - Three modes: broadcast to all, selective broadcast with per-agent prompts, targeted ask about past answer
 - Pass full `_streaming_buffer` to shadow agents for improved context
 - **Use Case**: More efficient coordination by querying specific agents rather than broadcasting to all
 
-**2. Curated Recommended Models List for Quickstart Wizard** (@ncrispino)
+### Success Criteria
+- ✅ Worktree isolation handles edge cases correctly
+- ✅ Targeted `ask_others(target_agent_id="Agent-1", question="...")` working
+- ✅ Selective broadcast with `agent_prompts` dict functional
+- ✅ Improved context passing via streaming buffer
+
+---
+
+## 📋 v0.1.52 - Quickstart Model Curation & TUI Screenshots
+
+### Features
+
+**1. Curated Recommended Models List for Quickstart Wizard** (@ncrispino)
 - Issue: [#840](https://github.com/massgen/MassGen/issues/840)
 - Curated model recommendations in quickstart wizard
 - **Use Case**: Better first-run experience with recommended model selections
 
-### Success Criteria
-- ✅ Targeted `ask_others(target_agent_id="Agent-1", question="...")` working
-- ✅ Selective broadcast with `agent_prompts` dict functional
-- ✅ Improved context passing via streaming buffer
-- ✅ Curated model list displayed in quickstart wizard
-
----
-
-## 📋 v0.1.52 - TUI Screenshot Support & Multi-Turn Fixes
-
-### Features
-
-**1. Support Dragging Screenshots into TUI Bar on Mac** (@ncrispino)
+**2. Support Dragging Screenshots into TUI Bar on Mac** (@ncrispino)
 - Issue: [#831](https://github.com/massgen/MassGen/issues/831)
 - Enable drag-and-drop screenshot functionality in TUI input bar
 - **Use Case**: Quick image sharing for multimodal agent coordination
+
+### Success Criteria
+- ✅ Curated model list displayed in quickstart wizard
+- ✅ Drag-and-drop screenshots into TUI input bar working on Mac
+
+---
+
+## 📋 v0.1.53 - Per-agent Isolated Write Contexts & Multi-Turn Fixes
+
+### Features
+
+**1. Per-agent Isolated Write Contexts During Coordination** (@ncrispino)
+- Issue: [#854](https://github.com/massgen/MassGen/issues/854)
+- Per-agent isolated write contexts during coordination
+- **Use Case**: Each agent gets its own isolated write context during coordination rounds
 
 **2. Fix Rounds Appearing and Log Dir Content in Multi-Turn** (@ncrispino)
 - Issue: [#848](https://github.com/massgen/MassGen/issues/848)
@@ -156,7 +200,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - **Use Case**: Correct round tracking and log organization across turns
 
 ### Success Criteria
-- ✅ Drag-and-drop screenshots into TUI input bar working on Mac
+- ✅ Per-agent write contexts properly isolated during coordination
 - ✅ Rounds display correctly in multi-turn sessions
 - ✅ Log directory content correct across turns
 
@@ -716,7 +760,7 @@ These features are being actively developed on **separate parallel tracks** and 
 - Issue: [#766](https://github.com/massgen/MassGen/issues/766)
 - Allow users to choose which model to use for `massgen logs analyze` self-analysis mode
 - Configurable model selection for different analysis requirements
-- **Target:** v0.1.50
+- **Status:** ✅ Completed in v0.1.50
 
 ### Track: General Hook Framework (@ncrispino, nickcrispino)
 - Issue: [#745](https://github.com/massgen/MassGen/issues/745)
@@ -750,7 +794,7 @@ These features are being actively developed on **separate parallel tracks** and 
 - Support targeted queries to specific agents via subagent spawning
 - Three modes: broadcast to all, selective broadcast, targeted ask
 - Pass full `_streaming_buffer` to shadow agents for improved context
-- **Target:** v0.1.50
+- **Target:** v0.1.51
 
 ### Track: Decomposition Coordination Mode (@ncrispino, nickcrispino)
 - PR: [#858](https://github.com/massgen/MassGen/pull/858)
@@ -807,6 +851,33 @@ These features are being actively developed on **separate parallel tracks** and 
 - PR: [#861](https://github.com/massgen/MassGen/pull/861)
 - Fixed "[No response generated]" errors from incorrect chunk type comparison
 - **Status:** ✅ Completed in v0.1.49
+
+### Track: Chunked Plan Execution (@ncrispino, nickcrispino)
+- PR: [#877](https://github.com/massgen/MassGen/pull/877)
+- Plans divided into chunks executed one at a time with progress checkpoints
+- Chunk browsing in TUI, frozen plan snapshots, `target_steps`/`target_chunks` parameters
+- Iterative planning review modal with Continue/Edit/Finalize options
+- **Status:** ✅ Completed in v0.1.50
+
+### Track: Skill Lifecycle Management (@ncrispino, nickcrispino)
+- PR: [#878](https://github.com/massgen/MassGen/pull/878)
+- New lifecycle modes (`create_or_update`, `create_new`, `consolidate`)
+- Skill organizer for merging overlapping skills, `SKILL_REGISTRY.md` routing guide
+- Previous-session skill loading with `load_previous_session_skills` config
+- Local Skills MCP for Docker/local execution contexts
+- **Status:** ✅ Completed in v0.1.50
+
+### Track: Worktree Improvements (@ncrispino, nickcrispino)
+- PR: [#877](https://github.com/massgen/MassGen/pull/877)
+- Branch accumulation across rounds, cross-agent diff visibility via `generate_branch_summaries()`
+- Orphan worktree cleanup
+- **Status:** ✅ Completed in v0.1.50
+
+### Track: Responsive TUI Mode Bar (@ncrispino, nickcrispino)
+- PR: [#877](https://github.com/massgen/MassGen/pull/877)
+- Vertical/horizontal adaptive layout with compact labels on narrow terminals
+- TUI homescreen and theming improvements
+- **Status:** ✅ Completed in v0.1.50
 
 ### Track: Coding Agent Enhancements (@ncrispino, nickcrispino)
 - PR: [#251](https://github.com/massgen/MassGen/pull/251)
@@ -889,5 +960,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** February 9, 2026
+**Last Updated:** February 11, 2026
 **Maintained By:** MassGen Team

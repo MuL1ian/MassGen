@@ -157,6 +157,10 @@ Key Features
 Recent Releases
 ---------------
 
+**v0.1.50 (February 11, 2026)** - Chunked Plan Execution & Skill Lifecycle Management
+
+Chunked plan execution for safer long-form task completion with progress checkpoints. Skill lifecycle management with consolidation, organizer, and previous-session skill loading. Iterative planning review modal. Responsive TUI mode bar. Worktree improvements with branch accumulation and cross-agent diff visibility.
+
 **v0.1.49 (February 9, 2026)** - Coordination Quality: Log Analysis TUI, Fairness Gate & Checklist Voting
 
 Log analysis mode built into TUI mode bar for in-app run analysis. Fairness gate prevents fast agents from dominating coordination. Checklist voting tool for structured quality evaluation. Automated testing infrastructure with CI/CD and SVG snapshot baselines. Persona easing now accessible from TUI mode bar.
@@ -164,10 +168,6 @@ Log analysis mode built into TUI mode bar for in-app run analysis. Fairness gate
 **v0.1.48 (February 6, 2026)** - Decomposition Mode & Worktree Isolation
 
 New decomposition coordination mode decomposes tasks into subtasks assigned to individual agents with a presenter role. Worktree isolation for file writes with review modal for approving changes. Quickstart wizard Docker setup with animated pull progress.
-
-**v0.1.47 (February 4, 2026)** - Codex Backend & TUI Theme Refactoring
-
-New Codex backend for OpenAI Codex CLI with local and Docker execution. TUI theme system refactored to palette-based architecture with unified base styles. Per-agent voting sensitivity configuration. Claude Code backend refactored with shared NativeToolMixin.
 
 :doc:`Full changelog → <changelog>`
 

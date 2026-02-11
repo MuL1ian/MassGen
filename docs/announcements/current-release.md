@@ -1,4 +1,4 @@
-# MassGen v0.1.49 Release Announcement
+# MassGen v0.1.50 Release Announcement
 
 <!--
 This is the current release announcement. Copy this + feature-highlights.md to LinkedIn/X.
@@ -7,17 +7,17 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.49, focused on Coordination Quality! 🚀 Log analysis mode now built into the TUI for in-app run analysis. Fairness gate prevents fast agents from dominating, and checklist voting brings structured quality evaluation. Plus: automated testing infrastructure, persona generation now in TUI mode bar, skills modal, and bug fixes.
+We're excited to release MassGen v0.1.50, focused on Chunked Plan Execution & Skill Lifecycle Management! 🚀 Chunked plan execution for safer long-form task completion with progress checkpoints. Skill lifecycle management with consolidation, organizer, and previous-session skill loading. Iterative planning review modal. Responsive TUI mode bar. Worktree improvements with branch accumulation and cross-agent diff visibility.
 
 ## Install
 
 ```bash
-pip install massgen==0.1.49
+pip install massgen==0.1.50
 ```
 
 ## Links
 
-- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.49
+- **Release notes:** https://github.com/massgen/MassGen/releases/tag/v0.1.50
 - **X post:** [TO BE ADDED AFTER POSTING]
 - **LinkedIn post:** [TO BE ADDED AFTER POSTING]
 
@@ -29,40 +29,42 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.49, focused on Coordination Quality! 🚀 Log analysis mode now built into the TUI for in-app run analysis. Fairness gate prevents fast agents from dominating, and checklist voting brings structured quality evaluation. Plus: automated testing infrastructure, persona generation now in TUI mode bar, and bug fixes.
+We're excited to release MassGen v0.1.50, focused on Chunked Plan Execution & Skill Lifecycle Management! 🚀 Chunked plan execution for safer long-form task completion with progress checkpoints. Skill lifecycle management with consolidation, organizer, and previous-session skill loading. Iterative planning review modal. Responsive TUI mode bar.
 
 **Key Features:**
 
-**Log Analysis Mode in TUI** - Analyze runs without leaving the terminal:
-- New "Analyzing" state in the TUI mode bar (Normal → Planning → Executing → Analyzing)
-- Browse and select log directories and turns directly in the TUI
-- Configurable analysis profiles for different analysis depths
-- Empty submit in analysis mode runs default analysis on selected target
+**Chunked Plan Execution** - Safer long-form task completion:
+- Plans divided into chunks (e.g., `C01_foundation`) and executed one chunk at a time
+- Progress checkpoints with chunk browsing in TUI
+- Frozen plan snapshots preserve original plan state during execution
+- `target_steps` and `target_chunks` parameters for plan sizing with dynamic mode
 
-**Fairness Gate** - Balanced multi-agent coordination:
-- Prevents fast agents from dominating rounds with configurable `fairness_lead_cap_answers`
-- `max_midstream_injections_per_round` controls injection frequency
-- Ensures all agents contribute meaningfully regardless of speed
+**Iterative Planning Review Modal** - Plan iteration before execution:
+- New modal with Continue Planning / Quick Edit / Finalize Plan options
+- Allows plan refinement before committing to execution
 
-**Checklist Voting** - Structured quality evaluation:
-- New `checklist_tools_server.py` MCP server for objective quality assessment
-- Binary pass/fail scoring replaces subjective voting
-- Consistent, repeatable evaluation across coordination rounds
+**Skill Lifecycle Management** - Reusable skill workflows:
+- New lifecycle modes: `create_or_update`, `create_new`, `consolidate`
+- Skill organizer for merging overlapping skills into consolidated workflows
+- `SKILL_REGISTRY.md` routing guide for skill discovery and selection
+- Previous-session skill loading with `load_previous_session_skills` config
+- Local Skills MCP for skill access in Docker/local execution contexts
 
-**Automated Testing Infrastructure** - CI/CD and snapshot testing:
-- GitHub Actions workflow (`tests.yml`) for automated test execution
-- SVG snapshot baselines for TUI visual regression testing
-- 16+ new test files with comprehensive testing strategy
+**Worktree Improvements** - Better cross-agent collaboration:
+- Branch accumulation across coordination rounds
+- Cross-agent diff visibility via `generate_branch_summaries()`
+- Orphan worktree cleanup
 
 **Also in this release:**
-- Persona generation now accessible from the TUI mode bar
-- Skills modal for discovering and toggling skills in interactive mode
+- Responsive TUI mode bar with vertical/horizontal adaptive layout
+- TUI homescreen and theming improvements with CSS refinements
+- Skills modal with source grouping and quick actions (Enable All/Disable All)
+- Plan depth controls with dynamic mode
 
 **Bug Fixes:**
-- Fixed "[No response generated]" shadow agent errors (PR #861)
-- Round banner timing, hook injection, final answer lock responsiveness
+- Test fixes across hooks, Docker mounts, and snapshots
 
-Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.49
+Release notes: https://github.com/massgen/MassGen/releases/tag/v0.1.50
 
 Feature highlights:
 
