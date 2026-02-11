@@ -244,6 +244,8 @@ Most configurations use environment variables for API keys:so
 uv run massgen
 ```
 
+> Press `Shift+Tab` then press the three dots above the input bar to see plan settings.
+
 ### v0.1.49
 **New Features:** Log Analysis TUI Mode, Fairness Gate, Checklist Voting, Testing Infrastructure
 
