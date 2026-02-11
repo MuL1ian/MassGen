@@ -9,16 +9,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.50 (February 11, 2026)** - Chunked Plan Execution & Skill Lifecycle Management
+Chunked plan execution for safer long-form task completion with progress checkpoints. Skill lifecycle management with consolidation, organizer, and previous-session skill loading. Iterative planning review modal. Responsive TUI mode bar. Worktree improvements with branch accumulation and cross-agent diff visibility.
+
 **v0.1.49 (February 9, 2026)** - Coordination Quality: Log Analysis TUI, Fairness Gate & Checklist Voting
 Log analysis mode built into TUI mode bar for in-app run analysis. Fairness gate prevents fast agents from dominating coordination. Checklist voting tool for structured quality evaluation. Automated testing infrastructure with CI/CD and SVG snapshot baselines.
 
 **v0.1.48 (February 6, 2026)** - Decomposition Mode & Worktree Isolation
 New decomposition coordination mode decomposes tasks into subtasks assigned to individual agents with a presenter role. Worktree isolation for file writes with review modal for approving changes. Quickstart wizard Docker setup with animated pull progress.
 
-**v0.1.47 (February 4, 2026)** - Codex Backend & TUI Theme Refactoring
-New Codex backend for OpenAI Codex CLI with local and Docker execution. TUI theme system refactored to palette-based architecture with unified base styles. Per-agent voting sensitivity configuration. Claude Code backend refactored with shared NativeToolMixin.
-
 ---
+
+## [0.1.50] - 2026-02-11
+
+### Added
+- **Chunked Plan Execution** ([#877](https://github.com/massgen/MassGen/pull/877)): Plans now divided into chunks (e.g., `C01_foundation`) and executed one chunk at a time with progress checkpoints
+  - Chunk browsing in TUI with chunk-level progress tracking
+  - Frozen plan snapshots preserve original plan state during execution
+  - `target_steps` and `target_chunks` parameters for plan sizing
+  - Dynamic mode for adaptive plan depth controls
+
+- **Iterative Planning Review Modal** ([#877](https://github.com/massgen/MassGen/pull/877)): New modal with Continue Planning / Quick Edit / Finalize Plan options
+  - Allows plan iteration before execution begins
+  - Quick edit for inline plan adjustments
+
+- **Skill Lifecycle Management** ([#878](https://github.com/massgen/MassGen/pull/878)): New lifecycle modes (`create_or_update`, `create_new`, `consolidate`) for evolving skills
+  - Skill organizer for merging overlapping skills into consolidated workflows
+  - `SKILL_REGISTRY.md` routing guide for skill discovery and selection
+  - Lifecycle mode selection during skill creation
+
+- **Previous-Session Skills** ([#878](https://github.com/massgen/MassGen/pull/878)): Load evolving skills from past run logs with `load_previous_session_skills` config
+  - Automatic skill discovery from previous session log directories
+
+- **Local Skills MCP** ([#878](https://github.com/massgen/MassGen/pull/878)): New MCP tool for skill list/read access in Docker/local execution contexts
+  - Enables skill access without filesystem tools
+
+### Changed
+- **Worktree Improvements** ([#877](https://github.com/massgen/MassGen/pull/877)): Branch accumulation across rounds, cross-agent diff visibility via `generate_branch_summaries()`, orphan cleanup
+  - Branches accumulate across coordination rounds instead of being recreated
+  - Other agents can see diffs from worktree branches via branch summaries
+
+- **Responsive TUI Mode Bar** ([#877](https://github.com/massgen/MassGen/pull/877)): Vertical/horizontal adaptive layout with compact labels on narrow terminals
+
+- **TUI Homescreen & Theming** ([#877](https://github.com/massgen/MassGen/pull/877)): Improved welcome screen layout, CSS refinements, palette updates for light/dark themes
+
+- **Skills Modal** ([#878](https://github.com/massgen/MassGen/pull/878)): Source grouping (builtin/project/user/previous_session), quick actions (Enable All/Disable All)
+
+- **Plan Depth Controls** ([#877](https://github.com/massgen/MassGen/pull/877)): Dynamic mode, `target_steps`/`target_chunks` parameters for plan sizing
+
+### Fixed
+- **Test Fixes** ([#877](https://github.com/massgen/MassGen/pull/877)): Fixed hooks, Docker mounts, and snapshot tests across the test suite
+
+### Technical Details
+- **Major Focus**: Chunked plan execution for safer long-form task completion, skill lifecycle management with consolidation
+- **PRs Merged**: [#877](https://github.com/massgen/MassGen/pull/877) (Chunk planning mode), [#878](https://github.com/massgen/MassGen/pull/878) (Improve skill handling)
+- **Contributors**: @ncrispino and the MassGen team
 
 ## [0.1.49] - 2026-02-09
 
