@@ -328,6 +328,7 @@ def docker_container(docker_client):
 
 
 @pytest.mark.skipif(not DOCKER_AVAILABLE, reason="Docker not available")
+@pytest.mark.docker
 def test_docker_start_simple_command(manager, docker_container):
     """Test starting a simple command in Docker background."""
     shell_id = manager.start_docker_shell(
@@ -352,6 +353,7 @@ def test_docker_start_simple_command(manager, docker_container):
 
 
 @pytest.mark.skipif(not DOCKER_AVAILABLE, reason="Docker not available")
+@pytest.mark.docker
 def test_docker_capture_stdout(manager, docker_container):
     """Test capturing stdout from Docker background command."""
     shell_id = manager.start_docker_shell(
@@ -375,6 +377,7 @@ def test_docker_capture_stdout(manager, docker_container):
 
 
 @pytest.mark.skipif(not DOCKER_AVAILABLE, reason="Docker not available")
+@pytest.mark.docker
 def test_docker_long_running_command(manager, docker_container):
     """Test a long-running Docker command that stays active."""
     shell_id = manager.start_docker_shell(
@@ -394,6 +397,7 @@ def test_docker_long_running_command(manager, docker_container):
 
 
 @pytest.mark.skipif(not DOCKER_AVAILABLE, reason="Docker not available")
+@pytest.mark.docker
 def test_docker_command_with_workdir(manager, docker_container):
     """Test running Docker command in specific directory."""
     shell_id = manager.start_docker_shell(
@@ -417,6 +421,7 @@ def test_docker_command_with_workdir(manager, docker_container):
 
 
 @pytest.mark.skipif(not DOCKER_AVAILABLE, reason="Docker not available")
+@pytest.mark.docker
 def test_docker_failed_command(manager, docker_container):
     """Test a Docker command that fails."""
     shell_id = manager.start_docker_shell(
