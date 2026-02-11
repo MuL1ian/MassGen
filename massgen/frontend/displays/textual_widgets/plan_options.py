@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, List, Optional
 
 from textual.app import ComposeResult
-from textual.containers import VerticalScroll
+from textual.containers import Container, VerticalScroll
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, Label, Select, Static
@@ -81,6 +81,14 @@ class ViewPlanRequested(Message):
         super().__init__()
 
 
+class AnalysisTargetTypeChanged(Message):
+    """Message emitted when analysis target type is changed (log vs skills)."""
+
+    def __init__(self, target: str) -> None:
+        self.target = target
+        super().__init__()
+
+
 class AnalysisProfileChanged(Message):
     """Message emitted when analysis profile is changed."""
 
@@ -141,6 +149,9 @@ class PlanOptionsPopover(Widget):
     - Depth selector (in plan mode) - shallow/medium/deep
     - Broadcast toggle (in plan mode) - human/agents/off
     """
+
+    LOG_CONTROLS_ID = "analysis_log_controls"
+    SKILLS_CONTROLS_ID = "analysis_skills_controls"
 
     DEFAULT_CSS = """
     PlanOptionsPopover {
@@ -238,6 +249,10 @@ class PlanOptionsPopover(Widget):
         margin-top: 1;
         width: 100%;
     }
+
+    PlanOptionsPopover .hidden-controls {
+        display: none;
+    }
     """
 
     def __init__(
@@ -248,6 +263,7 @@ class PlanOptionsPopover(Widget):
         current_plan_id: Optional[str] = None,
         current_depth: "PlanDepth" = "medium",
         current_broadcast: Any = "human",
+        analysis_target_type: str = "log",
         analysis_profile: str = "dev",
         analysis_log_options: Optional[List[tuple[str, str]]] = None,
         analysis_selected_log_dir: Optional[str] = None,
@@ -275,6 +291,7 @@ class PlanOptionsPopover(Widget):
         self._current_plan_id = current_plan_id
         self._current_depth = current_depth
         self._current_broadcast = current_broadcast
+        self._analysis_target_type = analysis_target_type
         self._analysis_profile = analysis_profile
         self._analysis_log_options = analysis_log_options or []
         self._analysis_selected_log_dir = analysis_selected_log_dir
@@ -307,7 +324,8 @@ class PlanOptionsPopover(Widget):
         if self._plan_mode == "plan":
             yield Label("Planning Options", id="popover_title")
         elif self._plan_mode == "analysis":
-            yield Label("Log Analysis Options", id="popover_title")
+            title = "Skill Organization" if self._analysis_target_type == "skills" else "Log Analysis Options"
+            yield Label(title, id="popover_title")
         else:
             yield Label("Select Plan", id="popover_title")
 
@@ -373,75 +391,100 @@ class PlanOptionsPopover(Widget):
                     id="broadcast_selector",
                 )
 
-            # Analysis mode: profile + target controls
+            # Analysis mode: target type + profile + target controls
             if self._plan_mode == "analysis":
-                turn_label = f"turn_{self._analysis_selected_turn}" if self._analysis_selected_turn is not None else "latest"
-                if self._analysis_selected_log_dir:
-                    log_name = Path(self._analysis_selected_log_dir).name
-                    report_exists = False
-                    if self._analysis_selected_turn is not None:
-                        report_exists = (Path(self._analysis_selected_log_dir) / f"turn_{self._analysis_selected_turn}" / "ANALYSIS_REPORT.md").exists()
-                    report_label = "available" if report_exists else "not generated yet"
-                    yield Static(
-                        f"Target: {log_name} / {turn_label}\nReport: {report_label}",
-                        id="analysis_target_meta",
-                    )
-
-                yield Label("Analysis Profile:", classes="section-label")
+                yield Label("Analysis Target:", classes="section-label")
                 yield Select(
                     [
-                        ("Dev (internals)", "dev"),
-                        ("User (skills)", "user"),
+                        ("Log Session", "log"),
+                        ("Organize Skills", "skills"),
                     ],
-                    value=self._analysis_profile if self._analysis_profile in ("dev", "user") else "dev",
-                    id="analysis_profile_selector",
+                    value=self._analysis_target_type if self._analysis_target_type in ("log", "skills") else "log",
+                    id="analysis_target_type_selector",
                 )
 
-                yield Label("Skill Lifecycle:", classes="section-label")
-                lifecycle_options = [
-                    ("Create or Update (recommended)", "create_or_update"),
-                    ("Create New Only", "create_new"),
-                    ("Consolidate Similar Skills", "consolidate"),
-                ]
-                lifecycle_selected = self._safe_select_value(
-                    lifecycle_options,
-                    self._analysis_skill_lifecycle_mode,
-                )
-                yield Select(
-                    lifecycle_options,
-                    value=lifecycle_selected,
-                    id="analysis_skill_lifecycle_selector",
-                )
+                # Log-specific controls — always composed, visibility toggled via CSS
+                log_classes = "hidden-controls" if self._analysis_target_type == "skills" else ""
+                with Container(id=self.LOG_CONTROLS_ID, classes=log_classes):
+                    turn_label = f"turn_{self._analysis_selected_turn}" if self._analysis_selected_turn is not None else "latest"
+                    if self._analysis_selected_log_dir:
+                        log_name = Path(self._analysis_selected_log_dir).name
+                        report_exists = False
+                        if self._analysis_selected_turn is not None:
+                            report_exists = (Path(self._analysis_selected_log_dir) / f"turn_{self._analysis_selected_turn}" / "ANALYSIS_REPORT.md").exists()
+                        report_label = "available" if report_exists else "not generated yet"
+                        yield Static(
+                            f"Target: {log_name} / {turn_label}\nReport: {report_label}",
+                            id="analysis_target_meta",
+                        )
 
-                yield Label("Log Session:", classes="section-label")
-                if self._analysis_log_options:
-                    selected_log = self._safe_select_value(self._analysis_log_options, self._analysis_selected_log_dir)
+                    yield Label("Analysis Profile:", classes="section-label")
                     yield Select(
-                        self._analysis_log_options,
-                        value=selected_log,
-                        id="analysis_log_selector",
+                        [
+                            ("Dev (internals)", "dev"),
+                            ("User (skills)", "user"),
+                        ],
+                        value=self._analysis_profile if self._analysis_profile in ("dev", "user") else "dev",
+                        id="analysis_profile_selector",
                     )
-                else:
-                    yield Static("[dim]No log sessions found[/]", markup=True)
 
-                yield Label("Turn:", classes="section-label")
-                if self._analysis_turn_options:
-                    selected_turn = self._safe_select_value(
-                        self._analysis_turn_options,
-                        str(self._analysis_selected_turn) if self._analysis_selected_turn is not None else None,
+                    yield Label("Skill Lifecycle:", classes="section-label")
+                    lifecycle_options = [
+                        ("Create or Update (recommended)", "create_or_update"),
+                        ("Create New Only", "create_new"),
+                    ]
+                    lifecycle_selected = self._safe_select_value(
+                        lifecycle_options,
+                        self._analysis_skill_lifecycle_mode,
                     )
                     yield Select(
-                        self._analysis_turn_options,
-                        value=selected_turn,
-                        id="analysis_turn_selector",
+                        lifecycle_options,
+                        value=lifecycle_selected,
+                        id="analysis_skill_lifecycle_selector",
                     )
-                else:
-                    yield Static("[dim]No turns found for selected log[/]", markup=True)
 
-                preview_text = self._analysis_preview_text or "Preview unavailable for this selection."
-                yield Static(preview_text, id="analysis_preview")
+                    yield Label("Log Session:", classes="section-label")
+                    if self._analysis_log_options:
+                        selected_log = self._safe_select_value(self._analysis_log_options, self._analysis_selected_log_dir)
+                        yield Select(
+                            self._analysis_log_options,
+                            value=selected_log,
+                            id="analysis_log_selector",
+                        )
+                    else:
+                        yield Static("[dim]No log sessions found[/]", markup=True)
 
-                yield Button("View Analysis Report", id="view_analysis_btn", variant="primary")
+                    yield Label("Turn:", classes="section-label")
+                    if self._analysis_turn_options:
+                        selected_turn = self._safe_select_value(
+                            self._analysis_turn_options,
+                            str(self._analysis_selected_turn) if self._analysis_selected_turn is not None else None,
+                        )
+                        yield Select(
+                            self._analysis_turn_options,
+                            value=selected_turn,
+                            id="analysis_turn_selector",
+                        )
+                    else:
+                        yield Static("[dim]No turns found for selected log[/]", markup=True)
+
+                    preview_text = self._analysis_preview_text or "Preview unavailable for this selection."
+                    yield Static(preview_text, id="analysis_preview")
+
+                    yield Button("View Analysis Report", id="view_analysis_btn", variant="primary")
+
+                # Skills organization controls — always composed, visibility toggled via CSS
+                skills_classes = "hidden-controls" if self._analysis_target_type == "log" else ""
+                with Container(id=self.SKILLS_CONTROLS_ID, classes=skills_classes):
+                    yield Static(
+                        "Reads all installed skills, merges overlapping ones, "
+                        "and generates a compact SKILL_REGISTRY.md routing guide.\n\n"
+                        "[dim]Tip: Track skills in git by adding to .gitignore:[/]\n"
+                        "[dim]  !.agent/skills/[/]\n"
+                        "[dim]  !.agent/skills/**[/]",
+                        markup=True,
+                        id="analysis_skills_preview",
+                    )
 
             yield Button("Close", id="close_btn", variant="default")
 
@@ -540,6 +583,23 @@ class PlanOptionsPopover(Widget):
 
         except Exception as e:
             self._plan_details_widget.update(f"[red]Error loading plan: {e}[/]")
+
+    def _toggle_analysis_controls(self, target: str) -> None:
+        """Toggle visibility of log vs skills controls and update title."""
+        try:
+            log_controls = self.query_one(f"#{self.LOG_CONTROLS_ID}")
+            skills_controls = self.query_one(f"#{self.SKILLS_CONTROLS_ID}")
+            title_label = self.query_one("#popover_title", Label)
+            if target == "skills":
+                log_controls.add_class("hidden-controls")
+                skills_controls.remove_class("hidden-controls")
+                title_label.update("Skill Organization")
+            else:
+                log_controls.remove_class("hidden-controls")
+                skills_controls.add_class("hidden-controls")
+                title_label.update("Log Analysis Options")
+        except Exception as e:
+            _popover_log(f"_toggle_analysis_controls error: {e}")
 
     def show(self) -> None:
         """Show the popover."""
@@ -667,6 +727,14 @@ class PlanOptionsPopover(Widget):
             # Convert "off" back to False
             broadcast = False if value == "off" else value
             self.post_message(BroadcastModeChanged(broadcast))
+        elif selector_id == "analysis_target_type_selector":
+            target = str(event.value)
+            if target == self._analysis_target_type:
+                return
+            self._analysis_target_type = target
+            self.post_message(AnalysisTargetTypeChanged(target))
+            # Toggle container visibility and update title
+            self._toggle_analysis_controls(target)
         elif selector_id == "analysis_profile_selector":
             profile = str(event.value)
             if profile == self._analysis_profile:

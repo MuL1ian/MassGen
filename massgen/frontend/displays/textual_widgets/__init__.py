@@ -49,6 +49,7 @@ from .plan_options import (
     AnalysisProfileChanged,
     AnalysisSkillLifecycleChanged,
     AnalysisTargetChanged,
+    AnalysisTargetTypeChanged,
     BroadcastModeChanged,
     PlanDepthChanged,
     PlanOptionsPopover,
@@ -100,6 +101,7 @@ __all__ = [
     "AnalysisProfileChanged",
     "AnalysisSkillLifecycleChanged",
     "AnalysisTargetChanged",
+    "AnalysisTargetTypeChanged",
     "ViewAnalysisRequested",
     # Tab bar
     "AgentTab",

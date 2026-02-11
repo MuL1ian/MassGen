@@ -203,8 +203,12 @@ class TestExcludeFileOperationMCPs:
         assert "generate_and_store_image_with_input_images" not in excluded_tools
         assert "generate_and_store_audio_with_input_audios" not in excluded_tools
 
-    def test_workspace_tools_excludes_skills_when_cli_active(self, temp_workspace):
-        """skills tool should be hidden when command-line CLI tooling is active."""
+    def test_workspace_tools_no_longer_contains_skills(self, temp_workspace):
+        """Skills tool has been extracted to its own MCP server.
+
+        Workspace tools should not reference skills at all — neither
+        including nor excluding them.
+        """
         manager = FilesystemManager(
             cwd=temp_workspace["workspace"],
             agent_temporary_workspace_parent=temp_workspace["temp_workspace_parent"],
@@ -213,37 +217,5 @@ class TestExcludeFileOperationMCPs:
 
         workspace_config = manager.get_workspace_tools_mcp_config()
         excluded_tools = workspace_config.get("exclude_tools", [])
-        assert "skills" in excluded_tools
-        assert workspace_config.get("env", {}).get("MASSGEN_DISABLE_SKILLS_TOOL") == "1"
-
-    def test_workspace_tools_keeps_skills_when_cli_inactive(self, temp_workspace):
-        """skills tool should be available when CLI tooling is inactive."""
-        manager = FilesystemManager(
-            cwd=temp_workspace["workspace"],
-            agent_temporary_workspace_parent=temp_workspace["temp_workspace_parent"],
-            enable_mcp_command_line=False,
-        )
-
-        workspace_config = manager.get_workspace_tools_mcp_config(backend_type="openai")
-        excluded_tools = workspace_config.get("exclude_tools", [])
         assert "skills" not in excluded_tools
         assert "MASSGEN_DISABLE_SKILLS_TOOL" not in workspace_config.get("env", {})
-
-    def test_workspace_tools_excludes_skills_for_codex_and_claude_code(self, temp_workspace):
-        """skills tool should be hidden for codex and claude_code backends."""
-        manager = FilesystemManager(
-            cwd=temp_workspace["workspace"],
-            agent_temporary_workspace_parent=temp_workspace["temp_workspace_parent"],
-            enable_mcp_command_line=False,
-        )
-
-        codex_config = manager.inject_filesystem_mcp({"type": "codex", "mcp_servers": []})
-        claude_code_config = manager.inject_filesystem_mcp({"type": "claude_code", "mcp_servers": []})
-
-        codex_workspace = next(server for server in codex_config["mcp_servers"] if server["name"] == "workspace_tools")
-        claude_workspace = next(server for server in claude_code_config["mcp_servers"] if server["name"] == "workspace_tools")
-
-        assert "skills" in codex_workspace.get("exclude_tools", [])
-        assert "skills" in claude_workspace.get("exclude_tools", [])
-        assert codex_workspace.get("env", {}).get("MASSGEN_DISABLE_SKILLS_TOOL") == "1"
-        assert claude_workspace.get("env", {}).get("MASSGEN_DISABLE_SKILLS_TOOL") == "1"

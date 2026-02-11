@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Tests for analysis skill lifecycle create/update/consolidate behaviors."""
+"""Tests for analysis skill lifecycle create/update behaviors."""
 
 from pathlib import Path
 
 from massgen.filesystem_manager.skills_manager import (
     apply_analysis_skill_lifecycle,
-    consolidate_project_skills,
     parse_frontmatter,
 )
 
@@ -40,8 +39,47 @@ def _write_skill(
     (skill_dir / "SKILL.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def test_create_or_update_updates_existing_similar_skill(tmp_path: Path) -> None:
-    """create_or_update should merge content into an existing similar project skill."""
+def test_create_or_update_merges_same_directory(tmp_path: Path) -> None:
+    """create_or_update should merge when the same directory name already exists."""
+    project_skills = tmp_path / ".agent" / "skills"
+    existing = project_skills / "poem-workflow"
+    source = tmp_path / "source" / "poem-workflow"
+
+    _write_skill(
+        existing,
+        name="poem-writing",
+        description="Write poems with constraints and rhyme",
+        body="# Poem Writing\nUse iterative drafting.",
+    )
+    _write_skill(
+        source,
+        name="poem-writer",
+        description="Workflow for writing constrained poems",
+        body="# Poem Writer\nDraft then refine with meter checks.",
+        extra_meta={"massgen_origin": "log_1::turn_1", "evolving": True},
+    )
+
+    result = apply_analysis_skill_lifecycle(
+        source,
+        project_skills,
+        lifecycle_mode="create_or_update",
+    )
+
+    assert result["action"] == "updated"
+    assert result["target"] == str(existing)
+
+    updated_content = (existing / "SKILL.md").read_text(encoding="utf-8")
+    updated_meta = parse_frontmatter(updated_content)
+    assert "Evolving Updates" in updated_content
+    assert updated_meta.get("evolving") is True
+
+
+def test_create_or_update_without_similarity_matching(tmp_path: Path) -> None:
+    """create_or_update should NOT match by similarity — only by directory name.
+
+    When the source directory name differs from all existing project skill
+    directories, a new skill should be created even if names are very similar.
+    """
     project_skills = tmp_path / ".agent" / "skills"
     existing = project_skills / "poem-writing"
     source = tmp_path / "source" / "poem-workflow"
@@ -66,14 +104,13 @@ def test_create_or_update_updates_existing_similar_skill(tmp_path: Path) -> None
         lifecycle_mode="create_or_update",
     )
 
-    assert result["action"] == "updated"
-    assert not (project_skills / "poem-workflow").exists()
+    # Should create new since directory names differ — no similarity matching
+    assert result["action"] == "created"
+    assert (project_skills / "poem-workflow" / "SKILL.md").exists()
 
-    updated_content = (existing / "SKILL.md").read_text(encoding="utf-8")
-    updated_meta = parse_frontmatter(updated_content)
-    assert "Evolving Updates" in updated_content
-    assert updated_meta.get("evolving") is True
-    assert "poem-writer" in (updated_meta.get("merged_from") or [])
+    # Original should remain unchanged
+    existing_content = (existing / "SKILL.md").read_text(encoding="utf-8")
+    assert "Evolving Updates" not in existing_content
 
 
 def test_create_new_keeps_existing_skill_and_creates_new_dir(tmp_path: Path) -> None:
@@ -107,32 +144,8 @@ def test_create_new_keeps_existing_skill_and_creates_new_dir(tmp_path: Path) -> 
     assert "Evolving Updates" not in existing_content
 
 
-def test_consolidate_project_skills_merges_and_archives_similar_entries(tmp_path: Path) -> None:
-    """Consolidation should merge very similar skills and archive superseded directories."""
-    project_skills = tmp_path / ".agent" / "skills"
-    skill_a = project_skills / "poem-writing"
-    skill_b = project_skills / "poem-writer"
+def test_consolidate_mode_normalizes_to_create_or_update(tmp_path: Path) -> None:
+    """Removed 'consolidate' mode should fall back to 'create_or_update'."""
+    from massgen.filesystem_manager.skills_manager import normalize_skill_lifecycle_mode
 
-    _write_skill(
-        skill_a,
-        name="poem-writing",
-        description="Write poems with constraints and rhyme",
-        body="# Poem Writing\nUse iterative drafting.",
-    )
-    _write_skill(
-        skill_b,
-        name="poem-writer",
-        description="Workflow for writing constrained poems",
-        body="# Poem Writer\nDraft then refine with meter checks.",
-    )
-
-    merges = consolidate_project_skills(project_skills, min_similarity=0.60)
-
-    assert merges
-    active_count = int(skill_a.exists()) + int(skill_b.exists())
-    assert active_count == 1
-
-    archive_root = project_skills / "_archive"
-    assert archive_root.exists()
-    archived_skill_files = list(archive_root.glob("**/SKILL.md"))
-    assert archived_skill_files
+    assert normalize_skill_lifecycle_mode("consolidate") == "create_or_update"

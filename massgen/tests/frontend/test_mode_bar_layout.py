@@ -10,6 +10,7 @@ import pytest
 
 from massgen.frontend.displays import textual_terminal_display as textual_display_module
 from massgen.frontend.displays.textual_terminal_display import TextualTerminalDisplay
+from massgen.frontend.displays.textual_widgets.mode_bar import ModeToggle
 
 
 def _widget_text(widget: object) -> str:
@@ -25,9 +26,60 @@ def _strip_text(line: object) -> str:
     return "".join(getattr(segment, "text", "") for segment in segments)
 
 
+def test_mode_toggle_compact_labels_do_not_keep_wide_padding() -> None:
+    """Compact mode should avoid wide fixed padding to preserve horizontal space."""
+    toggle = ModeToggle(
+        mode_type="plan",
+        initial_state="normal",
+        states=["normal", "plan", "execute", "analysis"],
+    )
+    toggle.set_compact(True)
+
+    rendered = str(toggle.render())
+    assert "Norm" in rendered
+    assert "Norm   " not in rendered
+
+
+def test_mode_toggle_compact_analysis_label_is_anly() -> None:
+    """Compact analysis label should use a short neutral token."""
+    toggle = ModeToggle(
+        mode_type="plan",
+        initial_state="analysis",
+        states=["normal", "plan", "execute", "analysis"],
+    )
+    toggle.set_compact(True)
+
+    rendered = str(toggle.render())
+    assert "Anly" in rendered
+    assert "Analyze" not in rendered
+
+
+def test_mode_toggle_persona_off_label_is_neutral() -> None:
+    """Persona toggle should avoid explicit OFF text; inactive state is shown via styling."""
+    compact_toggle = ModeToggle(
+        mode_type="personas",
+        initial_state="off",
+        states=["off", "on"],
+    )
+    compact_toggle.set_compact(True)
+    compact_rendered = str(compact_toggle.render())
+    assert "Persona Off" not in compact_rendered
+    assert "Persona" in compact_rendered
+
+    full_toggle = ModeToggle(
+        mode_type="personas",
+        initial_state="off",
+        states=["off", "on"],
+    )
+    full_toggle.set_compact(False)
+    full_rendered = str(full_toggle.render())
+    assert "Personas OFF" not in full_rendered
+    assert "Personas" in full_rendered
+
+
 @pytest.mark.asyncio
 async def test_mode_bar_stays_within_input_header_at_narrow_width(monkeypatch, tmp_path: Path) -> None:
-    """Mode bar should stay in bounds while keeping all toggles visible."""
+    """Mode bar should stay in bounds while keeping primary toggle labels visible."""
     monkeypatch.setattr(textual_display_module, "get_event_emitter", lambda: None)
     monkeypatch.setattr(
         textual_display_module,
@@ -55,12 +107,14 @@ async def test_mode_bar_stays_within_input_header_at_narrow_width(monkeypatch, t
     )
     display._app = app
 
-    async with app.run_test(headless=True, size=(60, 24)) as pilot:
+    async with app.run_test(headless=True, size=(90, 24)) as pilot:
         await pilot.pause()
 
         # Max out mode-bar content to mimic the reported overlap case.
         app._update_vim_indicator(False)  # insert mode -> input hint visible
         assert app._mode_bar is not None
+        app._mode_bar.set_plan_mode("analysis")
+        app._mode_bar.set_coordination_mode("decomposition")
         app._mode_bar.set_skills_available(True)
         await pilot.pause()
 
@@ -76,28 +130,111 @@ async def test_mode_bar_stays_within_input_header_at_narrow_width(monkeypatch, t
         assert mode_right <= header_right
         assert mode_bar.region.height >= 2
 
-        # Core mode toggles should remain present/clickable even in compact layout.
-        for toggle_id in (
-            "#plan_toggle",
-            "#agent_toggle",
-            "#refinement_toggle",
-            "#coordination_toggle",
-            "#persona_toggle",
-        ):
+        # Primary run-mode toggles should remain visible, not clipped to icon-only.
+        for toggle_id in ("#plan_toggle", "#agent_toggle", "#refinement_toggle", "#coordination_toggle"):
             toggle = app.query_one(toggle_id)
             assert toggle.region.width > 0
             assert toggle.region.height > 0
+            assert toggle.region.x + toggle.region.width <= mode_right
 
-        # Narrow layouts should stack rows to avoid overlap.
+        assert any(token in _widget_text(app.query_one("#plan_toggle")) for token in ("Anly", "Analyze"))
+        assert "Decomp" in _widget_text(app.query_one("#coordination_toggle"))
+
+        # Row layout may remain single-line if controls fit after responsive compaction.
         row_primary = app.query_one("#mode_row_primary")
         row_secondary = app.query_one("#mode_row_secondary")
-        assert row_secondary.region.y > row_primary.region.y
+        assert row_secondary.region.y >= row_primary.region.y
+
+        # Meta panel should move below mode controls on narrow layouts.
+        input_modes_row = app.query_one("#input_modes_row")
+        input_meta_panel = app.query_one("#input_meta_panel")
+        assert "meta-stacked" in input_modes_row.classes
+        assert input_meta_panel.region.y > mode_bar.region.y
 
         vim_indicator = app.query_one("#vim_indicator")
         input_hint = app.query_one("#input_hint")
         assert "Insert" in _widget_text(vim_indicator)
         assert "Ctrl+P" in _widget_text(input_hint)
-        assert mode_bar.region.y <= input_hint.region.y < mode_bar.region.y + mode_bar.region.height
+        assert input_hint.region.y > mode_bar.region.y
+
+
+@pytest.mark.asyncio
+async def test_analysis_mode_stacks_meta_panel_at_standard_narrow_width(monkeypatch, tmp_path: Path) -> None:
+    """Analysis mode should prioritize run controls and stack right-side meta hints earlier."""
+    monkeypatch.setattr(textual_display_module, "get_event_emitter", lambda: None)
+    monkeypatch.setattr(
+        textual_display_module,
+        "get_user_settings",
+        lambda: SimpleNamespace(theme="dark", vim_mode=True),
+    )
+
+    display = TextualTerminalDisplay(
+        ["agent_a", "agent_b", "agent_c"],
+        agent_models={
+            "agent_a": "gpt-5.3-codex",
+            "agent_b": "claude-opus-4-6",
+            "agent_c": "gemini-3-flash-preview",
+        },
+        keyboard_interactive_mode=False,
+        output_dir=tmp_path,
+        theme="dark",
+    )
+    app = textual_display_module.TextualApp(
+        display=display,
+        question="Welcome! Type your question below...",
+        buffers=display._buffers,
+        buffer_lock=display._buffer_lock,
+        buffer_flush_interval=display.buffer_flush_interval,
+    )
+    display._app = app
+
+    async with app.run_test(headless=True, size=(150, 24)) as pilot:
+        await pilot.pause()
+        app._update_vim_indicator(False)
+        assert app._mode_bar is not None
+        app._mode_state.plan_mode = "analysis"
+        app._mode_bar.set_plan_mode("analysis")
+        app._refresh_input_modes_row_layout()
+        await pilot.pause()
+
+        input_modes_row = app.query_one("#input_modes_row")
+        input_meta_panel = app.query_one("#input_meta_panel")
+        mode_bar = app.query_one("#mode_bar")
+
+        assert "meta-stacked" in input_modes_row.classes
+        assert input_meta_panel.region.y > mode_bar.region.y
+        assert any(token in _widget_text(app.query_one("#plan_toggle")) for token in ("Anly", "Analyze", "Analyzing"))
+
+
+@pytest.mark.asyncio
+async def test_mode_bar_does_not_render_skills_button(monkeypatch, tmp_path: Path) -> None:
+    """Skills manager should no longer appear as a mode-bar control."""
+    monkeypatch.setattr(textual_display_module, "get_event_emitter", lambda: None)
+    monkeypatch.setattr(
+        textual_display_module,
+        "get_user_settings",
+        lambda: SimpleNamespace(theme="dark", vim_mode=False),
+    )
+
+    display = TextualTerminalDisplay(
+        ["agent_a"],
+        agent_models={"agent_a": "gpt-5.3-codex"},
+        keyboard_interactive_mode=False,
+        output_dir=tmp_path,
+        theme="dark",
+    )
+    app = textual_display_module.TextualApp(
+        display=display,
+        question="Welcome! Type your question below...",
+        buffers=display._buffers,
+        buffer_lock=display._buffer_lock,
+        buffer_flush_interval=display.buffer_flush_interval,
+    )
+    display._app = app
+
+    async with app.run_test(headless=True, size=(120, 24)) as pilot:
+        await pilot.pause()
+        assert len(app.query("#skills_btn")) == 0
 
 
 @pytest.mark.asyncio
@@ -151,7 +288,7 @@ async def test_mode_bar_uses_single_row_when_space_is_available(monkeypatch, tmp
 
         app._mode_bar.set_plan_mode("analysis")
         await pilot.pause()
-        assert any(token in _widget_text(app.query_one("#plan_toggle")) for token in ("Analyzing", "Analyze"))
+        assert any(token in _widget_text(app.query_one("#plan_toggle")) for token in ("Analyzing", "Analyze", "Anly"))
 
 
 @pytest.mark.asyncio
@@ -260,7 +397,9 @@ async def test_welcome_screen_reflows_for_narrow_terminals(monkeypatch, tmp_path
         assert "anthropic/claude-opus-4-6" in agents_text
         assert "google/gemini-3-flash-preview" in agents_text
         assert "Ctrl+P" in input_hint_text
-        assert "Paths" in input_hint_text
+        assert "CWD" in input_hint_text
+        assert Path.cwd().name in input_hint_text
+        assert len(input_hint_text) <= 42
         assert input_header.region.y <= vim_indicator.region.y < input_header.region.y + input_header.region.height
         assert input_header.region.y <= input_hint.region.y < input_header.region.y + input_header.region.height
         assert input_hint.region.y > vim_indicator.region.y
@@ -337,11 +476,14 @@ async def test_context_hint_persists_after_first_prompt(monkeypatch, tmp_path: P
         await pilot.pause()
         input_hint = app.query_one("#input_hint")
         assert "Ctrl+P" in _widget_text(input_hint)
+        assert "CWD" in _widget_text(input_hint)
+        assert Path.cwd().name in _widget_text(input_hint)
 
         app._dismiss_welcome()
         await pilot.pause()
         assert "hidden" not in input_hint.classes
         assert "Ctrl+P" in _widget_text(input_hint)
+        assert "CWD" in _widget_text(input_hint)
 
 
 @pytest.mark.asyncio

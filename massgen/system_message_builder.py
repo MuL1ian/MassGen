@@ -261,7 +261,7 @@ class SystemMessageBuilder:
 
             # Add skills section with all skills (both project and builtin)
             # Builtin skills are now treated the same as project skills - invoke with openskills read
-            builder.add_section(SkillsSection(all_skills))
+            builder.add_section(SkillsSection(all_skills, skills_dir=skills_dir))
 
         # PRIORITY 5 (HIGH): Memory - Proactive usage
         if enable_memory:

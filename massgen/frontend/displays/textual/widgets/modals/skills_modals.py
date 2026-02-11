@@ -34,11 +34,13 @@ class SkillsModal(BaseModal):
         skills_by_location: Dict[str, List[Dict[str, Any]]],
         enabled_skill_names: Optional[List[str]],
         include_previous_session_skills: bool,
+        registry_content: Optional[str] = None,
     ) -> None:
         super().__init__()
         self._skills_by_location = {location: list(skills_by_location.get(location, [])) for location in self.LOCATION_ORDER}
         self._enabled_skill_names = enabled_skill_names
         self._include_previous_session_skills = include_previous_session_skills
+        self._registry_content = registry_content
         self._checkbox_to_meta: Dict[str, Dict[str, str]] = {}
         self._previous_session_checkbox_ids: Set[str] = set()
 
@@ -80,6 +82,12 @@ class SkillsModal(BaseModal):
                 f"{total} skill(s) discovered • grouped by source • session-only toggles",
                 id="skills_modal_summary",
             )
+            if self._registry_content:
+                yield Static(
+                    self._registry_content,
+                    id="skills_modal_registry",
+                    classes="modal-registry-section",
+                )
             yield Checkbox(
                 "Include evolving skills from previous sessions",
                 value=self._include_previous_session_skills,

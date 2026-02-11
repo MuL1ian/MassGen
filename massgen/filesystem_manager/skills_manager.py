@@ -9,13 +9,12 @@ Skills extend agent capabilities with specialized knowledge, workflows, and tool
 import re
 import shutil
 from datetime import datetime, timezone
-from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
-VALID_SKILL_LIFECYCLE_MODES = {"create_new", "create_or_update", "consolidate"}
+VALID_SKILL_LIFECYCLE_MODES = {"create_new", "create_or_update"}
 
 
 def scan_skills(
@@ -303,63 +302,6 @@ def _build_skill_content(metadata: Dict[str, Any], body: str) -> str:
     return f"---\n{dumped}\n---\n"
 
 
-def _tokenize_for_similarity(text: str) -> Set[str]:
-    """Tokenize text for rough semantic overlap scoring."""
-    return {token for token in re.split(r"[^a-z0-9]+", (text or "").lower()) if token}
-
-
-def compute_skill_similarity(candidate: Dict[str, Any], existing: Dict[str, Any]) -> float:
-    """Compute similarity score between two skill descriptors."""
-    candidate_name = str(candidate.get("name", "") or "").strip().lower()
-    existing_name = str(existing.get("name", "") or "").strip().lower()
-    candidate_desc = str(candidate.get("description", "") or "").strip().lower()
-    existing_desc = str(existing.get("description", "") or "").strip().lower()
-
-    if not candidate_name or not existing_name:
-        return 0.0
-
-    name_ratio = SequenceMatcher(None, candidate_name, existing_name).ratio()
-    desc_ratio = SequenceMatcher(None, candidate_desc, existing_desc).ratio() if candidate_desc and existing_desc else 0.0
-
-    candidate_name_tokens = _tokenize_for_similarity(candidate_name)
-    existing_name_tokens = _tokenize_for_similarity(existing_name)
-    shared_name_tokens = candidate_name_tokens & existing_name_tokens
-    name_jaccard = len(shared_name_tokens) / len(candidate_name_tokens | existing_name_tokens) if candidate_name_tokens and existing_name_tokens else 0.0
-
-    candidate_tokens = _tokenize_for_similarity(f"{candidate_name} {candidate_desc}")
-    existing_tokens = _tokenize_for_similarity(f"{existing_name} {existing_desc}")
-    if candidate_tokens and existing_tokens:
-        jaccard = len(candidate_tokens & existing_tokens) / len(candidate_tokens | existing_tokens)
-    else:
-        jaccard = 0.0
-
-    score = (0.60 * name_ratio) + (0.15 * desc_ratio) + (0.15 * jaccard) + (0.10 * name_jaccard)
-    if candidate_name in existing_name or existing_name in candidate_name:
-        score = min(1.0, score + 0.1)
-    elif shared_name_tokens:
-        score = min(1.0, score + 0.08)
-    return score
-
-
-def find_best_skill_match(
-    candidate: Dict[str, Any],
-    existing_skills: List[Dict[str, Any]],
-    min_similarity: float = 0.68,
-) -> Optional[Dict[str, Any]]:
-    """Find best existing project skill match for candidate metadata."""
-    best_match: Optional[Dict[str, Any]] = None
-    best_score = 0.0
-    for existing in existing_skills:
-        score = compute_skill_similarity(candidate, existing)
-        if score > best_score:
-            best_score = score
-            best_match = existing
-
-    if best_match is None or best_score < min_similarity:
-        return None
-    return best_match
-
-
 def _parse_skill_file(skill_file: Path) -> Tuple[Dict[str, Any], str]:
     """Load metadata + body from SKILL.md file."""
     content = skill_file.read_text(encoding="utf-8")
@@ -454,7 +396,6 @@ def apply_analysis_skill_lifecycle(
     project_skills_root: Path,
     lifecycle_mode: str = "create_or_update",
     preexisting_skill_dirs: Optional[Set[str]] = None,
-    min_similarity: float = 0.68,
 ) -> Dict[str, Any]:
     """Apply analysis lifecycle mode for one source skill directory."""
     mode = normalize_skill_lifecycle_mode(lifecycle_mode)
@@ -482,103 +423,59 @@ def apply_analysis_skill_lifecycle(
         _ensure_evolving_metadata(dest_dir / "SKILL.md", fallback_origin=source_origin)
         return {"action": "created", "target": str(dest_dir), "name": source_name}
 
-    # create_or_update / consolidate: prefer same directory target when available.
+    # create_or_update: merge when same directory name exists, otherwise create new.
     if dest_dir.exists() and (dest_dir / "SKILL.md").exists():
         _merge_skill_files(dest_dir / "SKILL.md", skill_file)
         return {"action": "updated", "target": str(dest_dir), "name": source_name}
-
-    existing_skills = _scan_directory(project_skills_root, location="project")
-    candidate = {
-        "name": source_name,
-        "description": str(source_meta.get("description", "") or ""),
-    }
-    best_match = find_best_skill_match(candidate, existing_skills, min_similarity=min_similarity)
-    if best_match and best_match.get("source_path"):
-        target_skill_file = Path(str(best_match["source_path"]))
-        if target_skill_file.exists():
-            _merge_skill_files(target_skill_file, skill_file)
-            return {
-                "action": "updated",
-                "target": str(target_skill_file.parent),
-                "name": source_name,
-                "matched": str(best_match.get("name", "")),
-            }
 
     shutil.copytree(str(source_skill_dir), str(dest_dir))
     _ensure_evolving_metadata(dest_dir / "SKILL.md", fallback_origin=source_origin)
     return {"action": "created", "target": str(dest_dir), "name": source_name}
 
 
-def _archive_skill_directory(skill_dir: Path, archive_root: Path) -> Path:
-    """Move merged skill directory into archive folder."""
-    archive_root.mkdir(parents=True, exist_ok=True)
-    destination = archive_root / skill_dir.name
-    if destination.exists():
-        suffix = datetime.now(timezone.utc).strftime("%H%M%S")
-        destination = archive_root / f"{skill_dir.name}_{suffix}"
-    shutil.move(str(skill_dir), str(destination))
-    return destination
+# ---------------------------------------------------------------------------
+# Git tracking helpers for .agent/skills/
+# ---------------------------------------------------------------------------
 
 
-def consolidate_project_skills(
-    project_skills_root: Path,
-    min_similarity: float = 0.86,
-) -> List[Dict[str, str]]:
-    """Consolidate similar project skills by merging and archiving duplicates."""
-    if not project_skills_root.exists():
-        return []
+def check_skills_git_tracking(project_root: Path) -> str:
+    """Check whether .agent/skills/ is tracked or ignored by git.
 
-    merged: List[Dict[str, str]] = []
-    merged_dirs: Set[Path] = set()
-    archive_batch = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    archive_root = project_skills_root / "_archive" / archive_batch
+    Args:
+        project_root: Root of the project (where .gitignore lives).
 
-    # Re-scan each loop since merges/archives mutate the directory set.
-    while True:
-        skills = sorted(
-            _scan_directory(project_skills_root, location="project"),
-            key=lambda item: str(item.get("name", "")).lower(),
-        )
-        candidates = [item for item in skills if item.get("source_path")]
-        found_pair = False
+    Returns:
+        "tracked" - skills dir is not gitignored (or negation pattern present)
+        "untracked" - .agent/ is gitignored without a skills negation
+        "no_git" - no .gitignore found
+    """
+    gitignore = project_root / ".gitignore"
+    if not gitignore.exists():
+        return "no_git"
 
-        for i, left in enumerate(candidates):
-            left_path = Path(str(left.get("source_path", ""))).parent
-            if left_path in merged_dirs or not left_path.exists():
-                continue
-            for right in candidates[i + 1 :]:
-                right_path = Path(str(right.get("source_path", ""))).parent
-                if right_path in merged_dirs or not right_path.exists():
-                    continue
+    lines = gitignore.read_text().splitlines()
 
-                score = compute_skill_similarity(left, right)
-                if score < min_similarity:
-                    continue
+    agent_ignored = False
+    skills_negated = False
 
-                # Keep lexicographically-first directory as canonical target.
-                target_path, source_path = sorted([left_path, right_path], key=lambda p: str(p).lower())
-                target_skill_file = target_path / "SKILL.md"
-                source_skill_file = source_path / "SKILL.md"
-                if not (target_skill_file.exists() and source_skill_file.exists()):
-                    continue
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        # Check if .agent/ is ignored (with or without leading /)
+        if stripped in (".agent/", "/.agent/", ".agent", "/.agent"):
+            agent_ignored = True
+        # Check for negation of skills
+        if stripped in ("!.agent/skills/", "!.agent/skills/**", "!/.agent/skills/", "!/.agent/skills/**"):
+            skills_negated = True
 
-                _merge_skill_files(target_skill_file, source_skill_file)
-                archived_to = _archive_skill_directory(source_path, archive_root)
+    if not agent_ignored:
+        return "tracked"
+    if agent_ignored and skills_negated:
+        return "tracked"
+    return "untracked"
 
-                merged.append(
-                    {
-                        "target": str(target_path),
-                        "source": str(source_path),
-                        "archived_to": str(archived_to),
-                    },
-                )
-                merged_dirs.add(source_path)
-                found_pair = True
-                break
-            if found_pair:
-                break
 
-        if not found_pair:
-            break
-
-    return merged
+def get_skills_gitignore_suggestion() -> str:
+    """Return the gitignore lines needed to track .agent/skills/ while keeping .agent/ ignored."""
+    return "!.agent/skills/\n!.agent/skills/**"

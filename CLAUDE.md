@@ -39,6 +39,11 @@ When planning or creating specs, use AskUserQuestions to ensure you align with t
 
 After implementing any feature that involves passing parameters through multiple layers (e.g., backend -> manager -> component), always verify the full wiring chain end-to-end by tracing the parameter from its origin to its final usage site. Do not rely solely on unit tests passing -- add an integration smoke test or assertion that the parameter actually arrives at its destination, not just that the downstream logic works when the parameter is provided.
 
+## Anti-Patterns
+
+- **No keyword/heuristic matching for categorization or similarity.** Avoid writing code that infers categories, detects similarity, or organizes content using keyword lists, Jaccard similarity, Levenshtein distance, or similar heuristics. These approaches are brittle and produce low-quality results. Use LLM-based approaches instead -- that's the whole point of this project.
+- **No explicit tool call syntax in prompts.** Do not hardcode specific tool/function call syntax (e.g., `tool_name(param="value")`) in system prompts, skill instructions, or user-facing text. Models determine the correct calling convention from tool schemas. Describe what the agent should do in natural language instead. Hardcoded syntax is fragile across providers and couples prompts to implementation details.
+
 ## Test-Driven Development (TDD)
 
 **TDD is the default development methodology for this project.** With 121 test files and 1580+ tests across unit, integration, frontend, and snapshot layers, the test infrastructure is mature. All non-trivial work MUST follow the TDD cycle.

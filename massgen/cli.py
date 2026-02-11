@@ -777,10 +777,6 @@ def get_log_analysis_prompt_prefix(
 - Always create a new skill directory in `.agent/skills/`.
 - Do not modify existing skills in this mode.
 """,
-            "consolidate": """- Lifecycle mode: consolidate.
-- Prefer updating existing matching skills over creating new ones.
-- Consolidate overlapping skills and merge duplicate/near-duplicate workflows when appropriate.
-""",
         }.get(normalized_lifecycle_mode, "")
         profile_section = f"""## Profile Focus: USER (skills-first)
 
@@ -814,6 +810,9 @@ When creating a skill from analysis findings:
 3. Include YAML frontmatter with at least `name`, `description`, `massgen_origin`, and `evolving`.
 4. Focus the skill content on the actual workflow and techniques, not on meta-analysis.
 5. Respect lifecycle mode `{normalized_lifecycle_mode}` when deciding whether to update existing skills, create a new one, or consolidate overlaps.
+6. If a SKILL_REGISTRY.md exists in `.agent/skills/`, append the new skill to it under a "## Recently Added" section \
+with format: `- **skill-name** (project): description`. This ensures the skill is visible to agents before the next \
+full registry reorganization.
 """
     else:
         profile_section = """## Profile Focus: DEV (internals-first)
@@ -842,6 +841,89 @@ General constraints:
 - If evidence is incomplete, state exactly what is missing and why it matters.
 
 USER'S ANALYSIS REQUEST:
+"""
+
+
+def get_skill_organization_prompt_prefix() -> str:
+    """Generate the user prompt prefix for skill organization analysis mode.
+
+    This prompt instructs the agent to read all installed skills, identify
+    overlapping or confusable skills, merge where appropriate, and produce
+    a compact SKILL_REGISTRY.md routing guide.
+
+    Returns:
+        Prefix instructions to prepend to the user's question.
+    """
+    return """# SKILL ORGANIZATION MODE
+
+You are in MassGen skill organization mode. Your task is to analyze, reorganize,
+and catalog all installed skills.
+
+IMPORTANT: Start by reading the skill-organizer skill's instructions from
+.agent/skills/skill-organizer/SKILL.md for the detailed workflow.
+
+## Step 1: Inventory all skills
+
+List all skill directories in the .agent/skills/ folder. Then read each skill's
+SKILL.md file to understand what it does, its scope, and its quality.
+
+## Step 2: Identify overlapping or confusable skills
+
+Look for:
+- Skills that do the same thing with slightly different names or descriptions
+- Skills whose scopes overlap significantly (one is a subset of another)
+- Skills that could be combined into a single broader skill with multiple sections
+
+## Step 3: Merge into hierarchical parent skills
+
+For each group of overlapping or related skills, create a single parent skill
+with sections covering each sub-capability:
+- Choose a broader parent name (e.g., `web-app-dev` instead of separate
+  `react-frontend`, `nodejs-backend`, `web-testing`)
+- Write one comprehensive SKILL.md with clearly labeled sections for each
+  sub-capability
+- Move bundled resources into subdirectories of the parent skill directory
+- Remove the redundant skill directories
+
+When merging, prefer the skill with:
+- Better-quality instructions and examples
+- More complete bundled resources
+- A more descriptive, general name
+
+Fewer, richer skills with sections beats many shallow skills.
+
+## Step 4: Generate SKILL_REGISTRY.md
+
+Write a compact `SKILL_REGISTRY.md` to `.agent/skills/SKILL_REGISTRY.md` that serves
+as a routing guide for skill selection. For each skill, include:
+
+- **What it does** in one sentence
+- **Use when**: trigger condition — when should the agent read this skill?
+- **Sections**: what sub-capabilities/sections live inside (for hierarchical skills)
+
+Group skills by purpose/domain (not alphabetically). Stay under 50 entries total.
+Include a "Recently Added" section for uncategorized new skills.
+
+The registry is injected into agent system prompts to help them pick the right skill
+without loading all skill details upfront.
+
+## Step 5: Report what you did
+
+Summarize:
+- How many skills were found
+- Which skills were merged (old names → new name)
+- Which skills were kept as-is
+- The final registry structure
+
+## Constraints
+
+- Do NOT use keyword matching, Jaccard similarity, or heuristic categorization.
+  Use your understanding of what each skill does.
+- Be aggressive about merging — fewer high-quality skills is better than many overlapping ones.
+- Preserve all bundled resources (templates, examples, configs) during merges.
+- The SKILL_REGISTRY.md is a routing guide, not documentation. Keep it concise.
+
+USER'S ORGANIZATION REQUEST:
 """
 
 
@@ -5523,7 +5605,7 @@ async def run_textual_interactive_mode(
                 return True
 
             analysis_context_path: Optional[str] = None
-            if mode_state and mode_state.plan_mode == "analysis":
+            if mode_state and mode_state.plan_mode == "analysis" and getattr(mode_state.analysis_config, "target", "log") == "log":
                 selected_log_dir = getattr(mode_state.analysis_config, "selected_log_dir", None)
                 if selected_log_dir:
                     resolved_log_dir = Path(selected_log_dir).resolve()
@@ -5989,25 +6071,30 @@ async def run_textual_interactive_mode(
                                 f"[Textual] Plan mode: Captured {len(mode_state.planning_context_paths)} context paths for execution",
                             )
                 elif mode_state.plan_mode == "analysis":
-                    analysis_profile = mode_state.analysis_config.profile
-                    analysis_log_dir = mode_state.analysis_config.selected_log_dir
-                    analysis_turn = mode_state.analysis_config.selected_turn
-                    question = (
-                        get_log_analysis_prompt_prefix(
-                            log_dir=analysis_log_dir,
-                            turn=analysis_turn,
-                            profile=analysis_profile,
-                            skill_lifecycle_mode=skill_lifecycle_mode,
+                    analysis_target = getattr(mode_state.analysis_config, "target", "log")
+                    if analysis_target == "skills":
+                        question = get_skill_organization_prompt_prefix() + question
+                        logger.info("[Textual] Analysis mode: skill organization (prepended organization instructions)")
+                    else:
+                        analysis_profile = mode_state.analysis_config.profile
+                        analysis_log_dir = mode_state.analysis_config.selected_log_dir
+                        analysis_turn = mode_state.analysis_config.selected_turn
+                        question = (
+                            get_log_analysis_prompt_prefix(
+                                log_dir=analysis_log_dir,
+                                turn=analysis_turn,
+                                profile=analysis_profile,
+                                skill_lifecycle_mode=skill_lifecycle_mode,
+                            )
+                            + question
                         )
-                        + question
-                    )
-                    logger.info(
-                        "[Textual] Analysis mode: prepended analysis instructions "
-                        f"(profile={analysis_profile}, log_dir={analysis_log_dir}, turn={analysis_turn}, "
-                        f"skills_filter={'all' if enabled_skill_names is None else len(enabled_skill_names)}, "
-                        f"evolving={'on' if include_previous_session_skills else 'off'}, "
-                        f"lifecycle={skill_lifecycle_mode})",
-                    )
+                        logger.info(
+                            "[Textual] Analysis mode: prepended analysis instructions "
+                            f"(profile={analysis_profile}, log_dir={analysis_log_dir}, turn={analysis_turn}, "
+                            f"skills_filter={'all' if enabled_skill_names is None else len(enabled_skill_names)}, "
+                            f"evolving={'on' if include_previous_session_skills else 'off'}, "
+                            f"lifecycle={skill_lifecycle_mode})",
+                        )
 
             # Get generated personas from session info if persist_across_turns is enabled
             # (matching Rich terminal path setup)

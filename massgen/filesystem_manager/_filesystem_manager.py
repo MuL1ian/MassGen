@@ -481,6 +481,15 @@ class FilesystemManager:
                 massgen_skills,
                 load_previous_session_skills=load_previous_session_skills,
             )
+        # For agents without command-line execution (non-Docker),
+        # still add the skills directory to allowed paths for filesystem MCP read access
+        elif not self.docker_manager and skills_directory:
+            from ._base import Permission
+
+            skills_path = Path(skills_directory).resolve()
+            if skills_path.exists() and skills_path.is_dir():
+                self.path_permission_manager.add_path(skills_path, Permission.READ, "skills_read")
+                self.local_skills_directory = skills_path
 
     def recreate_container_for_write_access(
         self,
@@ -554,7 +563,9 @@ class FilesystemManager:
         if self.session_mount_manager:
             session_mount = self.session_mount_manager.get_mount_config()
 
-        # Recreate the container with write-enabled context paths
+        # Recreate the container with write-enabled context paths and writable skills dir.
+        # skills_writable=True mounts the actual project skills dir with rw access instead
+        # of creating a read-only temp merged copy, so the agent can persist skill changes.
         docker_skills_dir = self.docker_manager.create_container(
             agent_id=self.agent_id,
             workspace_path=self.cwd,
@@ -566,6 +577,7 @@ class FilesystemManager:
             shared_tools_directory=self.shared_tools_base,
             load_previous_session_skills=load_previous_session_skills,
             extra_mount_paths=extra_mount_paths,
+            skills_writable=True,
         )
 
         logger.info(
@@ -1592,15 +1604,6 @@ class FilesystemManager:
                     "generate_and_store_audio_no_input_audios",
                 ],
             )
-
-        backend_type_normalized = str(backend_type or "").strip().lower()
-        disable_skills_tool = bool(self.enable_mcp_command_line) or backend_type_normalized in {"codex", "claude_code"}
-        if disable_skills_tool:
-            if "exclude_tools" not in config:
-                config["exclude_tools"] = []
-            if "skills" not in config["exclude_tools"]:
-                config["exclude_tools"].append("skills")
-            config.setdefault("env", {})["MASSGEN_DISABLE_SKILLS_TOOL"] = "1"
 
         return config
 

@@ -76,6 +76,7 @@ try:
         AnalysisProfileChanged,
         AnalysisSkillLifecycleChanged,
         AnalysisTargetChanged,
+        AnalysisTargetTypeChanged,
         BroadcastModeChanged,
         CompletionFooter,
         ContextPathsClicked,
@@ -2770,7 +2771,7 @@ if TEXTUAL_AVAILABLE:
                 self.coordination_display.default_load_previous_session_skills,
             )
             lifecycle_mode = str(self.coordination_display.default_skill_lifecycle_mode).strip().lower()
-            if lifecycle_mode not in {"create_new", "create_or_update", "consolidate"}:
+            if lifecycle_mode not in {"create_new", "create_or_update"}:
                 lifecycle_mode = "create_or_update"
             self._mode_state.analysis_config.skill_lifecycle_mode = lifecycle_mode
             if self.coordination_display.default_coordination_mode == "decomposition":
@@ -3221,9 +3222,10 @@ if TEXTUAL_AVAILABLE:
                 self._mode_bar.set_coordination_enabled(self._mode_state.agent_mode != "single")
                 self._mode_bar.set_parallel_personas_enabled(self._mode_state.parallel_personas_enabled)
             self._refresh_skills_button_state()
+            self._refresh_input_modes_row_layout()
             # Re-run once after the first layout pass so width-dependent hint
             # truncation can use settled regions.
-            self.call_after_refresh(self._refresh_welcome_context_hint)
+            self.call_after_refresh(lambda: (self._refresh_welcome_context_hint(), self._refresh_input_modes_row_layout()))
             # Auto-focus input field on startup
             if self.question_input:
                 self.question_input.focus()
@@ -4332,26 +4334,70 @@ if TEXTUAL_AVAILABLE:
                 self._input_hint.update(path_context)
                 self._input_hint.remove_class("hidden")
 
+            indicator_text = self._build_vim_indicator_text(vim_normal)
             if vim_normal is None:
                 # Vim mode off - keep explicit mode affordance.
-                self._vim_indicator.update("Vim off • /vim on")
+                self._vim_indicator.update(indicator_text)
                 self._vim_indicator.remove_class("vim-normal-indicator")
                 self._vim_indicator.remove_class("vim-insert-indicator")
             elif vim_normal:
                 # Normal mode line (top row in right panel).
-                self._vim_indicator.update("Normal • i/a insert • hjkl • /vim off")
+                self._vim_indicator.update(indicator_text)
                 self._vim_indicator.remove_class("vim-insert-indicator")
                 self._vim_indicator.add_class("vim-normal-indicator")
             else:
                 # Insert mode line (top row in right panel).
-                self._vim_indicator.update("Insert • Esc normal • /vim off")
+                self._vim_indicator.update(indicator_text)
                 self._vim_indicator.remove_class("vim-normal-indicator")
                 self._vim_indicator.add_class("vim-insert-indicator")
+
+            self._refresh_input_modes_row_layout()
 
             # Force refresh to ensure visual update
             self._vim_indicator.refresh(layout=True)
             if hasattr(self, "_input_hint"):
                 self._input_hint.refresh()
+
+        def _refresh_input_modes_row_layout(self) -> None:
+            """Stack meta hints below mode controls when horizontal space is tight."""
+            try:
+                input_modes_row = self.query_one("#input_modes_row", Horizontal)
+            except Exception:
+                return
+
+            width = self.size.width or (self.app.size.width if self.app else 120)
+            plan_mode = getattr(getattr(self, "_mode_state", None), "plan_mode", "normal")
+            # Plan/execute/analysis modes expose longer run-control labels and
+            # an extra settings affordance in the left bar; stack the right meta
+            # panel earlier to keep run controls readable in standard terminals.
+            if plan_mode in {"plan", "execute", "analysis"}:
+                stack_meta = width <= 150
+            else:
+                # Keep behavior deterministic for snapshots while preserving
+                # horizontal space in normal mode.
+                stack_meta = width < 130
+
+            if stack_meta:
+                input_modes_row.add_class("meta-stacked")
+            else:
+                input_modes_row.remove_class("meta-stacked")
+
+        def _build_vim_indicator_text(self, vim_normal: bool | None) -> str:
+            """Build a width-aware vim status line for the input meta panel."""
+            width = self.size.width or (self.app.size.width if self.app else 120)
+            if vim_normal is None:
+                return "Vim off • /vim on"
+
+            if vim_normal:
+                if width < 92:
+                    return "Normal • i/a • hjkl"
+                if width < 120:
+                    return "Normal • i/a insert • /vim off"
+                return "Normal • i/a insert • hjkl • /vim off"
+
+            if width < 92:
+                return "Insert • Esc normal"
+            return "Insert • Esc normal • /vim off"
 
         def _show_help_modal(self) -> None:
             """Show help information in a modal."""
@@ -6875,6 +6921,7 @@ Type your question and press Enter to ask the agents.
             elif event.mode_type == "personas":
                 self._handle_parallel_persona_mode_change(event.value == "on")
 
+            self._refresh_input_modes_row_layout()
             event.stop()
 
         def on_override_requested(self, event: OverrideRequested) -> None:
@@ -7054,6 +7101,36 @@ Type your question and press Enter to ask the agents.
             self.push_screen(modal)
             event.stop()
 
+        def on_analysis_target_type_changed(self, event: AnalysisTargetTypeChanged) -> None:
+            """Handle analysis target type changes (log vs skills) from the popover."""
+            tui_log(f"on_analysis_target_type_changed: target={event.target}")
+
+            if self._mode_state.is_locked():
+                self.notify("Cannot change analysis target during execution.", severity="warning", timeout=2)
+                event.stop()
+                return
+
+            target = "skills" if event.target == "skills" else "log"
+            self._mode_state.analysis_config.target = target
+
+            # Update input placeholder to match the new target
+            if hasattr(self, "question_input"):
+                from massgen.frontend.displays.tui_modes import (
+                    get_analysis_placeholder_text,
+                )
+
+                self.question_input.placeholder = get_analysis_placeholder_text(target)
+
+            popover_visible = hasattr(self, "_plan_options_popover") and "visible" in self._plan_options_popover.classes
+            if not popover_visible:
+                label = "Organize Skills" if target == "skills" else "Log Session"
+                self.notify(
+                    f"Analysis target: {label}",
+                    severity="information",
+                    timeout=2,
+                )
+            event.stop()
+
         def on_analysis_profile_changed(self, event: AnalysisProfileChanged) -> None:
             """Handle analysis profile changes from the popover."""
             tui_log(f"on_analysis_profile_changed: profile={event.profile}")
@@ -7085,7 +7162,7 @@ Type your question and press Enter to ask the agents.
                 return
 
             mode = str(event.mode or "").strip().lower()
-            if mode not in {"create_new", "create_or_update", "consolidate"}:
+            if mode not in {"create_new", "create_or_update"}:
                 mode = "create_or_update"
 
             self._mode_state.analysis_config.skill_lifecycle_mode = mode
@@ -7095,7 +7172,6 @@ Type your question and press Enter to ask the agents.
                 labels = {
                     "create_new": "Create New",
                     "create_or_update": "Create or Update",
-                    "consolidate": "Consolidate",
                 }
                 self.notify(
                     f"Analysis skill lifecycle: {labels.get(mode, mode)}",
@@ -7189,6 +7265,7 @@ Type your question and press Enter to ask the agents.
                 popover._current_plan_id = self._mode_state.selected_plan_id
                 popover._current_depth = self._mode_state.plan_config.depth
                 popover._current_broadcast = self._mode_state.plan_config.broadcast
+                popover._analysis_target_type = getattr(self._mode_state.analysis_config, "target", "log")
                 popover._analysis_profile = self._mode_state.analysis_config.profile
                 popover._analysis_log_options = analysis_log_options
                 popover._analysis_selected_log_dir = self._mode_state.analysis_config.selected_log_dir
@@ -7695,25 +7772,29 @@ Type your question and press Enter to ask the agents.
                 Analysis request text to submit.
             """
             cleaned = (user_text or "").strip()
+            target = self._mode_state.analysis_config.target
 
-            # Snapshot skill directories before analysis for new-skill detection.
-            if self._mode_state.analysis_config.profile == "user":
+            # Snapshot skill directories before analysis for new-skill detection (log target only).
+            if target == "log" and self._mode_state.analysis_config.profile == "user":
                 self._mode_state.analysis_config._pre_analysis_skill_dirs = self._snapshot_skill_dirs()
 
             if cleaned:
                 return cleaned
 
             # Keep defaults in sync before submission.
-            self._ensure_analysis_defaults()
+            if target == "log":
+                self._ensure_analysis_defaults()
 
-            profile = self._mode_state.analysis_config.profile
-            if profile == "user":
+            if target == "skills":
+                default_request = "Organize all installed skills: merge overlapping ones and generate a SKILL_REGISTRY.md routing guide."
+            elif self._mode_state.analysis_config.profile == "user":
                 default_request = "Read the logs from this run, understand the workflow that was executed, and create a single reusable skill capturing that workflow."
             else:
                 default_request = "Analyze this run in depth. Explain what happened, identify likely " "root causes, and recommend concrete MassGen internal improvements."
 
+            label = "Skill Organization" if target == "skills" else "Analysis Mode"
             self.notify(
-                "Analysis Mode: running default analysis request for selected target",
+                f"{label}: running default request",
                 severity="information",
                 timeout=3,
             )
@@ -7753,11 +7834,16 @@ Type your question and press Enter to ask the agents.
 
         def _enter_analysis_mode(self) -> None:
             """Enter log analysis mode."""
+            from massgen.frontend.displays.tui_modes import (
+                get_analysis_placeholder_text,
+            )
+
             self._mode_state.plan_mode = "analysis"
             if self._mode_bar:
                 self._mode_bar.set_plan_mode("analysis")
             if hasattr(self, "question_input"):
-                self.question_input.placeholder = "Enter to analyze selected log • or describe what to analyze • Shift+Enter newline • @ for files • ⋮ for analysis options"
+                target = self._mode_state.analysis_config.target
+                self.question_input.placeholder = get_analysis_placeholder_text(target)
             # Ensure default analysis target/profile are populated.
             self._ensure_analysis_defaults()
             # Always show the analysis options popover so the user can
@@ -8650,14 +8736,50 @@ Type your question and press Enter to ask the agents.
 
             self.notify(message, severity="information", timeout=3)
 
+        def _format_cwd_for_hint(self, max_len: int) -> str:
+            """Return cwd text compacted for the right-side hint panel."""
+            cwd = Path.cwd()
+            cwd_text = str(cwd)
+
+            home = str(Path.home())
+            if cwd_text.startswith(home):
+                remainder = cwd_text[len(home) :].lstrip("/\\")
+                cwd_text = "~" if not remainder else f"~/{remainder}"
+
+            if len(cwd_text) <= max_len:
+                return cwd_text
+
+            leaf = cwd.name or cwd_text
+            compact = f".../{leaf}"
+            if len(compact) <= max_len:
+                return compact
+            return leaf if len(leaf) <= max_len else leaf[-max_len:]
+
         def _build_welcome_context_hint_text(self) -> str:
             """Build compact Ctrl+P context hint for the right-side status panel."""
             mode_label = {
-                "off": "hidden",
+                "off": "off",
                 "read": "read-only",
                 "write": "read+write",
-            }.get(self._cwd_context_mode, "hidden")
-            return f"Ctrl+P: Paths {mode_label} • @path include • Ctrl+C quit"
+            }.get(self._cwd_context_mode, "off")
+            mode_short = {
+                "off": "off",
+                "read": "ro",
+                "write": "rw",
+            }.get(self._cwd_context_mode, "off")
+
+            width = self.size.width or (self.app.size.width if self.app else 120)
+            cwd_name = Path.cwd().name or str(Path.cwd())
+            cwd_medium = self._format_cwd_for_hint(24)
+            cwd_long = self._format_cwd_for_hint(36)
+
+            if width >= 150:
+                return f"Ctrl+P: CWD {mode_label} ({cwd_long}) • @path include"
+            if width >= 120:
+                return f"Ctrl+P: CWD {mode_label} ({cwd_medium}) • @path include"
+            if width >= 90:
+                return f"Ctrl+P: CWD {mode_label} ({cwd_name}) • @path include"
+            return f"Ctrl+P: CWD {mode_short} ({cwd_name})"
 
         def _refresh_welcome_context_hint(self) -> None:
             """Refresh right-side vim/path panel when layout or mode changes."""
@@ -9616,17 +9738,8 @@ Type your question and press Enter to ask the agents.
             return flattened
 
         def _refresh_skills_button_state(self) -> None:
-            """Show/hide mode-bar skills button based on discovered skill availability."""
-            if not self._mode_bar:
-                return
-            try:
-                inventory = self._collect_skill_inventory(
-                    include_previous_session_skills=False,
-                )
-                has_skills = any(bool(skills) for skills in inventory.values())
-                self._mode_bar.set_skills_available(has_skills)
-            except Exception as e:
-                tui_log(f"_refresh_skills_button_state error: {e}")
+            """Compatibility hook retained after removing skills from the mode bar."""
+            if self._mode_bar:
                 self._mode_bar.set_skills_available(False)
 
         def _show_skills_modal(self) -> None:
@@ -9639,10 +9752,20 @@ Type your question and press Enter to ask the agents.
             )
             current_enabled = self._mode_state.analysis_config.get_enabled_skill_names()
 
+            # Load registry content if SKILL_REGISTRY.md exists
+            registry_content = None
+            try:
+                registry_path = Path(".agent/skills/SKILL_REGISTRY.md")
+                if registry_path.is_file():
+                    registry_content = registry_path.read_text(encoding="utf-8").strip()
+            except Exception:
+                pass
+
             modal = SkillsModal(
                 skills_by_location=skills_by_location,
                 enabled_skill_names=current_enabled,
                 include_previous_session_skills=include_previous,
+                registry_content=registry_content if registry_content else None,
             )
 
             def _on_skills_dismiss(result: Optional[Dict[str, Any]]) -> None:
@@ -9713,7 +9836,6 @@ Type your question and press Enter to ask the agents.
 
             from massgen.filesystem_manager.skills_manager import (
                 apply_analysis_skill_lifecycle,
-                consolidate_project_skills,
                 normalize_skill_lifecycle_mode,
             )
             from massgen.logger_config import get_log_session_dir
@@ -9747,15 +9869,6 @@ Type your question and press Enter to ask the agents.
                 except Exception as e:
                     tui_log(f"[SkillHarvest] Failed lifecycle apply for {skill_dir.name}: {e}")
 
-            merges: list[Dict[str, str]] = []
-            if lifecycle_mode == "consolidate":
-                try:
-                    merges = consolidate_project_skills(project_skills_root)
-                    if merges:
-                        tui_log(f"[SkillHarvest] Consolidated {len(merges)} overlapping skills")
-                except Exception as e:
-                    tui_log(f"[SkillHarvest] Consolidation failed: {e}")
-
             created_names = []
             updated_names = []
             for item in actions:
@@ -9770,7 +9883,7 @@ Type your question and press Enter to ask the agents.
             created_names = self._normalize_skill_name_list(created_names)
             updated_names = self._normalize_skill_name_list(updated_names)
 
-            if not created_names and not updated_names and not merges:
+            if not created_names and not updated_names:
                 return
 
             summary_parts = []
@@ -9778,11 +9891,25 @@ Type your question and press Enter to ask the agents.
                 summary_parts.append(f"created {len(created_names)}")
             if updated_names:
                 summary_parts.append(f"updated {len(updated_names)}")
-            if merges:
-                summary_parts.append(f"consolidated {len(merges)}")
 
             summary_text = ", ".join(summary_parts)
             self.notify(f"Skills lifecycle applied: {summary_text}", severity="information", timeout=5)
+
+            # Suggest git tracking if skills aren't version-controlled
+            try:
+                from massgen.filesystem_manager.skills_manager import (
+                    check_skills_git_tracking,
+                )
+
+                tracking = check_skills_git_tracking(Path.cwd())
+                if tracking == "untracked":
+                    self.notify(
+                        "Tip: Track skills in git — add !.agent/skills/ and !.agent/skills/** to .gitignore",
+                        severity="information",
+                        timeout=8,
+                    )
+            except Exception:
+                pass  # Non-critical — don't break harvest on gitignore check failure
 
             # Auto-add to enabled filter if one is active.
             enabled = self._mode_state.analysis_config.get_enabled_skill_names()

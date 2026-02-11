@@ -67,7 +67,7 @@ class SubtasksClicked(Message):
 
 
 class SkillsClicked(Message):
-    """Message emitted when skills button is clicked."""
+    """Deprecated message kept for compatibility with older imports."""
 
 
 def _mode_log(msg: str) -> None:
@@ -110,15 +110,15 @@ class ModeToggle(Static):
         "agent": {"multi": "Multi-Agent", "single": "Single"},
         "coordination": {"parallel": "Parallel", "decomposition": "Decomposition"},
         "refinement": {"on": "Refine", "off": "Refine OFF"},
-        "personas": {"off": "Personas OFF", "on": "Personas"},
+        "personas": {"off": "Personas", "on": "Personas"},
     }
 
     COMPACT_LABELS = {
-        "plan": {"normal": "Norm", "plan": "Plan", "execute": "Exec", "analysis": "Analyze"},
+        "plan": {"normal": "Norm", "plan": "Plan", "execute": "Exec", "analysis": "Anly"},
         "agent": {"multi": "Multi", "single": "Single"},
         "coordination": {"parallel": "Par", "decomposition": "Decomp"},
         "refinement": {"on": "Refine", "off": "Refine Off"},
-        "personas": {"off": "Persona Off", "on": "Persona"},
+        "personas": {"off": "Persona", "on": "Persona"},
     }
 
     def __init__(
@@ -156,6 +156,11 @@ class ModeToggle(Static):
         labels = self.COMPACT_LABELS if self._compact else self.LABELS
         label_map = labels.get(self.mode_type, {})
         label = label_map.get(self._current_state, self._current_state)
+        if self._compact:
+            # Preserve horizontal space on narrow terminals by avoiding fixed-width
+            # padding in compact mode.
+            return f" {icon} {label} "
+
         # Keep a stable width across state transitions so longer plan labels
         # (Planning/Executing/Analyzing) remain fully visible.
         max_label_width = max((len(value) for value in label_map.values()), default=len(label))
@@ -244,7 +249,6 @@ class ModeBar(Widget):
     - Coordination mode: parallel ↔ decomposition
     - Personas toggle (parallel mode only)
     - Subtasks button (shown in decomposition mode)
-    - Skills button (shown when skills are available)
     - Help button for mode bar explanations
     - Override button (shown when override is available)
     """
@@ -269,7 +273,6 @@ class ModeBar(Widget):
         self._refinement_toggle: Optional[ModeToggle] = None
         self._persona_toggle: Optional[ModeToggle] = None
         self._subtasks_btn: Optional[Button] = None
-        self._skills_btn: Optional[Button] = None
         self._mode_help_btn: Optional[Button] = None
         self._override_btn: Optional[Button] = None
         self._plan_info: Optional[Label] = None
@@ -330,11 +333,6 @@ class ModeBar(Widget):
                 self._subtasks_btn = Button("Subtasks", id="subtasks_btn", variant="default")
                 self._subtasks_btn.add_class("hidden")
                 yield self._subtasks_btn
-
-                # Skills manager button (shown when skills are available)
-                self._skills_btn = Button("Skills", id="skills_btn", variant="default")
-                self._skills_btn.add_class("hidden")
-                yield self._skills_btn
 
                 # Plan settings button (hidden when plan mode is "normal")
                 self._plan_settings_btn = Button("⋮", id="plan_settings_btn", variant="default")
@@ -414,7 +412,6 @@ class ModeBar(Widget):
             self._coordination_toggle,
             self._persona_toggle,
             self._subtasks_btn,
-            self._skills_btn,
             self._plan_settings_btn,
             self._mode_help_btn,
             self._override_btn,
@@ -514,14 +511,8 @@ class ModeBar(Widget):
             self._persona_toggle.set_state("on" if enabled else "off")
 
     def set_skills_available(self, available: bool) -> None:
-        """Show/hide skills manager button based on runtime skill availability."""
-        if not self._skills_btn:
-            return
-        if available:
-            self._skills_btn.remove_class("hidden")
-        else:
-            self._skills_btn.add_class("hidden")
-        self.call_after_refresh(self._refresh_responsive_labels)
+        """Compatibility no-op: skills are no longer a mode-bar control."""
+        del available
 
     def _update_coordination_aux_controls(self, mode: str) -> None:
         """Update controls that depend on coordination mode."""
@@ -557,8 +548,6 @@ class ModeBar(Widget):
             self._persona_toggle.set_enabled(enabled)
         if self._subtasks_btn:
             self._subtasks_btn.disabled = not enabled
-        if self._skills_btn:
-            self._skills_btn.disabled = not enabled
 
     def get_plan_mode(self) -> str:
         """Get current plan mode."""
@@ -608,9 +597,6 @@ class ModeBar(Widget):
         elif event.button.id == "subtasks_btn":
             _mode_log("ModeBar: Subtasks button pressed")
             self.post_message(SubtasksClicked())
-        elif event.button.id == "skills_btn":
-            _mode_log("ModeBar: Skills button pressed")
-            self.post_message(SkillsClicked())
 
     def on_mode_changed(self, event: ModeChanged) -> None:
         """Let mode change messages bubble to parent."""

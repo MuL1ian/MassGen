@@ -74,8 +74,8 @@ def test_prompt_mentions_default_create_or_update_lifecycle(tmp_path, monkeypatc
     assert "create_or_update" in prompt
 
 
-def test_prompt_mentions_consolidation_when_enabled(tmp_path, monkeypatch):
-    """Consolidation mode should alter skill lifecycle instructions in prompt."""
+def test_prompt_consolidation_mode_falls_back(tmp_path, monkeypatch):
+    """Removed 'consolidate' mode should fall back to create_or_update behavior."""
     monkeypatch.chdir(tmp_path)
     prompt = get_log_analysis_prompt_prefix(
         log_dir=None,
@@ -83,7 +83,8 @@ def test_prompt_mentions_consolidation_when_enabled(tmp_path, monkeypatch):
         profile="user",
         skill_lifecycle_mode="consolidate",
     )
-    assert "Consolidate overlapping skills" in prompt
+    # consolidate is no longer a valid mode; should get create_or_update instructions
+    assert "create_or_update" in prompt
 
 
 # ---------------------------------------------------------------------------
