@@ -4624,6 +4624,7 @@ Your answer:"""
                             "unknown",
                         ),
                         "reason": vote_data.get("reason", ""),
+                        "suggestions": vote_data.get("suggestions"),  # Optional suggestions field
                         "timestamp": timestamp,
                         "unix_timestamp": time.time(),
                         "iteration": self.coordination_tracker.current_iteration if self.coordination_tracker else None,
@@ -8272,6 +8273,7 @@ Your answer:"""
 
                             voted_agent_anon = tool_args.get("agent_id")
                             reason = tool_args.get("reason", "")
+                            suggestions = tool_args.get("suggestions")
 
                             # Convert anonymous agent ID back to real agent ID
                             # Use global agent mapping (consistent with vote tool enum and injection)
@@ -8329,6 +8331,7 @@ Your answer:"""
                             self.agent_states[agent_id].votes = {
                                 "agent_id": voted_agent,
                                 "reason": reason,
+                                "suggestions": suggestions,
                             }
 
                             # Record vote to shared memory
@@ -9554,10 +9557,18 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
         is_tie = vote_results.get("is_tie", False)
 
         # Build voting summary -- note we only include the number of votes and reasons for the selected agent. There is no information about the distribution of votes beyond this.
+        # Get anonymous mapping for display
+        anon_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+
         voting_summary = f"You received {vote_counts.get(selected_agent_id, 0)} vote(s)"
         if voter_details.get(selected_agent_id):
             reasons = [v["reason"] for v in voter_details[selected_agent_id]]
             voting_summary += f" with feedback: {'; '.join(reasons)}"
+
+            # Add suggestions section with anonymous voter IDs
+            suggestions_list = [f"- From {anon_mapping.get(v['voter'], v['voter'])}: {v['suggestions']}" for v in voter_details[selected_agent_id] if v.get("suggestions")]
+            if suggestions_list:
+                voting_summary += "\n\nSuggestions for improvement:\n" + "\n".join(suggestions_list)
 
         if is_tie:
             voting_summary += " (tie-broken by registration order)"
@@ -10990,12 +11001,18 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
                 vote_counts[voted_for] = vote_counts.get(voted_for, 0) + 1
                 if voted_for not in voter_details:
                     voter_details[voted_for] = []
-                voter_details[voted_for].append(
-                    {
-                        "voter": voter_id,
-                        "reason": vote_data.get("reason", "No reason provided"),
-                    },
-                )
+
+                voter_entry = {
+                    "voter": voter_id,
+                    "reason": vote_data.get("reason", "No reason provided"),
+                }
+
+                # Include suggestions if provided (keep payload minimal)
+                suggestions = vote_data.get("suggestions")
+                if suggestions:
+                    voter_entry["suggestions"] = suggestions
+
+                voter_details[voted_for].append(voter_entry)
 
         # Determine winner
         winner = None

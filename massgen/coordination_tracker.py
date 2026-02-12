@@ -13,7 +13,7 @@ us exactly what occurred and when.
 
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -119,8 +119,9 @@ class AgentVote:
     voted_for_label: str  # Answer label like "agent1.1"
     voter_anon_id: str  # Anonymous voter ID like "agent1"
     reason: str
-    timestamp: float
-    available_answers: List[str]  # Available answer labels like ["agent1.1", "agent2.1"]
+    suggestions: Optional[str] = None  # Optional specific suggestions for improvement
+    timestamp: float = field(default_factory=lambda: time.time())
+    available_answers: List[str] = field(default_factory=list)
 
 
 class CoordinationTracker:
@@ -646,6 +647,7 @@ class CoordinationTracker:
         # Handle both "voted_for" and "agent_id" keys (orchestrator uses "agent_id")
         voted_for = vote_data.get("voted_for") or vote_data.get("agent_id", "unknown")
         reason = vote_data.get("reason", "")
+        suggestions = vote_data.get("suggestions")  # Extract optional suggestions
 
         # Convert real agent IDs to anonymous IDs and answer labels
         voter_anon_id = self.get_anonymous_id(agent_id)
@@ -677,6 +679,7 @@ class CoordinationTracker:
             voted_for_label=voted_for_label,
             voter_anon_id=voter_anon_id,
             reason=reason,
+            suggestions=suggestions,
             timestamp=time.time(),
             available_answers=self.iteration_available_labels.copy(),
         )

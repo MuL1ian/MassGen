@@ -70,6 +70,25 @@ class ResponseAPIParamsHandler(APIParamsHandlerBase):
         """Build Response API parameters."""
         # Convert messages to Response API format
         converted_messages = self.formatter.format_messages(messages)
+        # Deduplicate items by id to avoid Response API errors on duplicate input item IDs
+        seen_ids: Set[str] = set()
+        deduped_messages: List[Dict[str, Any]] = []
+        duplicate_ids: List[str] = []
+        for msg in converted_messages:
+            msg_id = msg.get("id")
+            if msg_id:
+                if msg_id in seen_ids:
+                    duplicate_ids.append(msg_id)
+                    continue
+                seen_ids.add(msg_id)
+            deduped_messages.append(msg)
+        if duplicate_ids:
+            unique_dupes = list(dict.fromkeys(duplicate_ids))
+            sample = ", ".join(unique_dupes[:5])
+            logger.warning(
+                f"[ResponseAPIParamsHandler] Dropped {len(duplicate_ids)} duplicate input items by id " f"(unique={len(unique_dupes)}). Sample ids: {sample}",
+            )
+        converted_messages = deduped_messages
 
         # Response API uses 'input' instead of 'messages'
         api_params = {

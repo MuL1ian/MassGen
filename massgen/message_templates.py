@@ -240,7 +240,12 @@ IMPORTANT: The only workflow action available to you is `vote`. You cannot submi
                     "properties": {
                         "content": {
                             "type": "string",
-                            "description": "Your improved answer. If any builtin tools like search or code execution were used, mention how they are used here.",
+                            "description": (
+                                "Your improved answer (HIGH-LEVEL summary): what you created, where to find it, "
+                                "how to use it, key features. Do NOT include full code listings - code belongs in "
+                                "workspace files. If any builtin tools like search or code execution were used, "
+                                "mention how they are used here."
+                            ),
                         },
                     },
                     "required": ["content"],

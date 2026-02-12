@@ -108,6 +108,10 @@ class VoteToolkit(BaseToolkit):
                             "type": "string",
                             "description": "Brief reason why this agent has the best answer",
                         },
+                        "suggestions": {
+                            "type": "string",
+                            "description": "Optional specific suggestions for how this answer could be improved or refined",
+                        },
                     },
                     "required": ["agent_id", "reason"],
                 },
@@ -136,6 +140,10 @@ class VoteToolkit(BaseToolkit):
                             "reason": {
                                 "type": "string",
                                 "description": "Brief reason why this agent has the best answer",
+                            },
+                            "suggestions": {
+                                "type": "string",
+                                "description": "Optional specific suggestions for how this answer could be improved or refined",
                             },
                         },
                         "required": ["agent_id", "reason"],
@@ -166,6 +174,10 @@ class VoteToolkit(BaseToolkit):
                             "reason": {
                                 "type": "string",
                                 "description": "Brief reason why this agent has the best answer",
+                            },
+                            "suggestions": {
+                                "type": "string",
+                                "description": "Optional specific suggestions for how this answer could be improved or refined",
                             },
                         },
                         "required": ["agent_id", "reason"],
