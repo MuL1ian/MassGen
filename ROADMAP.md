@@ -141,7 +141,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.51 - Change Documents & Coordination Traceability
+## 📋 v0.1.51 - Reviewing Coordination & Change Documents
 
 ### Features
 

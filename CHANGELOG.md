@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
-**v0.1.51 (February 13, 2026)** - Change Documents & Coordination Traceability
+**v0.1.51 (February 13, 2026)** - Reviewing Coordination & Change Documents
 Review modal with multi-file diff visualization. Decision journal system for multi-agent coordination traceability. Changedoc-anchored evaluation checklists with gap reports. Drift conflict policy for safer change application. `--cwd-context` CLI flag.
 
 **v0.1.50 (February 11, 2026)** - Chunked Plan Execution & Skill Lifecycle Management

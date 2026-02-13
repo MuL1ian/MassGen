@@ -7,7 +7,7 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.51, focused on Change Documents & Coordination Traceability! 🚀 Review modal with multi-file diff visualization. Decision journal system for multi-agent coordination traceability. Changedoc-anchored evaluation checklists with gap reports. Drift conflict policy for safer change application. `--cwd-context` CLI flag.
+We're excited to release MassGen v0.1.51, focused on Reviewing Coordination & Change Documents! 🚀 Review modal with multi-file diff visualization. Decision journal system for multi-agent coordination traceability. Changedoc-anchored evaluation checklists with gap reports. Drift conflict policy for safer change application. `--cwd-context` CLI flag.
 
 ## Install
 
@@ -29,7 +29,7 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.51, focused on Change Documents & Coordination Traceability! 🚀 Review modal with multi-file diff visualization. Decision journal system for multi-agent coordination traceability. Changedoc-anchored evaluation checklists with gap reports. Drift conflict policy for safer change application. `--cwd-context` CLI flag.
+We're excited to release MassGen v0.1.51, focused on Reviewing Coordination & Change Documents! 🚀 Review modal with multi-file diff visualization. Decision journal system for multi-agent coordination traceability. Changedoc-anchored evaluation checklists with gap reports. Drift conflict policy for safer change application. `--cwd-context` CLI flag.
 
 **Key Features:**
 
