@@ -101,7 +101,7 @@ class ModeToggle(Static):
         "agent": {"multi": "◉", "single": "○"},
         "coordination": {"parallel": "◉", "decomposition": "○"},
         "refinement": {"on": "◉", "off": "○"},
-        "personas": {"off": "○", "on": "◉"},
+        "personas": {"off": "○", "perspective": "◉", "implementation": "◉", "methodology": "◉"},
     }
 
     # Labels for states - concise without redundant ON/OFF
@@ -110,7 +110,7 @@ class ModeToggle(Static):
         "agent": {"multi": "Multi-Agent", "single": "Single"},
         "coordination": {"parallel": "Parallel", "decomposition": "Decomposition"},
         "refinement": {"on": "Refine", "off": "Refine OFF"},
-        "personas": {"off": "Personas", "on": "Personas"},
+        "personas": {"off": "Personas", "perspective": "Perspective", "implementation": "Implementation", "methodology": "Methodology"},
     }
 
     COMPACT_LABELS = {
@@ -118,7 +118,7 @@ class ModeToggle(Static):
         "agent": {"multi": "Multi", "single": "Single"},
         "coordination": {"parallel": "Par", "decomposition": "Decomp"},
         "refinement": {"on": "Refine", "off": "Refine Off"},
-        "personas": {"off": "Persona", "on": "Persona"},
+        "personas": {"off": "Persona", "perspective": "Persp", "implementation": "Impl", "methodology": "Method"},
     }
 
     def __init__(
@@ -279,6 +279,7 @@ class ModeBar(Widget):
         self._plan_settings_btn: Optional[Button] = None
         self._plan_status: Optional[Static] = None
         self._last_responsive_width: int = 0
+        self._compact_labels_active: bool = False
 
     def compose(self) -> ComposeResult:
         """Create mode bar contents."""
@@ -321,11 +322,11 @@ class ModeBar(Widget):
                 yield self._coordination_toggle
 
             with Horizontal(id="mode_row_secondary"):
-                # Parallel persona generation toggle (off by default)
+                # Parallel persona generation toggle with diversity mode selection
                 self._persona_toggle = ModeToggle(
                     mode_type="personas",
                     initial_state="off",
-                    states=["off", "on"],
+                    states=["off", "perspective", "implementation", "methodology"],
                     id="persona_toggle",
                 )
                 yield self._persona_toggle
@@ -372,14 +373,56 @@ class ModeBar(Widget):
     def _refresh_responsive_labels(self) -> None:
         """Switch to compact labels and shorter button text when constrained."""
         width = self.size.width
+        app_width = self.app.size.width if self.app is not None else 0
         if width > 0:
             self._last_responsive_width = width
         elif self._last_responsive_width > 0:
             width = self._last_responsive_width
-        elif self.app is not None:
-            width = self.app.size.width
-        compact_labels = width < 92
+        else:
+            width = app_width
 
+        # Guard against transient widget-size mismatches by considering app width.
+        if width > 0 and app_width > 0:
+            effective_width = min(width, app_width)
+        else:
+            effective_width = width or app_width
+
+        # Compute full-label footprint first, then apply hysteresis so tiny
+        # width changes don't flip labels between compact/non-compact states.
+        self._apply_compact_labels(False)
+        full_required = self._measure_control_width()
+        utilization = (full_required / max(1, effective_width)) if effective_width > 0 else 0.0
+
+        if self._compact_labels_active:
+            # Stay compact while controls are near capacity, but return to full
+            # labels once the row has comfortable slack.
+            near_capacity = utilization >= 0.86
+            compact_labels = (effective_width > 0 and full_required > max(0, effective_width - 8)) or near_capacity
+        else:
+            # Enter compact when controls are close to saturating row width.
+            near_capacity = utilization >= 0.90
+            compact_labels = (effective_width > 0 and full_required > max(0, effective_width - 3)) or near_capacity
+
+        self._apply_compact_labels(compact_labels)
+        self._compact_labels_active = compact_labels
+
+        # Prefer a single row when controls can fit; stack only when necessary.
+        required_width = self._measure_control_width()
+        if effective_width > 0 and required_width > 0:
+            # Keep the mode bar on one row whenever compact/full labels fit.
+            # Only stack when controls exceed available width.
+            stacked_layout = required_width > max(0, effective_width - 2)
+        else:
+            # Conservative fallback during initial mount before regions settle.
+            stacked_layout = effective_width < 88
+
+        if stacked_layout:
+            self.add_class("compact-layout")
+        else:
+            self.remove_class("compact-layout")
+
+    def _apply_compact_labels(self, compact_labels: bool) -> None:
+        """Apply compact/full labels across toggles and dependent buttons."""
         for toggle in (
             self._plan_toggle,
             self._agent_toggle,
@@ -395,21 +438,8 @@ class ModeBar(Widget):
         if self._override_btn:
             self._override_btn.label = "Override" if compact_labels else "Override [Ctrl+O]"
 
-        # Prefer a single row when controls can fit; stack only when necessary.
-        required_width = self._measure_control_width()
-        if width > 0 and required_width > 0:
-            stacked_layout = required_width > max(0, width - 4)
-        else:
-            # Conservative fallback during initial mount before regions settle.
-            stacked_layout = width < 104
-
-        if stacked_layout:
-            self.add_class("compact-layout")
-        else:
-            self.remove_class("compact-layout")
-
     def _measure_control_width(self) -> int:
-        """Measure total width of visible interactive controls."""
+        """Estimate total width of visible interactive controls."""
         controls = (
             self._plan_toggle,
             self._agent_toggle,
@@ -423,23 +453,24 @@ class ModeBar(Widget):
         )
 
         total = 0
+        visible_controls = 0
         for control in controls:
             if control is None:
                 continue
             if control.has_class("hidden"):
                 continue
-            if control.region.width > 0:
-                total += control.region.width
-                continue
-            # Fallback estimate before first layout pass.
+            visible_controls += 1
             if isinstance(control, ModeToggle):
                 total += len(str(control.render()))
             elif isinstance(control, Button):
                 total += len(str(control.label)) + 4
+            elif control.region.width > 0:
+                total += control.region.width
             else:
                 total += 8
 
-        return total
+        # Account for inter-control spacing (toggle/button margin and separator gaps).
+        return total + max(0, visible_controls - 1)
 
     def watch_override_available(self, available: bool) -> None:
         """React to override availability changes."""
@@ -510,10 +541,19 @@ class ModeBar(Widget):
             self._coordination_toggle.set_enabled(enabled)
         self.call_after_refresh(self._refresh_responsive_labels)
 
-    def set_parallel_personas_enabled(self, enabled: bool) -> None:
-        """Set the parallel persona toggle state."""
+    def set_parallel_personas_enabled(self, enabled: bool, diversity_mode: str = "perspective") -> None:
+        """Set the parallel persona toggle state.
+
+        Args:
+            enabled: Whether personas are enabled.
+            diversity_mode: The diversity mode to set when enabled ("perspective", "implementation", "methodology").
+        """
         if self._persona_toggle:
-            self._persona_toggle.set_state("on" if enabled else "off")
+            if enabled:
+                state = diversity_mode if diversity_mode in ("perspective", "implementation", "methodology") else "perspective"
+            else:
+                state = "off"
+            self._persona_toggle.set_state(state)
 
     def set_skills_available(self, available: bool) -> None:
         """Compatibility no-op: skills are no longer a mode-bar control."""
@@ -571,8 +611,17 @@ class ModeBar(Widget):
         return self._refinement_toggle.get_state() == "on" if self._refinement_toggle else True
 
     def get_parallel_personas_enabled(self) -> bool:
-        """Get current parallel persona toggle state."""
-        return self._persona_toggle.get_state() == "on" if self._persona_toggle else False
+        """Get current parallel persona toggle state (True if any mode is active)."""
+        if not self._persona_toggle:
+            return False
+        return self._persona_toggle.get_state() != "off"
+
+    def get_persona_diversity_mode(self) -> str:
+        """Get current persona diversity mode."""
+        if not self._persona_toggle:
+            return "perspective"
+        state = self._persona_toggle.get_state()
+        return state if state != "off" else "perspective"
 
     def set_plan_status(self, status: str) -> None:
         """Set the plan status text shown on the right side.

@@ -126,6 +126,11 @@ class CoordinationConfig:
                    - "isolated": Use shadow repos for full isolation
                    - "legacy": Use direct writes (no isolation, current behavior)
                    - None: Disabled (default, same as "legacy")
+        drift_conflict_policy: How to handle target-file drift when applying isolated
+                              presenter changes back to source context.
+                              - "skip": Skip drifted files, apply remaining files (default)
+                              - "prefer_presenter": Apply presenter changes even on drift
+                              - "fail": Block apply if any drift is detected
     """
 
     enable_planning_mode: bool = False
@@ -164,11 +169,13 @@ class CoordinationConfig:
     use_two_tier_workspace: bool = False  # Enable scratch/deliverable structure + git versioning
     task_decomposer: TaskDecomposerConfig = field(default_factory=TaskDecomposerConfig)
     write_mode: Optional[str] = None  # "auto" | "worktree" | "isolated" | "legacy"
+    drift_conflict_policy: str = "skip"  # "skip" | "prefer_presenter" | "fail"
 
     def __post_init__(self):
         """Validate configuration after initialization."""
         self._validate_broadcast_config()
         self._validate_timeout_config()
+        self._validate_drift_conflict_policy()
 
     def _validate_timeout_config(self):
         """Validate subagent timeout configuration."""
@@ -216,6 +223,14 @@ class CoordinationConfig:
             # Warn if timeout is very low
             if self.broadcast_timeout < 30:
                 logger.warning(f"Broadcast timeout is very low ({self.broadcast_timeout}s). Agents may not have enough time to respond.")
+
+    def _validate_drift_conflict_policy(self):
+        """Validate drift conflict policy for isolated change apply."""
+        valid_policies = {"skip", "prefer_presenter", "fail"}
+        if self.drift_conflict_policy not in valid_policies:
+            raise ValueError(
+                "Invalid drift_conflict_policy: " f"{self.drift_conflict_policy}. " f"Must be one of: {sorted(valid_policies)}",
+            )
 
 
 @dataclass
@@ -975,6 +990,7 @@ class AgentConfig:
             "enable_planning_mode": self.coordination_config.enable_planning_mode,
             "planning_mode_instruction": self.coordination_config.planning_mode_instruction,
             "max_orchestration_restarts": self.coordination_config.max_orchestration_restarts,
+            "drift_conflict_policy": self.coordination_config.drift_conflict_policy,
         }
 
         # Handle debug fields

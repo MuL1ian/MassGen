@@ -249,7 +249,19 @@ correct and still mediocre in quality, depth, or craft.
 attempt is rarely the best possible version.*
 
 If the current best genuinely matches your ideal with only cosmetic gaps remaining,
-say so — but be rigorous. "Good enough" is not the same as "excellent.\""""
+say so — but be rigorous. "Good enough" is not the same as "excellent."
+
+### Fresh Approach Consideration
+
+Don't only think about polishing the existing best answer — also consider whether
+**varying your approach** for key parts might produce a better result. You don't need
+to start from scratch, but changing how you tackle the most important sections can
+lead somewhere that incremental refinement never would.
+
+- Could a different structure, method, or creative direction for the core parts
+  improve the result — even while keeping other parts that already work well?
+- Are all current answers converging on the same basic approach? If so, varying
+  has extra value — it explores paths that pure refinement misses.\""""
 
 
 def _build_checklist_decision(
@@ -1745,9 +1757,13 @@ class WorkspaceStructureSection(SystemPromptSection):
 
                 content_parts.append("### Code Branches\n")
                 if self.branch_name:
-                    content_parts.append(f"Your work is on branch `{self.branch_name}`. All changes are auto-committed when your turn ends.\n")
+                    content_parts.append(
+                        f"Your work is on branch `{self.branch_name}`. " "All changes are auto-committed when your turn ends. " "Manual commits are optional.\n",
+                    )
                 else:
-                    content_parts.append("All changes are auto-committed when your turn ends.\n")
+                    content_parts.append(
+                        "All changes are auto-committed when your turn ends. " "Manual commits are optional.\n",
+                    )
 
                 if self.other_branches:
                     if self.branch_diff_summaries:
@@ -2720,8 +2736,13 @@ CRITICAL: New answers must be SUBSTANTIALLY different from existing answers.
         return f"""You are evaluating answers from multiple agents for final response to a message.
 Different agents may have different builtin tools and capabilities.
 {phase_context}{evaluation_section}
-Otherwise, digest existing answers, combine their strengths, and do additional work to address their weaknesses,
-then use the `new_answer` tool to record a better answer to the ORIGINAL MESSAGE.
+Otherwise, use the `new_answer` tool to record a better answer to the ORIGINAL MESSAGE. You have two strategies:
+- **Improve**: Digest existing answers, combine their strengths, and address their weaknesses.
+- **Vary**: Keep what works but try a different approach for key parts — a different structure,
+  a different method for the hard sections, or a different creative direction for part of the solution.
+Both are valid. You don't have to start from scratch to vary — changing how you tackle the most
+important parts can produce meaningfully different results. If all existing answers are converging
+on the same approach, varying is especially valuable.
 Each iteration costs time and resources. When you produce a `new_answer`, the result must be
 **obviously and substantially better** — a user should immediately see the improvement.
 Identify concrete improvements, then actually implement them — do not just acknowledge gaps.{novelty_section}

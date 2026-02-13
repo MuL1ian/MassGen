@@ -2370,6 +2370,69 @@ def create_simple_config(
     return config
 
 
+def apply_cli_cwd_context_path(
+    config: Dict[str, Any],
+    cwd_context_mode: Optional[str],
+) -> None:
+    """Apply --cwd-context flag by injecting CWD into orchestrator context paths.
+
+    Args:
+        config: MassGen configuration dict (modified in-place).
+        cwd_context_mode: CLI mode ("ro"/"read" or "rw"/"write"), or None.
+    """
+    if not cwd_context_mode:
+        return
+
+    mode = cwd_context_mode.lower()
+    permission = "write" if mode in ("rw", "write") else "read"
+    cwd_path = str(Path.cwd().resolve())
+
+    orchestrator_cfg = config.setdefault("orchestrator", {})
+    context_paths = orchestrator_cfg.get("context_paths")
+    if not isinstance(context_paths, list):
+        context_paths = []
+        orchestrator_cfg["context_paths"] = context_paths
+
+    existing_index = None
+    for idx, entry in enumerate(context_paths):
+        entry_path = entry.get("path") if isinstance(entry, dict) else entry
+        if not entry_path:
+            continue
+        try:
+            normalized_entry_path = str(Path(entry_path).resolve())
+        except Exception:
+            normalized_entry_path = str(entry_path)
+
+        if normalized_entry_path == cwd_path:
+            existing_index = idx
+            break
+
+    if existing_index is None:
+        context_paths.append(
+            {
+                "path": cwd_path,
+                "permission": permission,
+            },
+        )
+        logger.info(
+            f"[CLI] Added CWD to context_paths via --cwd-context: {cwd_path} ({permission})",
+        )
+        return
+
+    existing = context_paths[existing_index]
+    if isinstance(existing, dict):
+        existing["path"] = cwd_path
+        existing["permission"] = permission
+    else:
+        context_paths[existing_index] = {
+            "path": cwd_path,
+            "permission": permission,
+        }
+    logger.info(
+        f"[CLI] Updated CWD context path via --cwd-context: {cwd_path} ({permission})",
+    )
+
+
 def validate_context_paths(config: Dict[str, Any]) -> None:
     """Validate that all context paths in the config exist.
 
@@ -2471,6 +2534,7 @@ def _parse_coordination_config(coord_cfg: Dict[str, Any]) -> "CoordinationConfig
         use_two_tier_workspace=coord_cfg.get("use_two_tier_workspace", False),
         task_decomposer=task_decomposer_config,
         write_mode=coord_cfg.get("write_mode"),
+        drift_conflict_policy=coord_cfg.get("drift_conflict_policy", "skip"),
     )
 
 
@@ -2975,6 +3039,7 @@ async def run_question_with_history(
                     False,
                 ),
                 write_mode=coordination_settings.get("write_mode"),
+                drift_conflict_policy=coordination_settings.get("drift_conflict_policy", "skip"),
             )
 
     print(f"\n🤖 {BRIGHT_CYAN}{mode_text}{RESET}", flush=True)
@@ -3431,6 +3496,7 @@ async def run_single_question(
                     False,
                 ),
                 write_mode=coordination_settings.get("write_mode"),
+                drift_conflict_policy=coordination_settings.get("drift_conflict_policy", "skip"),
             )
 
         # Get orchestrator parameters from config
@@ -5575,6 +5641,13 @@ async def run_textual_interactive_mode(
     # Create the Textual display with agent model info for welcome screen
     display_kwargs = ui_config.get("display_kwargs", {})
     display_kwargs["agent_models"] = agent_models
+    cwd_context_mode = kwargs.get("cwd_context_mode")
+    if cwd_context_mode:
+        normalized_mode = str(cwd_context_mode).strip().lower()
+        if normalized_mode in {"rw", "write"}:
+            display_kwargs["default_cwd_context_mode"] = "write"
+        elif normalized_mode in {"ro", "read"}:
+            display_kwargs["default_cwd_context_mode"] = "read"
     configured_coordination_mode = orchestrator_cfg.get("coordination_mode", "voting") if orchestrator_cfg else "voting"
     display_kwargs["default_coordination_mode"] = "decomposition" if configured_coordination_mode == "decomposition" else "parallel"
     coordination_settings = orchestrator_cfg.get("coordination", {}) if orchestrator_cfg else {}
@@ -6088,9 +6161,12 @@ async def run_textual_interactive_mode(
                 persona_cfg = getattr(orchestrator_config.coordination_config, "persona_generator", None)
                 if persona_cfg is not None:
                     persona_cfg.enabled = persona_enabled
+                    if persona_enabled:
+                        persona_cfg.diversity_mode = mode_state.persona_diversity_mode
                     logger.info(
                         f"[Textual] Parallel persona generation: {'enabled' if persona_enabled else 'disabled'} "
-                        f"(toggle={mode_state.parallel_personas_enabled}, coordination={mode_state.coordination_mode})",
+                        f"(toggle={mode_state.parallel_personas_enabled}, mode={mode_state.persona_diversity_mode}, "
+                        f"coordination={mode_state.coordination_mode})",
                     )
 
                 # Apply plan mode coordination overrides
@@ -7730,6 +7806,45 @@ async def _execute_plan_phase(
                 _merge_chunk_updates(working_plan_data, chunk_tasks)
                 working_plan_file.write_text(json.dumps(working_plan_data, indent=2))
 
+            if bool(coordination_result.get("is_orchestrator_timeout")):
+                timeout_reason = str(
+                    coordination_result.get("timeout_reason") or "Time limit exceeded",
+                ).strip()
+                timeout_msg = f"Chunk '{active_chunk}' timed out: {timeout_reason}"
+                updated_metadata = record_chunk_checkpoint(
+                    plan_session,
+                    chunk=active_chunk,
+                    status="timed_out",
+                    attempt=attempt,
+                    progress=progress,
+                    error_message=timeout_msg,
+                )
+                updated_metadata.completed_chunks = updated_metadata.completed_chunks or []
+                if active_chunk not in updated_metadata.completed_chunks:
+                    # Treat timeout as skipped for chunk-to-chunk progression.
+                    updated_metadata.completed_chunks.append(active_chunk)
+                updated_metadata.current_chunk = get_next_pending_chunk(updated_metadata)
+                if updated_metadata.current_chunk is None:
+                    updated_metadata.status = "completed"
+                    updated_metadata.resumable_state = None
+                    console.print(
+                        f"[yellow]Chunk {active_chunk} timed out and was skipped[/yellow] " "[dim](no remaining chunks)[/dim]",
+                    )
+                else:
+                    updated_metadata.status = "executing"
+                    updated_metadata.resumable_state = {
+                        "marked_at": datetime.now().isoformat(),
+                        "current_chunk": updated_metadata.current_chunk,
+                        "reason": f"chunk_timeout_skipped: {active_chunk}",
+                        "retry_counts": dict(retry_counts),
+                    }
+                    console.print(
+                        f"[yellow]Chunk {active_chunk} timed out and was skipped[/yellow] " f"[dim]→ next: {updated_metadata.current_chunk}[/dim]",
+                    )
+                plan_session.save_metadata(updated_metadata)
+                retry_counts[active_chunk] = 0
+                continue
+
             if progress["is_complete"]:
                 retry_counts[active_chunk] = 0
                 updated_metadata = record_chunk_checkpoint(
@@ -8307,6 +8422,9 @@ async def main(args):
                 )
                 logger.debug(f"Config content: {json.dumps(config, indent=2)}")
 
+        # Apply CLI override for CWD context path before validating paths.
+        apply_cli_cwd_context_path(config, args.cwd_context)
+
         # Validate that all context paths exist before proceeding
         validate_context_paths(config)
 
@@ -8649,6 +8767,10 @@ async def main(args):
         # Add output file if specified
         if args.output_file:
             kwargs["output_file"] = args.output_file
+
+        # Seed Textual Ctrl+P CWD mode when explicitly requested via CLI.
+        if args.cwd_context:
+            kwargs["cwd_context_mode"] = args.cwd_context
 
         # Optionally enable DSPy paraphrasing
         dspy_paraphraser = create_dspy_paraphraser_from_config(
@@ -9429,7 +9551,13 @@ Environment Variables:
     parser.add_argument(
         "--plan",
         action="store_true",
-        help="Task planning mode. Agents interactively create structured feature lists and planning documents. " "Auto-adds cwd to context paths and enables user questions via ask_others.",
+        help="Task planning mode. Agents interactively create structured feature lists and planning documents. "
+        "Use --cwd-context to include current directory context and enable user questions via ask_others.",
+    )
+    parser.add_argument(
+        "--cwd-context",
+        choices=["ro", "rw", "read", "write"],
+        help="Add current working directory to context paths. " "Use ro/read for read-only or rw/write for write permission.",
     )
     parser.add_argument(
         "--plan-depth",

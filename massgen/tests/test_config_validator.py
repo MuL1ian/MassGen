@@ -820,6 +820,43 @@ class TestCommonBadConfigs:
         assert not result.is_valid()
         assert any("must be a non-negative integer" in error.message for error in result.errors)
 
+    def test_invalid_drift_conflict_policy(self):
+        """Test invalid coordination.drift_conflict_policy value is rejected."""
+        config = {
+            "agents": [
+                {"id": "test", "backend": {"type": "openai", "model": "gpt-4o"}},
+            ],
+            "orchestrator": {
+                "coordination": {
+                    "drift_conflict_policy": "merge",
+                },
+            },
+        }
+
+        validator = ConfigValidator()
+        result = validator.validate_config(config)
+
+        assert not result.is_valid()
+        assert any("Invalid drift_conflict_policy" in error.message for error in result.errors)
+
+    def test_valid_drift_conflict_policy(self):
+        """Test valid coordination.drift_conflict_policy value passes validation."""
+        config = {
+            "agents": [
+                {"id": "test", "backend": {"type": "openai", "model": "gpt-4o"}},
+            ],
+            "orchestrator": {
+                "coordination": {
+                    "drift_conflict_policy": "prefer_presenter",
+                },
+            },
+        }
+
+        validator = ConfigValidator()
+        result = validator.validate_config(config)
+
+        assert result.is_valid()
+
     def test_agent_without_id(self):
         """Test agent missing id field (common mistake)."""
         config = {

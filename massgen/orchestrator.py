@@ -10826,6 +10826,39 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                 normalized[os.path.abspath(context_path)] = [path for path in approved_paths if isinstance(path, str)]
             return normalized
 
+        def _normalize_approved_hunks_by_context(
+            metadata: Any,
+        ) -> Dict[str, Dict[str, List[int]]]:
+            if not isinstance(metadata, dict):
+                return {}
+            raw_mapping = metadata.get("approved_hunks_by_context")
+            if not isinstance(raw_mapping, dict):
+                return {}
+
+            normalized: Dict[str, Dict[str, List[int]]] = {}
+            for context_path, hunks_by_file in raw_mapping.items():
+                if not isinstance(context_path, str):
+                    continue
+                if not isinstance(hunks_by_file, dict):
+                    continue
+                context_hunks: Dict[str, List[int]] = {}
+                for file_path, hunk_indexes in hunks_by_file.items():
+                    if not isinstance(file_path, str):
+                        continue
+                    if not isinstance(hunk_indexes, list):
+                        continue
+                    normalized_indexes: List[int] = []
+                    for hunk_idx in hunk_indexes:
+                        try:
+                            hunk_idx_int = int(hunk_idx)
+                        except (TypeError, ValueError):
+                            continue
+                        if hunk_idx_int >= 0:
+                            normalized_indexes.append(hunk_idx_int)
+                    context_hunks[file_path] = sorted(set(normalized_indexes))
+                normalized[os.path.abspath(context_path)] = context_hunks
+            return normalized
+
         def _is_in_context_prefix(rel_path: str, context_prefix: str) -> bool:
             normalized_rel = rel_path.replace("\\", "/").strip("/")
             normalized_prefix = context_prefix.replace("\\", "/").strip("/")
@@ -10842,8 +10875,14 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             if not original_path:
                 continue
 
-            changes = isolation_manager.get_changes(original_path)
-            diff = isolation_manager.get_diff(original_path)
+            changes = isolation_manager.get_changes(
+                original_path,
+                include_committed_since_base=True,
+            )
+            diff = isolation_manager.get_diff(
+                original_path,
+                include_committed_since_base=True,
+            )
 
             if changes or diff:
                 # For worktree mode, repo_root may differ from original_path
@@ -10879,6 +10918,7 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                         "original_path": original_abs,
                         "isolated_path": ctx_info.get("isolated_path"),
                         "repo_root": repo_root,
+                        "base_ref": ctx_info.get("base_ref"),
                         "context_prefix": context_prefix,
                         "changes": filtered_changes,
                         "diff": diff,
@@ -10920,8 +10960,8 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                 review_result = await display.show_change_review_modal(all_changes)
                 logger.info(f"[Orchestrator] Review modal returned: approved={review_result.approved}")
             except Exception as e:
-                logger.warning(f"[Orchestrator] Review modal failed: {e}, auto-approving")
-                review_result = ReviewResult(approved=True, approved_files=None)
+                logger.warning(f"[Orchestrator] Review modal failed: {e}, rejecting for safety")
+                review_result = ReviewResult(approved=False, metadata={"error": str(e)})
         else:
             # Non-TUI mode: auto-approve all changes
             logger.info("[Orchestrator] Non-TUI mode: auto-approving isolated changes")
@@ -10929,19 +10969,44 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
         # 5. Apply approved changes
         if review_result.approved:
             applier = ChangeApplier()
-            applied_files = []
+            applied_files: List[str] = []
+            drifted_files_all: List[str] = []
             approved_files_by_context = _normalize_approved_files_by_context(review_result.metadata)
+            approved_hunks_by_context = _normalize_approved_hunks_by_context(review_result.metadata)
+            drift_conflict_policy = (
+                getattr(
+                    getattr(self.config, "coordination_config", None),
+                    "drift_conflict_policy",
+                    "skip",
+                )
+                or "skip"
+            )
+            if drift_conflict_policy not in {"skip", "prefer_presenter", "fail"}:
+                logger.warning(
+                    "[Orchestrator] Invalid drift_conflict_policy=%s; defaulting to 'skip'",
+                    drift_conflict_policy,
+                )
+                drift_conflict_policy = "skip"
 
             logger.info(
-                f"[Orchestrator] Applying approved changes: " f"approved_files={review_result.approved_files}, " f"contexts={len(all_changes)}",
+                "[Orchestrator] Applying approved changes: " f"approved_files={review_result.approved_files}, " f"contexts={len(all_changes)}, " f"drift_conflict_policy={drift_conflict_policy}",
             )
 
+            def _format_file_list(file_paths: List[str], max_items: int = 10) -> str:
+                deduped = sorted({path for path in file_paths if isinstance(path, str) and path.strip()})
+                if len(deduped) <= max_items:
+                    return ", ".join(deduped)
+                remaining = len(deduped) - max_items
+                return f"{', '.join(deduped[:max_items])}, +{remaining} more"
+
+            apply_plan: List[Dict[str, Any]] = []
             for ctx in all_changes:
                 try:
                     context_path = os.path.abspath(ctx["original_path"])
                     target = context_path
                     context_prefix = ctx.get("context_prefix")
                     approved_files_for_context: Optional[List[str]]
+                    approved_hunks_for_context: Optional[Dict[str, List[int]]] = approved_hunks_by_context.get(context_path)
 
                     if review_result.approved_files is None:
                         approved_files_for_context = None
@@ -10964,13 +11029,31 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                     logger.info(
                         "[Orchestrator] ChangeApplier: " f"source={ctx['isolated_path']}, " f"target={target}, " f"context_prefix={context_prefix}",
                     )
-                    files = applier.apply_changes(
+                    drifted_files = applier.detect_target_drift(
                         source_path=ctx["isolated_path"],
                         target_path=target,
+                        base_ref=ctx.get("base_ref"),
                         approved_files=approved_files_for_context,
                         context_prefix=context_prefix,
                     )
-                    applied_files.extend(files)
+                    if drifted_files:
+                        drifted_files_all.extend(drifted_files)
+                        logger.warning(
+                            "[Orchestrator] Detected drifted files for context " f"{context_path}: {drifted_files}",
+                        )
+
+                    apply_plan.append(
+                        {
+                            "source_path": ctx["isolated_path"],
+                            "target_path": target,
+                            "approved_files_for_context": approved_files_for_context,
+                            "approved_hunks_for_context": approved_hunks_for_context,
+                            "context_prefix": context_prefix,
+                            "base_ref": ctx.get("base_ref"),
+                            "drifted_files": drifted_files,
+                            "combined_diff": ctx.get("diff"),
+                        },
+                    )
                 except Exception as e:
                     logger.error(f"[Orchestrator] Failed to apply changes to {ctx['original_path']}: {e}")
                     yield StreamChunk(
@@ -10979,12 +11062,69 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                         source=selected_agent_id,
                     )
 
+            drifted_files_unique = sorted(set(drifted_files_all))
+            drifted_files_total = len(drifted_files_unique)
+            drifted_file_list = _format_file_list(drifted_files_unique) if drifted_files_unique else ""
+
+            if drifted_files_total and drift_conflict_policy == "fail":
+                yield StreamChunk(
+                    type="status",
+                    content=(f"Detected {drifted_files_total} drifted file(s) (policy=fail): " f"{drifted_file_list}"),
+                    source=selected_agent_id,
+                )
+                yield StreamChunk(
+                    type="error",
+                    error=("Drift conflict policy is 'fail'; no changes were applied. " "Resolve drift or use coordination.drift_conflict_policy " "set to 'skip' or 'prefer_presenter'."),
+                    source=selected_agent_id,
+                )
+            else:
+                if drifted_files_total and drift_conflict_policy == "prefer_presenter":
+                    yield StreamChunk(
+                        type="status",
+                        content=(f"Detected {drifted_files_total} drifted file(s) " f"(policy=prefer_presenter): {drifted_file_list}"),
+                        source=selected_agent_id,
+                    )
+
+                for plan_entry in apply_plan:
+                    blocked_files = plan_entry["drifted_files"] if drift_conflict_policy == "skip" else None
+                    files = applier.apply_changes(
+                        source_path=plan_entry["source_path"],
+                        target_path=plan_entry["target_path"],
+                        approved_files=plan_entry["approved_files_for_context"],
+                        approved_hunks=plan_entry["approved_hunks_for_context"],
+                        context_prefix=plan_entry["context_prefix"],
+                        base_ref=plan_entry["base_ref"],
+                        blocked_files=blocked_files,
+                        combined_diff=plan_entry["combined_diff"],
+                    )
+                    applied_files.extend(files)
+
             if applied_files:
                 yield StreamChunk(
                     type="status",
-                    content=f"Applied {len(applied_files)} file change(s): {', '.join(applied_files)}",
+                    content=f"Applied {len(applied_files)} file change(s): {_format_file_list(applied_files)}",
                     source=selected_agent_id,
                 )
+
+                # Report skipped files (approved but not applied due to drift)
+                if drifted_files_total and drift_conflict_policy == "skip":
+                    yield StreamChunk(
+                        type="status",
+                        content=(f"Skipped {drifted_files_total} drifted file(s) " f"(policy=skip): {drifted_file_list}"),
+                        source=selected_agent_id,
+                    )
+
+                # Report rejected files (user deselected in review modal)
+                if review_result.approved_files is not None:
+                    total_available = sum(len(ctx.get("changes", [])) for ctx in all_changes)
+                    rejected_count = total_available - len(review_result.approved_files)
+                    if rejected_count > 0:
+                        yield StreamChunk(
+                            type="status",
+                            content=f"User excluded {rejected_count} file(s) from apply",
+                            source=selected_agent_id,
+                        )
+
                 logger.info(f"[Orchestrator] Applied isolated changes: {applied_files}")
             else:
                 logger.warning("[Orchestrator] Review approved but no files were applied (empty change set)")
@@ -10993,6 +11133,12 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                     content="Review approved but no changed files were found to apply",
                     source=selected_agent_id,
                 )
+                if drifted_files_total and drift_conflict_policy == "skip":
+                    yield StreamChunk(
+                        type="status",
+                        content=(f"Skipped {drifted_files_total} drifted file(s) " f"(policy=skip): {drifted_file_list}"),
+                        source=selected_agent_id,
+                    )
         else:
             yield StreamChunk(
                 type="status",
@@ -11856,6 +12002,8 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             "answers": answers,
             "vote_results": vote_results,
             "usage": total_usage,
+            "is_orchestrator_timeout": self.is_orchestrator_timeout,
+            "timeout_reason": self.timeout_reason,
         }
 
     def get_status(self) -> Dict[str, Any]:

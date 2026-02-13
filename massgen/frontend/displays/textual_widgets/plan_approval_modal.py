@@ -22,7 +22,7 @@ class PlanApprovalResult:
     """Result from the plan review modal."""
 
     approved: bool
-    action: str  # "continue", "quick_edit", "finalize", "cancel"
+    action: str  # "continue", "quick_edit", "finalize", "finalize_manual", "cancel"
     feedback: Optional[str] = None
     plan_data: Optional[Dict[str, Any]] = None
     plan_path: Optional[Path] = None
@@ -254,6 +254,11 @@ class PlanApprovalModal(ModalScreen[PlanApprovalResult]):
                         id="finalize_btn",
                         classes="execute-button",
                     )
+                    yield Button(
+                        "Finalize Plan (Manual Execute)",
+                        variant="default",
+                        id="finalize_manual_btn",
+                    )
                     yield Button("Cancel (Esc)", variant="error", id="cancel_btn")
                 if self._action_status:
                     yield Static(self._action_status, classes="plan-action-status")
@@ -388,7 +393,7 @@ class PlanApprovalModal(ModalScreen[PlanApprovalResult]):
             self._persist_plan_data()
         self.dismiss(
             PlanApprovalResult(
-                approved=action == "finalize",
+                approved=action in {"finalize", "finalize_manual"},
                 action=action,
                 feedback=self._feedback_text(),
                 plan_data=self.plan_data,
@@ -404,6 +409,8 @@ class PlanApprovalModal(ModalScreen[PlanApprovalResult]):
             self._dismiss_with_action("quick_edit")
         elif button_id == "finalize_btn":
             self._dismiss_with_action("finalize")
+        elif button_id == "finalize_manual_btn":
+            self._dismiss_with_action("finalize_manual")
         elif button_id == "expand_btn":
             self.action_toggle_expand()
         elif button_id == "edit_plan_json_btn":

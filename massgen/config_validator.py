@@ -163,6 +163,7 @@ class ConfigValidator:
 
     # Valid write modes for isolated write contexts
     VALID_WRITE_MODES = {"auto", "worktree", "isolated", "legacy"}
+    VALID_DRIFT_CONFLICT_POLICIES = {"skip", "prefer_presenter", "fail"}
 
     def __init__(self):
         """Initialize the validator."""
@@ -971,6 +972,15 @@ class ConfigValidator:
                         result.add_error(
                             f"Invalid write_mode: '{write_mode}'",
                             f"{location}.coordination.write_mode",
+                            f"Use one of: {valid_values}",
+                        )
+                if "drift_conflict_policy" in coordination:
+                    policy = coordination["drift_conflict_policy"]
+                    if policy not in self.VALID_DRIFT_CONFLICT_POLICIES:
+                        valid_values = ", ".join(sorted(self.VALID_DRIFT_CONFLICT_POLICIES))
+                        result.add_error(
+                            f"Invalid drift_conflict_policy: '{policy}'",
+                            f"{location}.coordination.drift_conflict_policy",
                             f"Use one of: {valid_values}",
                         )
 

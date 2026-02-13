@@ -1079,11 +1079,18 @@ class PlanOptionsPopover(Widget):
             target_chunks = int(raw_value) if raw_value.isdigit() else None
             self.post_message(PlanChunkTargetChanged(target_chunks))
         elif selector_id == "execute_auto_continue_selector":
-            self.post_message(ExecuteAutoContinueChanged(str(event.value) == "auto"))
+            enabled = str(event.value) == "auto"
+            if enabled == self._current_execute_auto_continue:
+                return
+            self._current_execute_auto_continue = enabled
+            self.post_message(ExecuteAutoContinueChanged(enabled))
         elif selector_id == "execute_refinement_mode_selector":
             mode = str(event.value)
             if mode not in {"inherit", "on", "off"}:
                 mode = "inherit"
+            if mode == self._current_execute_refinement_mode:
+                return
+            self._current_execute_refinement_mode = mode
             self.post_message(ExecuteRefinementModeChanged(mode))
 
         elif selector_id == "broadcast_selector":
