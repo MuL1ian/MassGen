@@ -2671,6 +2671,7 @@ class FinalPresentationCard(Vertical):
             yield Label(self._build_title(), id="final_card_title")
             yield Label(self._build_winner_summary(), id="final_card_winner")
             yield Label(self._build_vote_summary(), id="final_card_votes")
+            yield Label("", id="final_card_header_compact", classes="hidden")
 
         # Body: horizontal container for content + file explorer
         from massgen.frontend.displays.textual_widgets.file_explorer_panel import (
@@ -2768,6 +2769,45 @@ class FinalPresentationCard(Vertical):
 
         counts_str = " • ".join(f"{aid} ({count})" for aid, count in vote_counts.items())
         return f"Votes: {counts_str}"
+
+    def _build_locked_header_summary(self) -> str:
+        """Build a compact single-line header summary for locked mode."""
+        winner = self._build_winner_summary().replace("🏅 ", "", 1)
+        votes = self._build_vote_summary()
+
+        parts = ["✅ FINAL ANSWER"]
+        if winner:
+            parts.append(winner)
+        if votes:
+            parts.append(votes)
+        return " · ".join(parts)
+
+    def _set_locked_header_mode(self, locked: bool) -> None:
+        """Toggle compact single-line header mode for answer lock."""
+        from textual.widgets import Label
+
+        try:
+            title = self.query_one("#final_card_title", Label)
+            winner = self.query_one("#final_card_winner", Label)
+            votes = self.query_one("#final_card_votes", Label)
+            compact = self.query_one("#final_card_header_compact", Label)
+        except Exception:
+            return
+
+        if locked:
+            compact.update(self._build_locked_header_summary())
+            compact.remove_class("hidden")
+            compact.display = True
+            title.display = False
+            winner.display = False
+            votes.display = False
+            return
+
+        compact.add_class("hidden")
+        compact.display = False
+        title.display = True
+        winner.display = True
+        votes.display = True
 
     @classmethod
     def _limit_context_paths(cls, context_paths: Optional[Dict]) -> tuple[list[str], list[str], int]:
@@ -2996,6 +3036,7 @@ class FinalPresentationCard(Vertical):
             self._pending_file_explorer = False
             # Keep lock transition responsive: avoid synchronous workspace scans on mount.
             self._show_file_explorer(True, allow_workspace_scan=False, allow_auto_preview=False)
+        self._set_locked_header_mode(self.has_class("locked-mode"))
 
     def _on_compose(self) -> None:
         """Called after compose() completes - use this to flush content."""
@@ -3035,6 +3076,7 @@ class FinalPresentationCard(Vertical):
             title.update("✅ FINAL ANSWER")
         except Exception as e:
             tui_log(f"[ContentSections] {e}")
+        self._set_locked_header_mode(self.has_class("locked-mode"))
 
         # Show footer with buttons and continue message
         try:
@@ -3140,6 +3182,7 @@ class FinalPresentationCard(Vertical):
                 self.remove_class("locked-mode")
                 link.update("⎯ Answer Only")
                 self._show_file_explorer(False)
+                self._set_locked_header_mode(False)
             else:
                 # Lock: show only final answer
                 timeline.lock_to_final_answer(self.id or "final_presentation_card")
@@ -3147,6 +3190,7 @@ class FinalPresentationCard(Vertical):
                 link.update("↩ Previous Work")
                 # Avoid blocking the UI thread on large workspace scans during lock transitions.
                 self._show_file_explorer(True, allow_workspace_scan=False, allow_auto_preview=False)
+                self._set_locked_header_mode(True)
             self._sync_locked_render_mode()
         except Exception as e:
             tui_log(f"[ContentSections] {e}")
@@ -3173,6 +3217,7 @@ class FinalPresentationCard(Vertical):
             self._show_file_explorer(True, allow_workspace_scan=False, allow_auto_preview=False)
             # Also set flag for on_mount fallback in case we're not mounted yet
             self._pending_file_explorer = True
+            self._set_locked_header_mode(True)
         else:
             self.remove_class("locked-mode")
             try:
@@ -3182,6 +3227,7 @@ class FinalPresentationCard(Vertical):
             except Exception as e:
                 tui_log(f"[ContentSections] {e}")
             self._show_file_explorer(False)
+            self._set_locked_header_mode(False)
         self._sync_locked_render_mode()
         self._timing("set_locked_mode", (time.perf_counter() - started) * 1000.0, f"locked={locked}")
 

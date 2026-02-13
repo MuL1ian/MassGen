@@ -7,7 +7,6 @@ Manages the lifecycle of subagents: creation, workspace setup, execution, and re
 
 import asyncio
 import json
-import logging
 import shutil
 import time
 from datetime import datetime
@@ -18,6 +17,7 @@ if TYPE_CHECKING:
     from massgen.events import MassGenEvent
 
 import yaml
+from loguru import logger
 
 from massgen.structured_logging import (
     log_subagent_complete,
@@ -35,8 +35,6 @@ from massgen.subagent.models import (
     SubagentResult,
     SubagentState,
 )
-
-logger = logging.getLogger(__name__)
 
 
 class SubagentManager:
@@ -638,9 +636,11 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 else:
                     logger.warning(f"[SubagentManager] Context file not found: {ctx_file}")
 
+        workspace_abs = workspace.resolve()
+
         # Generate temporary YAML config for the subagent
         subagent_yaml = self._generate_subagent_yaml_config(config, workspace, context_paths)
-        yaml_path = workspace / f"subagent_config_{config.id}.yaml"
+        yaml_path = workspace_abs / f"subagent_config_{config.id}.yaml"
         yaml_path.write_text(yaml.dump(subagent_yaml, default_flow_style=False))
 
         num_agents = orch_config.num_agents if orch_config else 1
@@ -658,7 +658,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         # Use --automation for minimal output and --output-file to capture the answer
         # DON'T use --session-id for initial spawn (that's for restoring existing sessions)
         # We'll extract the auto-generated session ID from the subprocess status afterward
-        answer_file = workspace / "answer.txt"
+        answer_file = workspace_abs / "answer.txt"
         cmd = [
             "uv",
             "run",
@@ -678,7 +678,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=str(workspace),
+                cwd=str(workspace_abs),
             )
 
             # Track the process for potential cancellation
@@ -746,7 +746,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             else:
                 stderr_text = stderr.decode() if stderr else ""
                 stdout_text = stdout.decode() if stdout else ""
-                error_msg = stderr_text.strip() or f"Subprocess exited with code {process.returncode}"
+                error_msg = stderr_text.strip() or stdout_text.strip()[:500] or f"Subprocess exited with code {process.returncode}"
 
                 # Log detailed error information for debugging
                 logger.error(
@@ -890,11 +890,13 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                         },
                     )
 
+        workspace_abs = workspace.resolve()
+
         # Generate YAML config
         config.metadata = config.metadata or {}
         config.metadata["refine"] = refine
         subagent_yaml = self._generate_subagent_yaml_config(config, workspace, context_paths)
-        yaml_path = workspace / f"subagent_config_{config.id}.yaml"
+        yaml_path = workspace_abs / f"subagent_config_{config.id}.yaml"
         yaml_path.write_text(yaml.dump(subagent_yaml, default_flow_style=False))
 
         # Build system prompt and task
@@ -902,7 +904,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
         full_task = system_prompt
 
         # Build command with --stream-events for real-time event streaming
-        answer_file = workspace / "answer.txt"
+        answer_file = workspace_abs / "answer.txt"
         cmd = [
             "uv",
             "run",
@@ -926,7 +928,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=str(workspace),
+                cwd=str(workspace_abs),
             )
 
             # Track the process for potential cancellation
@@ -936,6 +938,8 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             self._create_live_logs_symlink(config.id, workspace)
 
             # Read stdout line by line, parse events, call callback
+            non_event_stdout_lines: list[str] = []
+
             async def stream_events():
                 if process.stdout:
                     async for line in process.stdout:
@@ -945,8 +949,8 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                                 event = MassGenEvent.from_json(line_str)
                                 await on_event(event)
                         except json.JSONDecodeError:
-                            # Skip non-JSON lines (e.g., startup messages)
-                            pass
+                            # Capture non-JSON lines for error diagnostics
+                            non_event_stdout_lines.append(line.decode().strip())
                         except Exception as e:
                             logger.debug(f"[SubagentManager] Error processing event: {e}")
 
@@ -1017,9 +1021,12 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
                 )
             else:
                 stderr_text = b"".join(stderr_chunks).decode(errors="replace")
-                error_msg = stderr_text.strip() or f"Subprocess exited with code {process.returncode}"
+                stdout_text = "\n".join(non_event_stdout_lines)
+                error_msg = stderr_text.strip() or stdout_text.strip()[:500] or f"Subprocess exited with code {process.returncode}"
 
-                logger.error(f"[SubagentManager] Subagent {config.id} failed: {error_msg}")
+                logger.error(
+                    f"[SubagentManager] Subagent {config.id} failed with exit code {process.returncode}\n" f"STDERR: {stderr_text[:1000]}\n" f"STDOUT (non-event): {stdout_text[:500]}",
+                )
 
                 _, subprocess_log_dir, _ = self._parse_subprocess_status(workspace)
                 self._write_subprocess_log_reference(config.id, subprocess_log_dir, error=error_msg)
@@ -1911,7 +1918,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             )
 
         # Get the existing workspace from the registry
-        workspace = Path(subagent_entry.get("workspace", ""))
+        workspace = Path(subagent_entry.get("workspace", "")).resolve()
         if not workspace.exists():
             return SubagentResult.create_error(
                 subagent_id=subagent_id,
@@ -2019,7 +2026,7 @@ You are a subagent spawned to work on a specific task. Your workspace is isolate
             else:
                 stderr_text = stderr.decode() if stderr else ""
                 stdout_text = stdout.decode() if stdout else ""
-                error_msg = stderr_text.strip() or f"Subprocess exited with code {process.returncode}"
+                error_msg = stderr_text.strip() or stdout_text.strip()[:500] or f"Subprocess exited with code {process.returncode}"
 
                 # Log detailed error information for debugging
                 logger.error(

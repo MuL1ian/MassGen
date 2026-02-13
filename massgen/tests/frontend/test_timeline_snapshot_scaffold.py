@@ -32,6 +32,9 @@ def _configure_snapshot_terminal_environment(monkeypatch) -> None:  # noqa: ANN0
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.setenv("COLORTERM", "truecolor")
+    monkeypatch.setenv("COLUMNS", "140")
+    monkeypatch.setenv("LINES", "42")
+    monkeypatch.setenv("FORCE_COLOR", "1")
 
 
 class _TimelineSnapshotApp(App):
@@ -367,9 +370,13 @@ async def _seed_real_tui_final_lock_snapshot(pilot) -> None:  # noqa: ANN001 - f
     app.query_one("#status_cwd", Static).update("[dim]📁[/] /workspace")
     if app._tab_bar:
         app._tab_bar.set_winner("agent_a")
+    app._refresh_input_modes_row_layout()
+    if app._mode_bar:
+        app._mode_bar._refresh_responsive_labels()
     app.set_focus(None)
     _complete_tool_appearance_states(app)
     _stop_all_tui_timers(app)
+    await pilot.pause()
     await pilot.pause()
 
 
@@ -380,4 +387,34 @@ def test_timeline_snapshot_real_tui_final_presentation_lock_mode(snap_compare, m
         _build_real_tui_snapshot_app(tmp_path),
         terminal_size=(140, 42),
         run_before=_seed_real_tui_final_lock_snapshot,
+    )
+
+
+async def _seed_real_tui_toast_snapshot(pilot) -> None:  # noqa: ANN001 - fixture-provided type
+    app = pilot.app
+    panel = app.agent_widgets["agent_a"]
+    panel._hide_loading()
+    _stop_round_timers_if_running(app)
+
+    app.query_one("#timeout_display", Label).update("⏱ 0:00 / 10:00")
+    app.query_one("#status_cwd", Static).update("[dim]📁[/] /workspace")
+    app.set_focus(None)
+
+    app.notify("Info: collecting agent updates", severity="information", timeout=30)
+    app.notify("Warning: context budget is nearly full", severity="warning", timeout=30)
+    app.notify("Error: failed to parse plan metadata", severity="error", timeout=30)
+    app.notify("Success: final answer saved", severity="success", timeout=30)
+
+    await pilot.pause()
+    _stop_all_tui_timers(app)
+    await pilot.pause()
+
+
+def test_timeline_snapshot_real_tui_toast_stack(snap_compare, monkeypatch, tmp_path: Path) -> None:
+    """Snapshot of runtime Textual app with stacked toast severities."""
+    _configure_real_tui_snapshot_environment(monkeypatch)
+    assert snap_compare(
+        _build_real_tui_snapshot_app(tmp_path),
+        terminal_size=(140, 42),
+        run_before=_seed_real_tui_toast_snapshot,
     )

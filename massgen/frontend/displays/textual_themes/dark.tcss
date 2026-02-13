@@ -659,6 +659,22 @@ ModeToggle.state-on {
     border-bottom: tall $border-default;
 }
 
+/* Persona diversity modes - match refinement on styling */
+ModeToggle.state-perspective {
+    color: $fg-primary;
+    border-bottom: tall $border-default;
+}
+
+ModeToggle.state-implementation {
+    color: $fg-primary;
+    border-bottom: tall $border-default;
+}
+
+ModeToggle.state-methodology {
+    color: $fg-primary;
+    border-bottom: tall $border-default;
+}
+
 /* Refinement off - muted gray (reduced mode) */
 ModeToggle.state-off {
     color: $fg-muted;

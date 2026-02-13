@@ -168,6 +168,8 @@ class IsolationContextManager:
 
     def _create_worktree_context(self, context_path: str, agent_id: Optional[str]) -> str:
         """Create a git worktree for the context path."""
+        from git import Repo
+
         from ..utils.git_utils import get_git_root
 
         repo_root = get_git_root(context_path)
@@ -180,12 +182,12 @@ class IsolationContextManager:
 
         wm = self._worktree_managers[repo_root]
 
-        # Generate branch name: use branch_label if explicitly provided, otherwise short random
+        # Generate branch name with random suffix for uniqueness
         self._branch_counter += 1
+        random_suffix = secrets.token_hex(4)
         if self.branch_label:
-            branch_name = self.branch_label
+            branch_name = f"{self.branch_label}_{random_suffix}"
         else:
-            random_suffix = secrets.token_hex(4)
             branch_name = f"massgen/{random_suffix}"
 
         # Create worktree path - prefer workspace if available
@@ -212,6 +214,29 @@ class IsolationContextManager:
             base = self.base_commit or "HEAD"
             isolated_path = wm.create_worktree(worktree_path, branch_name, base_commit=base)
 
+            # Mirror source dirty state (tracked/untracked/deleted) into the worktree so
+            # agents start from the user's current repo state, not just clean HEAD.
+            self._mirror_source_state_into_worktree(
+                repo_root=repo_root,
+                context_path=context_path,
+                isolated_path=isolated_path,
+            )
+
+            base_ref = None
+            try:
+                wt_repo = Repo(isolated_path)
+                if wt_repo.is_dirty(untracked_files=True):
+                    wt_repo.git.add("-A")
+                    wt_repo.index.commit("[BASELINE] Mirror source working tree")
+                base_ref = wt_repo.head.commit.hexsha
+            except Exception as e:
+                log.warning(
+                    "Failed to create baseline commit for %s (drift detection disabled): %s",
+                    context_path,
+                    e,
+                )
+                base_ref = None
+
             # Store manager reference for cleanup
             self._contexts[context_path] = {
                 "isolated_path": isolated_path,
@@ -219,6 +244,7 @@ class IsolationContextManager:
                 "mode": "worktree",
                 "manager": wm,
                 "branch_name": branch_name,
+                "base_ref": base_ref,
                 "repo_root": repo_root,
                 "agent_id": agent_id,
             }
@@ -234,6 +260,71 @@ class IsolationContextManager:
         except Exception as e:
             log.error(f"Failed to create worktree: {e}")
             raise RuntimeError(f"Failed to create worktree context: {e}")
+
+    @staticmethod
+    def _is_in_context_scope(repo_rel_path: str, context_prefix: str) -> bool:
+        """Return True if repo-relative path is within the context prefix."""
+        normalized_rel = repo_rel_path.replace("\\", "/").strip("/")
+        normalized_prefix = context_prefix.replace("\\", "/").strip("/")
+        if normalized_prefix in ("", "."):
+            return True
+        return normalized_rel == normalized_prefix or normalized_rel.startswith(f"{normalized_prefix}/")
+
+    def _mirror_source_state_into_worktree(
+        self,
+        repo_root: str,
+        context_path: str,
+        isolated_path: str,
+    ) -> None:
+        """Mirror source working-tree deltas into isolated worktree for a context scope."""
+        from git import Repo
+
+        try:
+            source_repo = Repo(repo_root)
+            context_abs = os.path.abspath(context_path)
+            repo_root_abs = os.path.abspath(repo_root)
+            if os.path.commonpath([context_abs, repo_root_abs]) != repo_root_abs:
+                return
+
+            context_prefix = os.path.relpath(context_abs, repo_root_abs)
+            candidate_paths: set[str] = set()
+
+            # Unstaged and staged deltas against HEAD.
+            for diff in source_repo.index.diff(None):
+                for candidate in (diff.a_path, diff.b_path):
+                    if isinstance(candidate, str) and candidate:
+                        candidate_paths.add(candidate)
+
+            for diff in source_repo.index.diff("HEAD"):
+                for candidate in (diff.a_path, diff.b_path):
+                    if isinstance(candidate, str) and candidate:
+                        candidate_paths.add(candidate)
+
+            for rel_path in source_repo.untracked_files:
+                if rel_path:
+                    candidate_paths.add(rel_path)
+
+            for rel_path in sorted(candidate_paths):
+                if not self._is_in_context_scope(rel_path, context_prefix):
+                    continue
+
+                norm_parts = rel_path.replace("\\", "/").split("/")
+                if ".git" in norm_parts or SCRATCH_DIR_NAME in norm_parts:
+                    continue
+
+                source_abs = os.path.join(repo_root_abs, rel_path)
+                dest_abs = os.path.join(isolated_path, rel_path)
+
+                if os.path.exists(source_abs):
+                    os.makedirs(os.path.dirname(dest_abs), exist_ok=True)
+                    shutil.copy2(source_abs, dest_abs)
+                else:
+                    if os.path.isfile(dest_abs) or os.path.islink(dest_abs):
+                        os.remove(dest_abs)
+                    elif os.path.isdir(dest_abs):
+                        shutil.rmtree(dest_abs)
+        except Exception as e:
+            log.warning("Failed to mirror source working tree into worktree: %s", e)
 
     def _create_shadow_context(self, context_path: str, agent_id: Optional[str]) -> str:
         """Create a shadow repository for the context path."""
@@ -498,9 +589,11 @@ class IsolationContextManager:
             repo.git.checkout("-b", branch_name)
             self._session_branches.append(branch_name)
             log.info(f"Created workspace branch: {branch_name}")
+            base_ref = repo.head.commit.hexsha
         except Exception as e:
             log.warning(f"Failed to create workspace branch: {e}")
             branch_name = None
+            base_ref = None
 
         # Track as a context so cleanup/archive works
         self._contexts[workspace_path] = {
@@ -509,6 +602,7 @@ class IsolationContextManager:
             "mode": "workspace",
             "manager": wm if branch_name else None,
             "branch_name": branch_name,
+            "base_ref": base_ref,
             "agent_id": agent_id,
         }
 
@@ -739,12 +833,14 @@ class IsolationContextManager:
             return self._contexts[original_path]["isolated_path"]
         return None
 
-    def get_changes(self, context_path: str) -> List[Dict[str, Any]]:
+    def get_changes(self, context_path: str, include_committed_since_base: bool = False) -> List[Dict[str, Any]]:
         """
         Get list of changes in the isolated context.
 
         Args:
             context_path: Original context path
+            include_committed_since_base: Include committed deltas between the
+                context base ref and HEAD (if available).
 
         Returns:
             List of change dicts with 'status', 'path' keys
@@ -772,19 +868,27 @@ class IsolationContextManager:
             isolated_path = ctx["isolated_path"]
             try:
                 repo = Repo(isolated_path)
-                return git_get_changes(repo)
+                base_ref = ctx.get("base_ref") if include_committed_since_base else None
+                return git_get_changes(repo, base_ref=base_ref)
             except InvalidGitRepositoryError:
                 return []
 
         return []
 
-    def get_diff(self, context_path: str, staged: bool = False) -> str:
+    def get_diff(
+        self,
+        context_path: str,
+        staged: bool = False,
+        include_committed_since_base: bool = False,
+    ) -> str:
         """
         Get the diff of changes in the isolated context.
 
         Args:
             context_path: Original context path
             staged: If True, show staged changes only
+            include_committed_since_base: Include committed diff between the
+                context base ref and HEAD (if available).
 
         Returns:
             Git diff output as string
@@ -810,17 +914,31 @@ class IsolationContextManager:
             isolated_path = ctx["isolated_path"]
             try:
                 repo = Repo(isolated_path)
+                committed_diff = ""
+                if include_committed_since_base:
+                    base_ref = ctx.get("base_ref")
+                    if base_ref:
+                        try:
+                            committed_diff = repo.git.diff(base_ref, "HEAD")
+                        except GitCommandError:
+                            committed_diff = ""
+
                 if staged:
-                    return repo.git.diff("--staged")
+                    working_diff = repo.git.diff("--staged")
+                    if committed_diff and working_diff:
+                        return f"{committed_diff}\n{working_diff}"
+                    return committed_diff or working_diff
                 # Stage everything so untracked (new) files appear in the diff,
                 # then unstage so ChangeApplier can still detect changes via
                 # repo.index.diff(None) and repo.untracked_files.
                 repo.git.add("-A")
                 try:
-                    diff_output = repo.git.diff("--staged")
+                    working_diff = repo.git.diff("--staged")
                 finally:
                     repo.git.reset("HEAD")
-                return diff_output
+                if committed_diff and working_diff:
+                    return f"{committed_diff}\n{working_diff}"
+                return committed_diff or working_diff
             except (InvalidGitRepositoryError, GitCommandError):
                 return ""
 
@@ -906,6 +1024,7 @@ class IsolationContextManager:
                 "agent_id": ctx.get("agent_id"),
                 "repo_root": ctx.get("repo_root"),
                 "branch_name": ctx.get("branch_name"),
+                "base_ref": ctx.get("base_ref"),
                 "scratch_path": ctx.get("scratch_path"),
             }
         return None

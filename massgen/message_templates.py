@@ -130,6 +130,7 @@ IMPORTANT: You are responding to the latest message in an ongoing conversation. 
         self,
         agent_summaries: Dict[str, str],
         agent_mapping: Optional[Dict[str, str]] = None,
+        agent_changedocs: Optional[Dict[str, str]] = None,
     ) -> str:
         """Format current answers section with agent summaries (Case 2) using anonymous agent IDs.
 
@@ -139,6 +140,8 @@ IMPORTANT: You are responding to the latest message in an ongoing conversation. 
                           If not provided, creates mapping from sorted agent_summaries keys.
                           Pass this from coordination_tracker.get_reverse_agent_mapping() for
                           global consistency with vote tool and injections.
+            agent_changedocs: Optional dict of agent_id -> changedoc content. When provided,
+                             changedoc content is included within each agent's answer block.
         """
         if "format_current_answers_with_summaries" in self._template_overrides:
             override = self._template_overrides["format_current_answers_with_summaries"]
@@ -155,7 +158,11 @@ IMPORTANT: You are responding to the latest message in an ongoing conversation. 
 
         for agent_id, summary in agent_summaries.items():
             anon_id = agent_mapping.get(agent_id, f"agent_{agent_id}")
-            lines.append(f"<{anon_id}> {summary} <end of {anon_id}>")
+            changedoc = (agent_changedocs or {}).get(agent_id)
+            if changedoc:
+                lines.append(f"<{anon_id}> {summary}\n<changedoc>\n{changedoc}\n</changedoc> <end of {anon_id}>")
+            else:
+                lines.append(f"<{anon_id}> {summary} <end of {anon_id}>")
 
         lines.append("<END OF CURRENT ANSWERS>")
         return "\n".join(lines)
@@ -625,6 +632,7 @@ Please address these specific issues in your coordination and final answer.
         agent_summaries: Dict[str, str],
         paraphrase: Optional[str] = None,
         agent_mapping: Optional[Dict[str, str]] = None,
+        agent_changedocs: Optional[Dict[str, str]] = None,
     ) -> str:
         """Build Case 2 user message (summaries exist).
 
@@ -635,10 +643,11 @@ Please address these specific issues in your coordination and final answer.
             agent_mapping: Mapping from real agent ID to anonymous ID (e.g., agent_a -> agent1).
                           Pass from coordination_tracker.get_reverse_agent_mapping() for
                           global consistency with vote tool and injections.
+            agent_changedocs: Optional dict of agent_id -> changedoc content.
         """
         return f"""{self.format_original_message(task, paraphrase)}
 
-{self.format_current_answers_with_summaries(agent_summaries, agent_mapping)}"""
+{self.format_current_answers_with_summaries(agent_summaries, agent_mapping, agent_changedocs=agent_changedocs)}"""
 
     def build_evaluation_message(
         self,
@@ -646,6 +655,7 @@ Please address these specific issues in your coordination and final answer.
         agent_answers: Optional[Dict[str, str]] = None,
         paraphrase: Optional[str] = None,
         agent_mapping: Optional[Dict[str, str]] = None,
+        agent_changedocs: Optional[Dict[str, str]] = None,
     ) -> str:
         """Build evaluation user message for any case.
 
@@ -656,9 +666,10 @@ Please address these specific issues in your coordination and final answer.
             agent_mapping: Mapping from real agent ID to anonymous ID (e.g., agent_a -> agent1).
                           Pass from coordination_tracker.get_reverse_agent_mapping() for
                           global consistency with vote tool and injections.
+            agent_changedocs: Optional dict of agent_id -> changedoc content.
         """
         if agent_answers:
-            return self.build_case2_user_message(task, agent_answers, paraphrase, agent_mapping)
+            return self.build_case2_user_message(task, agent_answers, paraphrase, agent_mapping, agent_changedocs=agent_changedocs)
         else:
             return self.build_case1_user_message(task, paraphrase)
 
@@ -669,6 +680,7 @@ Please address these specific issues in your coordination and final answer.
         agent_answers: Optional[Dict[str, str]] = None,
         paraphrase: Optional[str] = None,
         agent_mapping: Optional[Dict[str, str]] = None,
+        agent_changedocs: Optional[Dict[str, str]] = None,
     ) -> str:
         """Build coordination context including conversation history and current state.
 
@@ -680,6 +692,7 @@ Please address these specific issues in your coordination and final answer.
             agent_mapping: Mapping from real agent ID to anonymous ID (e.g., agent_a -> agent1).
                           Pass from coordination_tracker.get_reverse_agent_mapping() for
                           global consistency with vote tool and injections.
+            agent_changedocs: Optional dict of agent_id -> changedoc content.
         """
         if "build_coordination_context" in self._template_overrides:
             override = self._template_overrides["build_coordination_context"]
@@ -705,7 +718,7 @@ Please address these specific issues in your coordination and final answer.
 
         # Add agent answers
         if agent_answers:
-            context_parts.append(self.format_current_answers_with_summaries(agent_answers, agent_mapping))
+            context_parts.append(self.format_current_answers_with_summaries(agent_answers, agent_mapping, agent_changedocs=agent_changedocs))
         else:
             context_parts.append(self.format_current_answers_empty())
 
@@ -724,6 +737,7 @@ Please address these specific issues in your coordination and final answer.
         paraphrase: Optional[str] = None,
         agent_mapping: Optional[Dict[str, str]] = None,
         decomposition_mode: bool = False,
+        agent_changedocs: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Build complete initial conversation for MassGen evaluation.
 
@@ -736,6 +750,7 @@ Please address these specific issues in your coordination and final answer.
             agent_mapping: Mapping from real agent ID to anonymous ID (e.g., agent_a -> agent1).
                           Pass from coordination_tracker.get_reverse_agent_mapping() for
                           global consistency with vote tool and injections.
+            agent_changedocs: Optional dict of agent_id -> changedoc content.
         """
         # Use agent's custom system message if provided, otherwise use default evaluation message
         if base_system_message:
@@ -751,7 +766,7 @@ Please address these specific issues in your coordination and final answer.
 
         return {
             "system_message": system_message,
-            "user_message": self.build_evaluation_message(task, agent_summaries, paraphrase, agent_mapping),
+            "user_message": self.build_evaluation_message(task, agent_summaries, paraphrase, agent_mapping, agent_changedocs=agent_changedocs),
             "tools": self.get_standard_tools(valid_agent_ids, decomposition_mode=decomposition_mode),
         }
 
@@ -765,6 +780,7 @@ Please address these specific issues in your coordination and final answer.
         paraphrase: Optional[str] = None,
         agent_mapping: Optional[Dict[str, str]] = None,
         decomposition_mode: bool = False,
+        agent_changedocs: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Build complete conversation with conversation history context for MassGen evaluation.
 
@@ -779,6 +795,7 @@ Please address these specific issues in your coordination and final answer.
                           Pass from coordination_tracker.get_reverse_agent_mapping() for
                           global consistency with vote tool and injections.
             decomposition_mode: If True, use stop tool instead of vote in logged tools
+            agent_changedocs: Optional dict of agent_id -> changedoc content.
         """
         # Use agent's custom system message if provided, otherwise use default context-aware message
         if base_system_message:
@@ -794,7 +811,7 @@ Please address these specific issues in your coordination and final answer.
 
         return {
             "system_message": system_message,
-            "user_message": self.build_coordination_context(current_task, conversation_history, agent_summaries, paraphrase, agent_mapping),
+            "user_message": self.build_coordination_context(current_task, conversation_history, agent_summaries, paraphrase, agent_mapping, agent_changedocs=agent_changedocs),
             "tools": self.get_standard_tools(valid_agent_ids, decomposition_mode=decomposition_mode),
         }
 
@@ -804,13 +821,18 @@ Please address these specific issues in your coordination and final answer.
         vote_summary: str,
         all_answers: Dict[str, str],
         selected_agent_id: str,
+        agent_changedocs: Optional[Dict[str, str]] = None,
     ) -> str:
         """Build final presentation message for winning agent."""
         # Format all answers with clear marking
         answers_section = "All answers provided during coordination:\n"
         for agent_id, answer in all_answers.items():
             marker = " (YOUR ANSWER)" if agent_id == selected_agent_id else ""
-            answers_section += f'\n{agent_id}{marker}: "{answer}"\n'
+            changedoc = (agent_changedocs or {}).get(agent_id)
+            if changedoc:
+                answers_section += f'\n{agent_id}{marker}: "{answer}"\n<changedoc>\n{changedoc}\n</changedoc>\n'
+            else:
+                answers_section += f'\n{agent_id}{marker}: "{answer}"\n'
 
         return f"""{self.format_original_message(original_task)}
 

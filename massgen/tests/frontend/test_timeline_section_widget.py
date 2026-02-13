@@ -8,6 +8,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Markdown, Static
 
 from massgen.events import EventType, MassGenEvent
+from massgen.frontend.displays import textual_terminal_display as textual_display_module
 from massgen.frontend.displays.content_handlers import ToolDisplayData
 from massgen.frontend.displays.textual_widgets.collapsible_text_card import (
     CollapsibleTextCard,
@@ -35,6 +36,12 @@ class _TimelineApp(App):
 
     def compose(self) -> ComposeResult:
         yield TimelineSection(id="timeline")
+
+
+class _TimelineStyledApp(_TimelineApp):
+    """Test app that loads the production base theme CSS."""
+
+    CSS_PATH = str(textual_display_module.TextualApp._get_combined_css_path("dark"))
 
 
 class _PanelStub:
@@ -395,6 +402,31 @@ async def test_final_card_lock_mode_skips_workspace_scan_for_responsiveness(monk
 
 
 @pytest.mark.asyncio
+async def test_final_card_locked_mode_hides_file_preview_area_with_theme_css():
+    app = _TimelineStyledApp()
+    async with app.run_test(headless=True, size=(120, 32)) as pilot:
+        timeline = app.query_one(TimelineSection)
+        card = FinalPresentationCard(
+            agent_id="agent_a",
+            context_paths={"new": ["deliverable/final.txt"], "modified": []},
+            id="final_presentation_card",
+        )
+        timeline.add_widget(card, round_number=1)
+        card.append_chunk("Created deliverable/final.txt")
+        card.complete()
+        await pilot.pause()
+
+        card.set_locked_mode(True)
+        timeline.lock_to_final_answer("final_presentation_card")
+        await pilot.pause()
+
+        preview_header = card.query_one("#file_preview_header", Static)
+        preview = card.query_one("#file_preview", Static)
+        assert not preview_header.display
+        assert not preview.display
+
+
+@pytest.mark.asyncio
 async def test_final_card_explicit_workspace_scan_path_still_wired(monkeypatch, tmp_path):
     app = _TimelineApp()
     async with app.run_test(headless=True) as pilot:
@@ -558,6 +590,36 @@ async def test_final_card_locked_mode_forces_static_even_for_small_content():
         markdown_widget = card.query_one("#final_card_text", Markdown)
         assert "hidden" not in stream_widget.classes
         assert "hidden" in markdown_widget.classes
+
+
+@pytest.mark.asyncio
+async def test_final_card_locked_mode_uses_single_line_header_summary():
+    app = _TimelineApp()
+    async with app.run_test(headless=True) as pilot:
+        timeline = app.query_one(TimelineSection)
+        card = FinalPresentationCard(
+            agent_id="agent_a",
+            vote_results={
+                "vote_counts": {"A1.2": 2, "B1.1": 1},
+                "winner": "A1.2",
+                "is_tie": False,
+            },
+            context_paths={},
+            id="final_presentation_card",
+        )
+        timeline.add_widget(card, round_number=1)
+        card.append_chunk("final")
+        card.complete()
+        await pilot.pause()
+
+        card.set_locked_mode(True)
+        timeline.lock_to_final_answer("final_presentation_card")
+        await pilot.pause()
+
+        compact_header = card.query_one("#final_card_header_compact", Static)
+        assert "FINAL ANSWER" in str(compact_header.render())
+        assert "Winner:" in str(compact_header.render())
+        assert "Votes:" in str(compact_header.render())
 
 
 @pytest.mark.asyncio

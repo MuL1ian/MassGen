@@ -7,6 +7,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 from git import InvalidGitRepositoryError, Repo
+from loguru import logger
 
 
 def get_git_root(path: str) -> Optional[str]:
@@ -106,12 +107,14 @@ def get_repo(path: str) -> Optional[Repo]:
         return None
 
 
-def get_changes(repo: Repo) -> List[Dict[str, str]]:
+def get_changes(repo: Repo, base_ref: Optional[str] = None) -> List[Dict[str, str]]:
     """
-    Get list of all changes (staged, unstaged, untracked) in a repo.
+    Get list of all changes (committed, staged, unstaged, untracked) in a repo.
 
     Args:
         repo: GitPython Repo object
+        base_ref: Optional baseline ref/commit SHA. When provided, include
+            committed deltas between base_ref and HEAD.
 
     Returns:
         List of dicts with 'status' and 'path' keys
@@ -130,6 +133,12 @@ def get_changes(repo: Repo) -> List[Dict[str, str]]:
             rel_path = parts[-1]
             if rel_path:
                 changes_by_path[rel_path] = status
+
+    if base_ref:
+        try:
+            _record_name_status(repo.git.diff("--name-status", base_ref, "HEAD"))
+        except Exception as e:
+            logger.warning("Failed to diff base_ref {} against HEAD: {}", base_ref, e)
 
     # Staged changes (index vs HEAD)
     try:

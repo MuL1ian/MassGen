@@ -89,6 +89,16 @@ MassGen supports ``@path`` syntax in prompts to include files and directories as
    # Directory access
    massgen "Review all files in @src/components/ for consistency"
 
+**Quick CWD Shortcut (CLI flag):**
+
+.. code-block:: bash
+
+   # Equivalent to prepending @<cwd> in read-only mode
+   massgen --cwd-context ro "Review this repository"
+
+   # Equivalent to prepending @<cwd>:w in write mode
+   massgen --cwd-context rw "Apply the requested changes"
+
 **Features:**
 
 * **Path Validation**: Paths are validated before execution - you'll get a clear error if a path doesn't exist

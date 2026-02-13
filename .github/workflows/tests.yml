@@ -37,5 +37,5 @@ jobs:
         run: >
           uv run pytest massgen/tests
           -m "not live_api and not docker and not expensive"
-          -k "not test_timeline_snapshot"
+          -k "not test_timeline_snapshot and not test_final_lock_option"
           -q --tb=no

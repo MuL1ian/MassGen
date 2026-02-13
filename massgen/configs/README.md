@@ -227,7 +227,29 @@ Most configurations use environment variables for API keys:so
 
 ## Release History & Examples
 
-### v0.1.50 - Latest
+### v0.1.51 - Latest
+**New Features:** Change Documents (Changedoc), Changedoc-Anchored Evaluation, Checklist Gap Report, Drift Conflict Policy
+
+**Key Features:**
+- **Change Documents**: Decision journals in `tasks/changedoc.md` capturing decision provenance, rationale, and code traceability
+- **Changedoc-Anchored Evaluation**: 5 changedoc-specific checklist items with mandatory gap report
+- **Drift Conflict Policy**: `drift_conflict_policy: skip|prefer_presenter|fail` for safer change application
+- **Review Modal Improvements**: Multi-context, multi-file diff visualization with critique
+- **`--cwd-context` CLI Flag**: Inject CWD as context path (`ro`/`rw`)
+
+**Try It:**
+```bash
+# Install or upgrade to v0.1.51
+pip install --upgrade massgen
+
+# Launch — changedoc is enabled by default
+uv run massgen
+
+# Or add your project context quickly
+uv run massgen --cwd-context ro
+```
+
+### v0.1.50
 **New Features:** Chunked Plan Execution, Skill Lifecycle Management, Iterative Planning Review
 
 **Key Features:**

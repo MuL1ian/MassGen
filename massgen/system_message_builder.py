@@ -84,6 +84,12 @@ class SystemMessageBuilder:
         self.session_id = session_id
         self.agent_temporary_workspace = agent_temporary_workspace
 
+    @property
+    def _changedoc_enabled(self) -> bool:
+        """Return True when changedoc decision journal is enabled."""
+        coord = getattr(self.config, "coordination_config", None)
+        return bool(coord and getattr(coord, "enable_changedoc", True))
+
     @staticmethod
     def _filter_skills_by_enabled_names(
         all_skills: List[Dict[str, Any]],
@@ -129,6 +135,7 @@ class SystemMessageBuilder:
         agent_mapping: Optional[Dict[str, str]] = None,
         voting_sensitivity_override: Optional[str] = None,
         voting_threshold: Optional[int] = None,
+        checklist_require_gap_report: bool = True,
         answers_used: int = 0,
         answer_cap: Optional[int] = None,
         coordination_mode: str = "voting",
@@ -200,9 +207,20 @@ class SystemMessageBuilder:
         builder.add_section(OutputFirstVerificationSection(decomposition_mode=is_decomposition))
 
         # PRIORITY 1 (CRITICAL): MassGen Coordination - vote/new_answer or decomposition primitives
+        changedoc_enabled = self._changedoc_enabled
         if coordination_mode == "decomposition":
             decomp_sensitivity = voting_sensitivity_override or self.message_templates._voting_sensitivity
-            builder.add_section(DecompositionSection(subtask=agent_subtask, voting_threshold=voting_threshold, voting_sensitivity=decomp_sensitivity, answers_used=answers_used, answer_cap=answer_cap))
+            builder.add_section(
+                DecompositionSection(
+                    subtask=agent_subtask,
+                    voting_threshold=voting_threshold,
+                    voting_sensitivity=decomp_sensitivity,
+                    answers_used=answers_used,
+                    answer_cap=answer_cap,
+                    checklist_require_gap_report=checklist_require_gap_report,
+                    has_changedoc=changedoc_enabled,
+                ),
+            )
         else:
             # Use per-agent override if provided, otherwise fall back to orchestrator default
             voting_sensitivity = voting_sensitivity_override or self.message_templates._voting_sensitivity
@@ -215,8 +233,10 @@ class SystemMessageBuilder:
                     vote_only=vote_only,
                     round_number=round_number,
                     voting_threshold=voting_threshold,
+                    checklist_require_gap_report=checklist_require_gap_report,
                     answers_used=answers_used,
                     answer_cap=answer_cap,
+                    has_changedoc=changedoc_enabled,
                 ),
             )
 
@@ -467,6 +487,15 @@ class SystemMessageBuilder:
             builder.add_section(PlanningModeSection(self.config.coordination_config.planning_mode_instruction))
             logger.info(f"[SystemMessageBuilder] Added planning mode instructions for {agent_id}")
 
+        # PRIORITY 10 (MEDIUM): Changedoc (conditional)
+        changedoc_enabled = self._changedoc_enabled
+        if changedoc_enabled:
+            from massgen.system_prompt_sections import ChangedocSection
+
+            has_prior_answers = bool(answers)
+            builder.add_section(ChangedocSection(has_prior_answers=has_prior_answers))
+            logger.info(f"[SystemMessageBuilder] Added changedoc instructions for {agent_id} (prior_answers={has_prior_answers})")
+
         # Build and return the complete structured system prompt
         return builder.build()
 
@@ -588,10 +617,29 @@ This makes the work reusable for similar future tasks."""
                 sections_content.append(evolving_skill_instructions)
                 logger.info("[SystemMessageBuilder] Added evolving skill output instructions for presentation")
 
+            # Add changedoc consolidation instructions if enabled
+            changedoc_enabled = self._changedoc_enabled
+            if changedoc_enabled:
+                from massgen.system_prompt_sections import (
+                    _CHANGEDOC_PRESENTER_INSTRUCTIONS,
+                )
+
+                sections_content.append(_CHANGEDOC_PRESENTER_INSTRUCTIONS)
+                logger.info("[SystemMessageBuilder] Added changedoc consolidation instructions for presentation")
+
             # Combine: filesystem sections + presentation instructions
             filesystem_content = "\n\n".join(sections_content)
             return f"{filesystem_content}\n\n## Instructions\n{presentation_instructions}"
         else:
+            # Add changedoc consolidation instructions if enabled (no filesystem case)
+            changedoc_enabled = self._changedoc_enabled
+            if changedoc_enabled:
+                from massgen.system_prompt_sections import (
+                    _CHANGEDOC_PRESENTER_INSTRUCTIONS,
+                )
+
+                presentation_instructions += _CHANGEDOC_PRESENTER_INSTRUCTIONS
+
             # No filesystem - just return presentation instructions
             return presentation_instructions
 

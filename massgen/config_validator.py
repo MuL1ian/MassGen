@@ -162,6 +162,7 @@ class ConfigValidator:
 
     # Valid write modes for isolated write contexts
     VALID_WRITE_MODES = {"auto", "worktree", "isolated", "legacy"}
+    VALID_DRIFT_CONFLICT_POLICIES = {"skip", "prefer_presenter", "fail"}
 
     def __init__(self):
         """Initialize the validator."""
@@ -834,7 +835,7 @@ class ConfigValidator:
                 )
             else:
                 # Validate boolean fields
-                boolean_fields = ["enable_planning_mode", "use_two_tier_workspace"]
+                boolean_fields = ["enable_planning_mode", "use_two_tier_workspace", "enable_changedoc"]
                 for field_name in boolean_fields:
                     if field_name in coordination:
                         value = coordination[field_name]
@@ -972,6 +973,15 @@ class ConfigValidator:
                             f"{location}.coordination.write_mode",
                             f"Use one of: {valid_values}",
                         )
+                if "drift_conflict_policy" in coordination:
+                    policy = coordination["drift_conflict_policy"]
+                    if policy not in self.VALID_DRIFT_CONFLICT_POLICIES:
+                        valid_values = ", ".join(sorted(self.VALID_DRIFT_CONFLICT_POLICIES))
+                        result.add_error(
+                            f"Invalid drift_conflict_policy: '{policy}'",
+                            f"{location}.coordination.drift_conflict_policy",
+                            f"Use one of: {valid_values}",
+                        )
 
         # Validate voting_sensitivity if present
         if "voting_sensitivity" in orchestrator_config:
@@ -1007,6 +1017,15 @@ class ConfigValidator:
                     f"'{field_name}' must be a positive integer or null, got {type(value).__name__}",
                     f"{location}.{field_name}",
                     "Use null (unlimited) or a positive integer like 1, 2, or 3",
+                )
+
+        if "checklist_require_gap_report" in orchestrator_config:
+            checklist_report_gate = orchestrator_config["checklist_require_gap_report"]
+            if not isinstance(checklist_report_gate, bool):
+                result.add_error(
+                    f"'checklist_require_gap_report' must be a boolean, got {type(checklist_report_gate).__name__}",
+                    f"{location}.checklist_require_gap_report",
+                    "Use true or false",
                 )
 
         # Validate fairness controls if present

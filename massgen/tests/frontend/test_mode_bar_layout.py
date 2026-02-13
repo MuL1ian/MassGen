@@ -173,6 +173,8 @@ async def test_mode_bar_stays_within_input_header_at_narrow_width(monkeypatch, t
         app._mode_bar.set_coordination_mode("decomposition")
         app._mode_bar.set_skills_available(True)
         await pilot.pause()
+        app._refresh_input_modes_row_layout()
+        await pilot.pause()
 
         mode_bar = app.query_one("#mode_bar")
         input_header = app.query_one("#input_header")
@@ -345,6 +347,306 @@ async def test_mode_bar_uses_single_row_when_space_is_available(monkeypatch, tmp
         app._mode_bar.set_plan_mode("analysis")
         await pilot.pause()
         assert any(token in _widget_text(app.query_one("#plan_toggle")) for token in ("Analyzing", "Analyze", "Anly"))
+
+
+@pytest.mark.asyncio
+async def test_mode_bar_prefers_single_row_near_boundary_width(monkeypatch, tmp_path: Path) -> None:
+    """Near-boundary widths should keep mode controls on one row."""
+    monkeypatch.setattr(textual_display_module, "get_event_emitter", lambda: None)
+    monkeypatch.setattr(
+        textual_display_module,
+        "get_user_settings",
+        lambda: SimpleNamespace(theme="dark", vim_mode=False),
+    )
+
+    display = TextualTerminalDisplay(
+        ["agent_a", "agent_b"],
+        agent_models={
+            "agent_a": "gpt-5.3-codex",
+            "agent_b": "claude-opus-4-6",
+        },
+        keyboard_interactive_mode=False,
+        output_dir=tmp_path,
+        theme="dark",
+    )
+    app = textual_display_module.TextualApp(
+        display=display,
+        question="Welcome! Type your question below...",
+        buffers=display._buffers,
+        buffer_lock=display._buffer_lock,
+        buffer_flush_interval=display.buffer_flush_interval,
+    )
+    display._app = app
+
+    async with app.run_test(headless=True, size=(130, 26)) as pilot:
+        await pilot.pause()
+        assert app._mode_bar is not None
+        app._mode_bar._refresh_responsive_labels()
+        await pilot.pause()
+
+        row_primary = app.query_one("#mode_row_primary")
+        row_secondary = app.query_one("#mode_row_secondary")
+        assert row_secondary.region.y == row_primary.region.y
+
+        assert any(token in _widget_text(app.query_one("#plan_toggle")) for token in ("Normal", "Norm"))
+        assert any(token in _widget_text(app.query_one("#agent_toggle")) for token in ("Multi-Agent", "Multi"))
+        assert any(token in _widget_text(app.query_one("#coordination_toggle")) for token in ("Parallel", "Par"))
+
+
+@pytest.mark.asyncio
+async def test_mode_bar_compacts_labels_at_standard_narrow_width(monkeypatch, tmp_path: Path) -> None:
+    """Borderline narrow widths should compact labels before the mode row looks cramped."""
+    monkeypatch.setattr(textual_display_module, "get_event_emitter", lambda: None)
+    monkeypatch.setattr(
+        textual_display_module,
+        "get_user_settings",
+        lambda: SimpleNamespace(theme="dark", vim_mode=False),
+    )
+
+    display = TextualTerminalDisplay(
+        ["agent_a"],
+        agent_models={"agent_a": "gpt-5.3-codex"},
+        keyboard_interactive_mode=False,
+        output_dir=tmp_path,
+        theme="dark",
+    )
+    app = textual_display_module.TextualApp(
+        display=display,
+        question="Welcome! Type your question below...",
+        buffers=display._buffers,
+        buffer_lock=display._buffer_lock,
+        buffer_flush_interval=display.buffer_flush_interval,
+    )
+    display._app = app
+
+    async with app.run_test(headless=True, size=(129, 24)) as pilot:
+        await pilot.pause()
+        assert app._mode_bar is not None
+        app._mode_bar._refresh_responsive_labels()
+        await pilot.pause()
+        assert "Norm" in _widget_text(app.query_one("#plan_toggle"))
+        assert "Multi" in _widget_text(app.query_one("#agent_toggle"))
+        assert "Par" in _widget_text(app.query_one("#coordination_toggle"))
+
+
+@pytest.mark.asyncio
+async def test_mode_bar_uses_full_labels_when_row_has_spare_space(monkeypatch, tmp_path: Path) -> None:
+    """Roomy single-row layouts should keep full labels instead of compact tokens."""
+    monkeypatch.setattr(textual_display_module, "get_event_emitter", lambda: None)
+    monkeypatch.setattr(
+        textual_display_module,
+        "get_user_settings",
+        lambda: SimpleNamespace(theme="dark", vim_mode=True),
+    )
+
+    display = TextualTerminalDisplay(
+        ["agent_a", "agent_b"],
+        agent_models={
+            "agent_a": "gpt-5.3-codex",
+            "agent_b": "claude-opus-4-6",
+        },
+        keyboard_interactive_mode=False,
+        output_dir=tmp_path,
+        theme="dark",
+    )
+    app = textual_display_module.TextualApp(
+        display=display,
+        question="Welcome! Type your question below...",
+        buffers=display._buffers,
+        buffer_lock=display._buffer_lock,
+        buffer_flush_interval=display.buffer_flush_interval,
+    )
+    display._app = app
+
+    async with app.run_test(headless=True, size=(150, 24)) as pilot:
+        await pilot.pause()
+        app._update_vim_indicator(False)
+        assert app._mode_bar is not None
+        app._mode_bar.set_plan_mode("normal")
+        app._refresh_input_modes_row_layout()
+        await pilot.pause()
+
+        plan_text = _widget_text(app.query_one("#plan_toggle"))
+        assert "Normal" in plan_text
+        assert " ○ Norm " not in plan_text
+        assert "Multi-Agent" in _widget_text(app.query_one("#agent_toggle"))
+        assert "Parallel" in _widget_text(app.query_one("#coordination_toggle"))
+
+
+@pytest.mark.asyncio
+async def test_normal_mode_keeps_meta_panel_inline_when_content_fits(monkeypatch, tmp_path: Path) -> None:
+    """Normal mode should keep right-side meta hints on the same row when content fits."""
+    monkeypatch.setattr(textual_display_module, "get_event_emitter", lambda: None)
+    monkeypatch.setattr(
+        textual_display_module,
+        "get_user_settings",
+        lambda: SimpleNamespace(theme="dark", vim_mode=True),
+    )
+    # Pin CWD to a short deterministic path so hint text width is stable
+    # across local (macOS) and CI (Ubuntu) environments.
+    monkeypatch.setattr(Path, "cwd", staticmethod(lambda: Path("/home/u/project")))
+
+    display = TextualTerminalDisplay(
+        ["agent_a", "agent_b"],
+        agent_models={
+            "agent_a": "gpt-5.3-codex",
+            "agent_b": "claude-opus-4-6",
+        },
+        keyboard_interactive_mode=False,
+        output_dir=tmp_path,
+        theme="dark",
+    )
+    app = textual_display_module.TextualApp(
+        display=display,
+        question="Welcome! Type your question below...",
+        buffers=display._buffers,
+        buffer_lock=display._buffer_lock,
+        buffer_flush_interval=display.buffer_flush_interval,
+    )
+    display._app = app
+
+    async with app.run_test(headless=True, size=(150, 24)) as pilot:
+        await pilot.pause()
+        app._update_vim_indicator(False)
+        assert app._mode_bar is not None
+        app._mode_bar.set_plan_mode("normal")
+        app._refresh_input_modes_row_layout()
+        await pilot.pause()
+        await pilot.pause()
+
+        input_modes_row = app.query_one("#input_modes_row")
+        assert "meta-stacked" not in input_modes_row.classes
+
+
+@pytest.mark.asyncio
+async def test_mode_bar_does_not_flip_labels_with_small_width_jitter(monkeypatch, tmp_path: Path) -> None:
+    """Small width jitter around the breakpoint should not toggle compact/full labels repeatedly."""
+    monkeypatch.setattr(textual_display_module, "get_event_emitter", lambda: None)
+    monkeypatch.setattr(
+        textual_display_module,
+        "get_user_settings",
+        lambda: SimpleNamespace(theme="dark", vim_mode=False),
+    )
+
+    display = TextualTerminalDisplay(
+        ["agent_a"],
+        agent_models={"agent_a": "gpt-5.3-codex"},
+        keyboard_interactive_mode=False,
+        output_dir=tmp_path,
+        theme="dark",
+    )
+    app = textual_display_module.TextualApp(
+        display=display,
+        question="Welcome! Type your question below...",
+        buffers=display._buffers,
+        buffer_lock=display._buffer_lock,
+        buffer_flush_interval=display.buffer_flush_interval,
+    )
+    display._app = app
+
+    async with app.run_test(headless=True, size=(130, 24)) as pilot:
+        await pilot.pause()
+        assert app._mode_bar is not None
+
+        widths = [103, 104, 103, 104, 103, 104]
+        idx = {"value": 0}
+        original_size = app._mode_bar.size
+
+        def _next_width() -> int:
+            if idx["value"] >= len(widths):
+                return widths[-1]
+            width = widths[idx["value"]]
+            idx["value"] += 1
+            return width
+
+        monkeypatch.setattr(
+            ModeBar,
+            "size",
+            property(lambda _self: Size(_next_width(), original_size.height or 2)),
+        )
+
+        labels = []
+        for _ in range(len(widths)):
+            app._mode_bar._refresh_responsive_labels()
+            labels.append(_widget_text(app.query_one("#plan_toggle")))
+
+        # Should stay in one representation instead of flickering between
+        # "Normal" and "Norm" while width jitters by one column.
+        has_long = any("Normal" in text for text in labels)
+        has_short = any("Norm" in text and "Normal" not in text for text in labels)
+        assert not (has_long and has_short)
+
+
+@pytest.mark.asyncio
+async def test_mode_bar_unstacks_as_soon_as_compact_labels_fit(monkeypatch, tmp_path: Path) -> None:
+    """Mode bar should return to one row once compact labels fit available width."""
+    monkeypatch.setattr(textual_display_module, "get_event_emitter", lambda: None)
+    monkeypatch.setattr(
+        textual_display_module,
+        "get_user_settings",
+        lambda: SimpleNamespace(theme="dark", vim_mode=False),
+    )
+
+    display = TextualTerminalDisplay(
+        ["agent_a"],
+        agent_models={"agent_a": "gpt-5.3-codex"},
+        keyboard_interactive_mode=False,
+        output_dir=tmp_path,
+        theme="dark",
+    )
+    app = textual_display_module.TextualApp(
+        display=display,
+        question="Welcome! Type your question below...",
+        buffers=display._buffers,
+        buffer_lock=display._buffer_lock,
+        buffer_flush_interval=display.buffer_flush_interval,
+    )
+    display._app = app
+
+    async with app.run_test(headless=True, size=(130, 24)) as pilot:
+        await pilot.pause()
+        assert app._mode_bar is not None
+
+        widths = [100, 113]
+        width_idx = {"value": 0}
+        original_size = app._mode_bar.size
+
+        def _next_width() -> int:
+            if width_idx["value"] >= len(widths):
+                return widths[-1]
+            width = widths[width_idx["value"]]
+            width_idx["value"] += 1
+            return width
+
+        monkeypatch.setattr(
+            ModeBar,
+            "size",
+            property(lambda _self: Size(_next_width(), original_size.height or 2)),
+        )
+
+        # First refresh: full labels overflow and compact labels also overflow,
+        # so stacked layout is required.
+        # Second refresh: full labels still overflow, but compact labels fit;
+        # layout should return to a single row immediately.
+        measured_widths = [120, 110, 118, 111]
+        measured_idx = {"value": 0}
+
+        def _next_measured_width() -> int:
+            if measured_idx["value"] >= len(measured_widths):
+                return measured_widths[-1]
+            value = measured_widths[measured_idx["value"]]
+            measured_idx["value"] += 1
+            return value
+
+        monkeypatch.setattr(app._mode_bar, "_measure_control_width", _next_measured_width)
+
+        app._mode_bar._refresh_responsive_labels()
+        assert app._mode_bar.has_class("compact-layout")
+
+        app._mode_bar._refresh_responsive_labels()
+        assert not app._mode_bar.has_class("compact-layout")
+        assert "Norm" in _widget_text(app.query_one("#plan_toggle"))
+        assert "Normal" not in _widget_text(app.query_one("#plan_toggle"))
 
 
 @pytest.mark.asyncio
@@ -653,9 +955,130 @@ async def test_ctrl_p_hint_uses_short_mode_tokens(monkeypatch, tmp_path: Path) -
         hint_text = _widget_text(input_hint)
         assert "CWD ro" in hint_text
         assert "read-only" not in hint_text
+        assert "@path include" not in hint_text
 
         app._toggle_cwd_auto_include()  # read -> write
         await pilot.pause()
         hint_text = _widget_text(input_hint)
         assert "CWD rw" in hint_text
         assert "read+write" not in hint_text
+        assert "@path include" not in hint_text
+
+
+@pytest.mark.asyncio
+async def test_ctrl_p_hint_markup_emphasizes_ro_rw_tokens(monkeypatch, tmp_path: Path) -> None:
+    """Hint source text should emphasize ro/rw tokens for quick visual scanning."""
+    monkeypatch.setattr(textual_display_module, "get_event_emitter", lambda: None)
+    monkeypatch.setattr(
+        textual_display_module,
+        "get_user_settings",
+        lambda: SimpleNamespace(theme="dark", vim_mode=False),
+    )
+
+    display = TextualTerminalDisplay(
+        ["agent_a"],
+        agent_models={"agent_a": "gpt-5.3-codex"},
+        keyboard_interactive_mode=False,
+        output_dir=tmp_path,
+        theme="dark",
+    )
+    app = textual_display_module.TextualApp(
+        display=display,
+        question="Welcome! Type your question below...",
+        buffers=display._buffers,
+        buffer_lock=display._buffer_lock,
+        buffer_flush_interval=display.buffer_flush_interval,
+    )
+    display._app = app
+
+    async with app.run_test(headless=True, size=(110, 24)) as pilot:
+        await pilot.pause()
+
+        app._toggle_cwd_auto_include()  # off -> read
+        await pilot.pause()
+        hint_markup = app._build_welcome_context_hint_text()
+        assert "[bold]ro[/]" in hint_markup
+        assert "@path include" not in hint_markup
+
+        app._toggle_cwd_auto_include()  # read -> write
+        await pilot.pause()
+        hint_markup = app._build_welcome_context_hint_text()
+        assert "[bold]rw[/]" in hint_markup
+        assert "@path include" not in hint_markup
+
+
+@pytest.mark.asyncio
+async def test_cwd_context_default_mode_initializes_like_ctrl_p(monkeypatch, tmp_path: Path) -> None:
+    """Default CWD context mode should initialize app/UI state as if toggled via Ctrl+P."""
+    monkeypatch.setattr(textual_display_module, "get_event_emitter", lambda: None)
+    monkeypatch.setattr(
+        textual_display_module,
+        "get_user_settings",
+        lambda: SimpleNamespace(theme="dark", vim_mode=False),
+    )
+
+    display = TextualTerminalDisplay(
+        ["agent_a"],
+        agent_models={"agent_a": "gpt-5.3-codex"},
+        keyboard_interactive_mode=False,
+        output_dir=tmp_path,
+        theme="dark",
+        default_cwd_context_mode="write",
+    )
+    app = textual_display_module.TextualApp(
+        display=display,
+        question="Welcome! Type your question below...",
+        buffers=display._buffers,
+        buffer_lock=display._buffer_lock,
+        buffer_flush_interval=display.buffer_flush_interval,
+    )
+    display._app = app
+
+    async with app.run_test(headless=True, size=(110, 24)) as pilot:
+        await pilot.pause()
+        assert app._cwd_context_mode == "write"
+        assert "CWD rw" in _widget_text(app.query_one("#input_hint"))
+        assert "read+write" in _widget_text(app.query_one("#status_cwd"))
+
+
+@pytest.mark.asyncio
+async def test_ctrl_p_blocked_in_execute_mode(monkeypatch, tmp_path: Path) -> None:
+    """Ctrl+P should not change CWD context mode while execute mode is active."""
+    monkeypatch.setattr(textual_display_module, "get_event_emitter", lambda: None)
+    monkeypatch.setattr(
+        textual_display_module,
+        "get_user_settings",
+        lambda: SimpleNamespace(theme="dark", vim_mode=False),
+    )
+
+    display = TextualTerminalDisplay(
+        ["agent_a"],
+        agent_models={"agent_a": "gpt-5.3-codex"},
+        keyboard_interactive_mode=False,
+        output_dir=tmp_path,
+        theme="dark",
+    )
+    app = textual_display_module.TextualApp(
+        display=display,
+        question="Welcome! Type your question below...",
+        buffers=display._buffers,
+        buffer_lock=display._buffer_lock,
+        buffer_flush_interval=display.buffer_flush_interval,
+    )
+    display._app = app
+
+    toasts: list[str] = []
+
+    def _capture_toast(message: str, **_: object) -> None:
+        toasts.append(message)
+
+    async with app.run_test(headless=True, size=(110, 24)) as pilot:
+        await pilot.pause()
+        app.notify = _capture_toast  # type: ignore[assignment]
+        app._mode_state.plan_mode = "execute"
+
+        app.action_toggle_cwd()
+        await pilot.pause()
+
+        assert app._cwd_context_mode == "off"
+        assert "Cannot change CWD context in execute mode." in toasts[-1]

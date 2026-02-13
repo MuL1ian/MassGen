@@ -293,6 +293,13 @@ class TextualTerminalDisplay(TerminalDisplay):
         self.default_skill_lifecycle_mode = str(
             kwargs.get("default_skill_lifecycle_mode", "create_or_update"),
         )
+        default_cwd_context_mode = str(kwargs.get("default_cwd_context_mode", "off")).strip().lower()
+        if default_cwd_context_mode in {"rw", "write"}:
+            self.default_cwd_context_mode = "write"
+        elif default_cwd_context_mode in {"ro", "read"}:
+            self.default_cwd_context_mode = "read"
+        else:
+            self.default_cwd_context_mode = "off"
         # Runtime toggle to ignore hotkeys/key handling when enabled
         self.safe_keyboard_mode = kwargs.get("safe_keyboard_mode", False)
         self.max_buffer_batch = kwargs.get("max_buffer_batch", 50)
@@ -1797,6 +1804,12 @@ class TextualTerminalDisplay(TerminalDisplay):
                         action = getattr(result, "action", "cancel") if result else "cancel"
                         if action == "finalize":
                             self._execute_approved_plan(result, mode_state)
+                        elif action == "finalize_manual":
+                            self._execute_approved_plan(
+                                result,
+                                mode_state,
+                                auto_submit=False,
+                            )
                         elif action in {"continue", "quick_edit"}:
                             self._continue_planning_refinement(result, mode_state)
                         else:
@@ -1993,12 +2006,14 @@ class TextualTerminalDisplay(TerminalDisplay):
         self,
         approval: "PlanApprovalResult",
         mode_state: "TuiModeState",
+        auto_submit: bool = True,
     ) -> None:
-        """Execute an approved plan by setting up execution mode and submitting prompt.
+        """Finalize an approved plan and optionally auto-submit the first execute turn.
 
         Args:
             approval: PlanApprovalResult with plan data and path
             mode_state: TuiModeState instance to update
+            auto_submit: When True, immediately starts first chunk execution.
         """
         from massgen.logger_config import get_log_session_root
         from massgen.plan_execution import (
@@ -2091,6 +2106,17 @@ class TextualTerminalDisplay(TerminalDisplay):
                 active_chunk=chunk_metadata.current_chunk,
                 chunk_order=chunk_metadata.chunk_order or [],
             )
+
+            if hasattr(self, "question_input") and self.question_input:
+                self.question_input.placeholder = "Press Enter to execute selected plan • or type instructions"
+
+            if not auto_submit:
+                self._app.notify(
+                    "Plan finalized. Adjust mode bar options, then press Enter to execute.",
+                    severity="information",
+                    timeout=4,
+                )
+                return
 
             self._app.notify("Executing plan...", severity="information", timeout=3)
 
@@ -2960,7 +2986,9 @@ if TEXTUAL_AVAILABLE:
             self._context_per_agent: Dict[str, List[str]] = {}  # Which answers each agent has seen
 
             # CWD context mode: "off", "read", or "write"
-            self._cwd_context_mode: str = "off"
+            self._cwd_context_mode: str = self._normalize_cwd_context_mode(
+                getattr(self.coordination_display, "default_cwd_context_mode", "off"),
+            )
 
             # Timer for updating execution status bar with spinner animation
             self._execution_status_timer = None
@@ -3426,11 +3454,12 @@ if TEXTUAL_AVAILABLE:
                 )
             self._update_safe_indicator()
             self._update_theme_indicator()
+            self._set_cwd_context_mode(self._cwd_context_mode, notify=False)
             self._refresh_welcome_context_hint()
             if self._mode_bar:
                 self._mode_bar.set_coordination_mode(self._mode_state.coordination_mode)
                 self._mode_bar.set_coordination_enabled(self._mode_state.agent_mode != "single")
-                self._mode_bar.set_parallel_personas_enabled(self._mode_state.parallel_personas_enabled)
+                self._mode_bar.set_parallel_personas_enabled(self._mode_state.parallel_personas_enabled, self._mode_state.persona_diversity_mode)
             self._refresh_skills_button_state()
             self._refresh_input_modes_row_layout()
             # Re-run once after the first layout pass so width-dependent hint
@@ -4583,15 +4612,49 @@ if TEXTUAL_AVAILABLE:
 
             width = self.size.width or (self.app.size.width if self.app else 120)
             plan_mode = getattr(getattr(self, "_mode_state", None), "plan_mode", "normal")
+            if self._mode_bar:
+                try:
+                    plan_mode = self._mode_bar.get_plan_mode()
+                except Exception:
+                    pass
             # Plan/execute/analysis modes expose longer run-control labels and
             # an extra settings affordance in the left bar; stack the right meta
             # panel earlier to keep run controls readable in standard terminals.
             if plan_mode in {"plan", "execute", "analysis"}:
                 stack_meta = width <= 150
             else:
-                # Keep behavior deterministic for snapshots while preserving
-                # horizontal space in normal mode.
-                stack_meta = width < 130
+                # In normal mode, keep one-row layout whenever the compacted
+                # left controls and right meta panel actually fit.
+                if self._mode_bar:
+                    self._mode_bar._refresh_responsive_labels()
+
+                mode_required = 72
+                if self._mode_bar:
+                    try:
+                        mode_required = max(0, int(self._mode_bar._measure_control_width()))
+                    except Exception:
+                        mode_required = self._mode_bar.region.width or mode_required
+
+                vim_required = 0
+                hint_required = 0
+                if hasattr(self, "_vim_indicator"):
+                    vim_required = len(str(self._vim_indicator.render()).strip())
+                if hasattr(self, "_input_hint"):
+                    hint_required = len(str(self._input_hint.render()).strip())
+
+                # Right panel width is driven by the wider of its two lines.
+                meta_required = max(vim_required, hint_required, 24)
+                one_row_required = mode_required + meta_required + 6
+
+                if width >= 150 and "meta-stacked" not in input_modes_row.classes:
+                    # Keep a small tolerance on the tested wide threshold so
+                    # minor width deltas do not force a stacked layout.
+                    stack_meta = one_row_required > width + 2
+                elif "meta-stacked" in input_modes_row.classes:
+                    # Small hysteresis prevents stack/unstack oscillation.
+                    stack_meta = one_row_required > max(0, width - 2)
+                else:
+                    stack_meta = one_row_required > width
 
             if stack_meta:
                 input_modes_row.add_class("meta-stacked")
@@ -7133,7 +7196,7 @@ Type your question and press Enter to ask the agents.
             if self._mode_bar:
                 self._mode_bar.set_coordination_mode(mode)
                 self._mode_bar.set_coordination_enabled(self._mode_state.agent_mode != "single")
-                self._mode_bar.set_parallel_personas_enabled(self._mode_state.parallel_personas_enabled)
+                self._mode_bar.set_parallel_personas_enabled(self._mode_state.parallel_personas_enabled, self._mode_state.persona_diversity_mode)
             if self._tab_bar:
                 if mode == "decomposition":
                     self._tab_bar.set_agent_subtasks(self._mode_state.decomposition_subtasks)
@@ -7169,7 +7232,10 @@ Type your question and press Enter to ask the agents.
                 elif event.mode_type == "refinement" and self._mode_bar:
                     self._mode_bar.set_refinement_mode(self._mode_state.refinement_enabled)
                 elif event.mode_type == "personas" and self._mode_bar:
-                    self._mode_bar.set_parallel_personas_enabled(self._mode_state.parallel_personas_enabled)
+                    self._mode_bar.set_parallel_personas_enabled(
+                        self._mode_state.parallel_personas_enabled,
+                        self._mode_state.persona_diversity_mode,
+                    )
                 event.stop()
                 return
 
@@ -7182,7 +7248,9 @@ Type your question and press Enter to ask the agents.
             elif event.mode_type == "refinement":
                 self._handle_refinement_mode_change(event.value == "on")
             elif event.mode_type == "personas":
-                self._handle_parallel_persona_mode_change(event.value == "on")
+                enabled = event.value != "off"
+                diversity_mode = event.value if enabled else "perspective"
+                self._handle_parallel_persona_mode_change(enabled, diversity_mode)
 
             self._refresh_input_modes_row_layout()
             event.stop()
@@ -7289,6 +7357,15 @@ Type your question and press Enter to ask the agents.
             """Handle plan selection from popover."""
             tui_log(f"on_plan_selected: plan_id={event.plan_id}, is_new={event.is_new}")
 
+            requested_plan_id = None if event.plan_id in (None, "", "latest") else event.plan_id
+            current_plan_id = None if self._mode_state.selected_plan_id in (None, "", "latest") else self._mode_state.selected_plan_id
+
+            # Ignore no-op selections emitted during recompose/initialization.
+            if not event.is_new and requested_plan_id == current_plan_id:
+                tui_log("  -> no-op plan selection, ignoring")
+                event.stop()
+                return
+
             # Block during execution
             if self._mode_state.is_locked():
                 tui_log("  -> BLOCKED: execution in progress")
@@ -7300,10 +7377,10 @@ Type your question and press Enter to ask the agents.
                 # User wants to create a new plan
                 self._mode_state.selected_plan_id = None
                 self.notify("Will create new plan on next query", severity="information", timeout=2)
-            elif event.plan_id:
+            elif requested_plan_id:
                 # Specific plan selected
-                self._mode_state.selected_plan_id = event.plan_id
-                self.notify(f"Selected plan: {event.plan_id[:15]}...", severity="information", timeout=2)
+                self._mode_state.selected_plan_id = requested_plan_id
+                self.notify(f"Selected plan: {requested_plan_id[:15]}...", severity="information", timeout=2)
             else:
                 # Latest plan (auto) - don't notify on initial load
                 self._mode_state.selected_plan_id = None
@@ -8410,10 +8487,11 @@ Type your question and press Enter to ask the agents.
                     timeout=3,
                 )
 
-        def _handle_parallel_persona_mode_change(self, enabled: bool) -> None:
+        def _handle_parallel_persona_mode_change(self, enabled: bool, diversity_mode: str = "perspective") -> None:
             """Handle parallel persona generation toggle."""
-            tui_log(f"_handle_parallel_persona_mode_change: {enabled}")
+            tui_log(f"_handle_parallel_persona_mode_change: enabled={enabled}, mode={diversity_mode}")
             self._mode_state.parallel_personas_enabled = enabled
+            self._mode_state.persona_diversity_mode = diversity_mode
 
             if self._tab_bar and self._mode_state.coordination_mode == "parallel":
                 if enabled:
@@ -8422,21 +8500,22 @@ Type your question and press Enter to ask the agents.
                     self._tab_bar.set_agent_subtasks({})
 
             if enabled:
+                mode_label = diversity_mode.title()
                 if self._mode_state.coordination_mode == "parallel":
                     self.notify(
-                        "Parallel Personas: ON (generate + display per-agent personas before coordination)",
+                        f"Personas: {mode_label} (agents get different {diversity_mode}s)",
                         severity="information",
                         timeout=3,
                     )
                 else:
                     self.notify(
-                        "Parallel Personas: ON (will apply when coordination mode is Parallel)",
+                        f"Personas: {mode_label} (will apply when coordination mode is Parallel)",
                         severity="information",
                         timeout=3,
                     )
             else:
                 self.notify(
-                    "Parallel Personas: OFF",
+                    "Personas: OFF",
                     severity="warning",
                     timeout=2,
                 )
@@ -9134,9 +9213,16 @@ Type your question and press Enter to ask the agents.
 
         def on_status_bar_cwd_clicked(self, event: StatusBarCwdClicked) -> None:
             """Handle CWD mode change from status bar click."""
-            self._cwd_context_mode = event.mode
-            self._update_cwd_hint()
-            self._notify_cwd_context_change(event.mode, event.cwd)
+            if self._is_cwd_context_toggle_blocked():
+                self._set_cwd_context_mode(self._cwd_context_mode, notify=False)
+                self.notify(
+                    self._cwd_context_toggle_blocked_message(),
+                    severity="warning",
+                    timeout=2,
+                )
+                return
+
+            self._set_cwd_context_mode(event.mode, notify=True, cwd=event.cwd)
 
         def on_status_bar_theme_clicked(self, event: StatusBarThemeClicked) -> None:
             """Handle theme toggle from status bar click."""
@@ -9146,17 +9232,38 @@ Type your question and press Enter to ask the agents.
             """Handle click on status bar context indicator - opens context paths modal."""
             self._show_context_modal()
 
-        def _toggle_cwd_auto_include(self) -> None:
-            """Cycle CWD context mode: off → read → write → off (Ctrl+P)."""
-            # Cycle through modes
-            modes = ["off", "read", "write"]
-            current_idx = modes.index(self._cwd_context_mode)
-            self._cwd_context_mode = modes[(current_idx + 1) % len(modes)]
+        @staticmethod
+        def _normalize_cwd_context_mode(mode: Optional[str]) -> str:
+            """Normalize mode aliases to off/read/write."""
+            normalized = str(mode or "off").strip().lower()
+            if normalized in {"rw", "write"}:
+                return "write"
+            if normalized in {"ro", "read"}:
+                return "read"
+            return "off"
 
-            cwd = Path.cwd()
-            cwd_short = f"~/{cwd.name}" if len(str(cwd)) > 30 else str(cwd)
+        def _cwd_context_toggle_blocked_message(self) -> str:
+            """Return user-facing reason why CWD context toggle is blocked."""
+            if self._mode_state.plan_mode == "execute":
+                return "Cannot change CWD context in execute mode."
+            return "Cannot change CWD context during execution."
 
-            # Update status bar display if available
+        def _is_cwd_context_toggle_blocked(self) -> bool:
+            """Return True when Ctrl+P/status-bar CWD toggles should be blocked."""
+            return self._mode_state.plan_mode == "execute" or self._mode_state.is_locked()
+
+        def _set_cwd_context_mode(
+            self,
+            mode: str,
+            *,
+            notify: bool,
+            cwd: Optional[str] = None,
+        ) -> None:
+            """Apply CWD context mode and sync status bar + hint UI."""
+            self._cwd_context_mode = self._normalize_cwd_context_mode(mode)
+            cwd_value = str(Path(cwd).resolve()) if cwd else str(Path.cwd())
+            cwd_short = f"~/{Path(cwd_value).name}" if len(cwd_value) > 30 else cwd_value
+
             if self._status_bar:
                 self._status_bar._cwd_context_mode = self._cwd_context_mode
                 try:
@@ -9170,9 +9277,24 @@ Type your question and press Enter to ask the agents.
                 except Exception as e:
                     tui_log(f"[TextualDisplay] {e}")
 
-            # Update right-side hint text if shown
             self._update_cwd_hint()
-            self._notify_cwd_context_change(self._cwd_context_mode, str(cwd))
+            if notify:
+                self._notify_cwd_context_change(self._cwd_context_mode, cwd_value)
+
+        def _toggle_cwd_auto_include(self) -> None:
+            """Cycle CWD context mode: off → read → write → off (Ctrl+P)."""
+            if self._is_cwd_context_toggle_blocked():
+                self.notify(
+                    self._cwd_context_toggle_blocked_message(),
+                    severity="warning",
+                    timeout=2,
+                )
+                return
+
+            # Cycle through modes
+            modes = ["off", "read", "write"]
+            current_idx = modes.index(self._cwd_context_mode)
+            self._set_cwd_context_mode(modes[(current_idx + 1) % len(modes)], notify=True)
 
         def _notify_cwd_context_change(self, mode: str, cwd: str) -> None:
             """Show a toast when CWD context visibility/mode changes."""
@@ -9210,10 +9332,10 @@ Type your question and press Enter to ask the agents.
 
         def _build_welcome_context_hint_text(self) -> str:
             """Build compact Ctrl+P context hint for the right-side status panel."""
-            mode_label = {
+            mode_token = {
                 "off": "off",
-                "read": "ro",
-                "write": "rw",
+                "read": "[bold]ro[/]",
+                "write": "[bold]rw[/]",
             }.get(self._cwd_context_mode, "off")
 
             width = self.size.width or (self.app.size.width if self.app else 120)
@@ -9222,12 +9344,12 @@ Type your question and press Enter to ask the agents.
             cwd_long = self._format_cwd_for_hint(36)
 
             if width >= 150:
-                return f"Ctrl+P: CWD {mode_label} ({cwd_long}) • @path include"
+                return f"Ctrl+P: CWD {mode_token} ({cwd_long})"
             if width >= 120:
-                return f"Ctrl+P: CWD {mode_label} ({cwd_medium}) • @path include"
+                return f"Ctrl+P: CWD {mode_token} ({cwd_medium})"
             if width >= 90:
-                return f"Ctrl+P: CWD {mode_label} ({cwd_name}) • @path include"
-            return f"Ctrl+P: CWD {mode_label} ({cwd_name})"
+                return f"Ctrl+P: CWD {mode_token} ({cwd_name})"
+            return f"Ctrl+P: CWD {mode_token} ({cwd_name})"
 
         def _refresh_welcome_context_hint(self) -> None:
             """Refresh right-side vim/path panel when layout or mode changes."""

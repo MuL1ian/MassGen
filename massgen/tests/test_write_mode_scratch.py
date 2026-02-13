@@ -139,6 +139,87 @@ class TestScratchDirectory:
         icm.cleanup_all()
 
 
+class TestWorktreeMirrorsSourceState:
+    """Tests for mirroring source working-tree state into new worktrees."""
+
+    def test_worktree_mirrors_dirty_source_baseline(self, tmp_path):
+        """Worktree should start from source's current dirty state, not clean HEAD."""
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        init_test_repo(repo_path)
+
+        # Add a tracked file that we'll delete in dirty state
+        repo = Repo(str(repo_path))
+        (repo_path / "tracked_delete.txt").write_text("delete me")
+        repo.index.add(["tracked_delete.txt"])
+        repo.index.commit("add tracked file to delete")
+
+        # Create dirty source state (modified + deleted + untracked)
+        (repo_path / "file.txt").write_text("dirty modified")
+        (repo_path / "tracked_delete.txt").unlink()
+        (repo_path / "new_untracked.txt").write_text("new dirty file")
+        assert repo.is_dirty(untracked_files=True)
+
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        icm = IsolationContextManager(
+            session_id="test-mirror-dirty-source",
+            write_mode="worktree",
+            workspace_path=str(workspace),
+        )
+        isolated = icm.initialize_context(str(repo_path), agent_id="agent1")
+
+        # Worktree should mirror source working-tree state
+        assert (Path(isolated) / "file.txt").read_text() == "dirty modified"
+        assert not (Path(isolated) / "tracked_delete.txt").exists()
+        assert (Path(isolated) / "new_untracked.txt").read_text() == "new dirty file"
+
+        # Baseline should be captured as a clean commit in isolated worktree
+        wt_repo = Repo(isolated)
+        assert not wt_repo.is_dirty(untracked_files=True)
+        info = icm.get_context_info(str(repo_path))
+        assert info is not None
+        assert info.get("base_ref"), "base_ref should be captured for baseline-aware apply"
+
+        # Original source remains dirty (we only mirror into isolated worktree)
+        assert repo.is_dirty(untracked_files=True)
+        icm.cleanup_all()
+
+    def test_subdir_context_only_mirrors_subdir_dirty_state(self, tmp_path):
+        """Subdir context should mirror dirty state only within that context prefix."""
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        repo = init_test_repo(repo_path)
+        subdir = repo_path / "inside" / "dir"
+        subdir.mkdir(parents=True)
+        (subdir / "sub.txt").write_text("sub-base")
+        (repo_path / "root.txt").write_text("root-base")
+        repo.index.add(["inside/dir/sub.txt", "root.txt"])
+        repo.index.commit("add root and sub files")
+
+        # Dirty changes both inside and outside context path
+        (subdir / "sub.txt").write_text("sub-dirty")
+        (repo_path / "root.txt").write_text("root-dirty")
+        assert repo.is_dirty(untracked_files=True)
+
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        icm = IsolationContextManager(
+            session_id="test-subdir-mirror",
+            write_mode="worktree",
+            workspace_path=str(workspace),
+        )
+        isolated = icm.initialize_context(str(subdir), agent_id="agent1")
+
+        # Context file should mirror dirty state
+        assert (Path(isolated) / "inside" / "dir" / "sub.txt").read_text() == "sub-dirty"
+        # Out-of-scope file should remain at HEAD in worktree
+        assert (Path(isolated) / "root.txt").read_text() == "root-base"
+        icm.cleanup_all()
+
+
 class TestMoveScatchToWorkspace:
     """Tests for scratch archive functionality."""
 
@@ -318,7 +399,7 @@ class TestBranchLifecycle:
         icm.cleanup_all()
 
     def test_branch_label_overrides_name(self, tmp_path):
-        """Verify branch_label produces a readable branch name when explicitly set."""
+        """Verify branch_label produces a readable prefixed branch name with random suffix."""
         repo_path = tmp_path / "repo"
         repo_path.mkdir()
         init_test_repo(repo_path)
@@ -335,7 +416,74 @@ class TestBranchLifecycle:
         icm.initialize_context(str(repo_path), agent_id="agent1")
         branch_name = icm.get_branch_name(str(repo_path))
 
-        assert branch_name == "presenter", f"Expected 'presenter', got {branch_name}"
+        assert branch_name.startswith("presenter_"), f"Expected 'presenter_*', got {branch_name}"
+        # Should have an 8-char hex suffix after the underscore
+        suffix = branch_name.split("presenter_", 1)[1]
+        assert len(suffix) == 8, f"Expected 8-char hex suffix, got '{suffix}'"
+        int(suffix, 16)  # Validates it's valid hex
+        icm.cleanup_all()
+
+    def test_branch_label_uniqueness_across_sessions(self, tmp_path):
+        """Two sessions with same branch_label produce different branch names."""
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        init_test_repo(repo_path)
+
+        workspace1 = tmp_path / "workspace1"
+        workspace1.mkdir()
+        workspace2 = tmp_path / "workspace2"
+        workspace2.mkdir()
+
+        icm1 = IsolationContextManager(
+            session_id="session-1",
+            write_mode="worktree",
+            workspace_path=str(workspace1),
+            branch_label="presenter",
+        )
+        icm1.initialize_context(str(repo_path), agent_id="agent1")
+        branch1 = icm1.get_branch_name(str(repo_path))
+
+        icm2 = IsolationContextManager(
+            session_id="session-2",
+            write_mode="worktree",
+            workspace_path=str(workspace2),
+            branch_label="presenter",
+        )
+        icm2.initialize_context(str(repo_path), agent_id="agent1")
+        branch2 = icm2.get_branch_name(str(repo_path))
+
+        assert branch1 != branch2, f"Branch names should differ, both got {branch1}"
+        assert branch1.startswith("presenter_")
+        assert branch2.startswith("presenter_")
+        icm1.cleanup_all()
+        icm2.cleanup_all()
+
+    def test_stale_branch_does_not_block_new_session(self, tmp_path):
+        """A leftover branch from a crashed session doesn't prevent a new session."""
+
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        repo = init_test_repo(repo_path)
+
+        # Simulate a stale branch left by a previous crashed session
+        repo.create_head("presenter_deadbeef")
+
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        icm = IsolationContextManager(
+            session_id="new-session",
+            write_mode="worktree",
+            workspace_path=str(workspace),
+            branch_label="presenter",
+        )
+        # Should succeed — new random suffix won't collide with stale branch
+        isolated = icm.initialize_context(str(repo_path), agent_id="agent1")
+        branch_name = icm.get_branch_name(str(repo_path))
+
+        assert isolated is not None
+        assert branch_name.startswith("presenter_")
+        assert branch_name != "presenter_deadbeef"
         icm.cleanup_all()
 
     def test_branches_accumulate_across_rounds(self, tmp_path):
@@ -1071,6 +1219,7 @@ class TestWorkspaceStructureBranchInfo:
         assert "massgen/abc12345" in content
         assert "Your work is on branch" in content
         assert "auto-committed" in content
+        assert "Manual commits are optional" in content
 
     def test_workspace_structure_shows_other_branches_with_labels(self):
         """Verify WorkspaceStructureSection lists other agents' branches with anonymous labels."""

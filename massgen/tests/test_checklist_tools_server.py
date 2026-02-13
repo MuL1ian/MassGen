@@ -123,6 +123,7 @@ class TestSubmitChecklistVerdict:
             "has_existing_answers": True,
             "required": 2,
             "cutoff": 70,
+            "require_gap_report": False,
         }
         handler = _build_handler(_make_specs_file(tmp_path, items, state))
 
@@ -191,6 +192,7 @@ class TestSubmitChecklistVerdict:
             "has_existing_answers": True,
             "required": 1,
             "cutoff": 70,
+            "require_gap_report": False,
         }
         handler = _build_handler(_make_specs_file(tmp_path, items, state))
 
@@ -269,6 +271,7 @@ class TestSubmitChecklistVerdict:
             "has_existing_answers": True,
             "required": 1,
             "cutoff": 70,
+            "require_gap_report": False,
         }
         handler = _build_handler(_make_specs_file(tmp_path, items, state))
 

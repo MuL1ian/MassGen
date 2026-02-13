@@ -113,7 +113,7 @@ A good first draft is rarely perfect. Look for what can be *better*, not just wh
 # ---------------------------------------------------------------------------
 # Checklist evaluation shared helpers
 #
-# Design principles (see docs/dev_notes/iteration_decision_design.md):
+# Design principles:
 #   1. Threshold changes propensity to iterate (P1).
 #   2. Remaining budget scales willingness to iterate (P2).
 #   3. Good unique content triggers synthesis (P3).
@@ -125,10 +125,18 @@ A good first draft is rarely perfect. Look for what can be *better*, not just wh
 
 _CHECKLIST_ITEMS = [
     "The best answer comprehensively addresses all important aspects of the question.",
-    "The best answer achieves a high level of quality, depth, and polish — not just adequacy.",
+    "Looking at the actual output or deliverable — not the code — it achieves a high level of quality, depth, and polish that goes well beyond adequacy.",
     "I cannot identify specific, concrete improvements that would make the answer meaningfully better.",
     "The best answer would genuinely impress the person who asked — they would not wish it were better.",
     "Any remaining ideas for improvement are truly minor or cosmetic, not substantive.",
+]
+
+_CHECKLIST_ITEMS_CHANGEDOC = [
+    "The changedoc captures every significant decision the task demands. No important " "choices were made implicitly in code but missing from the changedoc.",
+    "Each decision has strong, specific rationale tied to task requirements. No weak " '"Why" fields or strawman alternatives.',
+    "Every decision is traceable to specific artifacts — Implementation fields reference " "actual code locations, and the output implements what was decided.",
+    "The actual deliverable achieves genuine quality, depth, and polish. Would impress " "the person who asked.",
+    "At least one genuinely novel or ambitious element (NEW markers or evident in output). " "Goes beyond the safe, obvious approach.",
 ]
 
 
@@ -193,7 +201,10 @@ the decision criteria influence your assessment.
 ### Per-Answer Assessment
 
 For each answer, assess:
-- Quality and completeness
+- **Output quality**: Look at the actual result the user receives — the artifact,
+  deliverable, or answer itself. Is it something you would be proud to deliver? Does
+  it feel crafted and impressive, or merely functional? Be honest and specific.
+- Completeness relative to what the question actually demands
 - Approach taken and its strengths/weaknesses
 
 ### Best Answer Identification
@@ -218,28 +229,152 @@ different approach or additional depth would meaningfully improve it.*
 Before evaluating whether the current answer is "good enough," first establish what
 **excellent** looks like. Step back from the existing answers entirely.
 
-Given the original question, describe in concrete bullet points what the **best
-possible answer** would include. Be ambitious — think about:
-- What features, content, depth, or capabilities would make a user genuinely impressed?
-- What dimensions of quality (interactivity, visual polish, accessibility, edge-case
-  handling, depth) would distinguish an outstanding answer from a merely adequate one?
-- What would a user *wish* the answer included?
+Start from the **output** — what the user actually receives and experiences — not
+the code or implementation details. Given the original question, describe in concrete
+bullet points what the **best possible result** would deliver. Be ambitious:
+- What would make someone receiving this genuinely impressed — not just satisfied?
+- What would distinguish a *crafted* result from a *competent* one?
+- Think about richness, depth, surprise, and overall impact — not just correctness.
+- What would a user *wish* it included that they didn't think to ask for?
 
-Do not limit yourself to what the existing answers have attempted. Describe the ideal
-as if designing a spec for it.
+Do not anchor to what already exists. Describe the ideal as if designing a spec from
+scratch for a result that would make someone say "this is exceptional."
 
 ### Gap Analysis
 
 Now compare the current best answer against your ideal:
+- **Output quality first**: Look at the actual result the user receives. Does it feel
+  crafted, rich, and impressive — or merely functional and adequate? Be honest.
 - What specific elements from your ideal are missing or under-delivered?
 - How large is the gap between current and ideal — minor polish, or meaningful substance?
 - If you were to produce a `new_answer`, what specifically would it add or improve?
+
+Do not confuse *correctness fixes* with *quality improvements*. Fixing a bug is
+necessary but does not make an adequate answer excellent. An answer can be technically
+correct and still mediocre in quality, depth, or craft.
 
 *If there is only one answer, the gap analysis is especially important — the first
 attempt is rarely the best possible version.*
 
 If the current best genuinely matches your ideal with only cosmetic gaps remaining,
-say so — but be rigorous. "Good enough" is not the same as "excellent.\""""
+say so — but be rigorous. "Good enough" is not the same as "excellent."
+
+### Fresh Approach Consideration
+
+Don't only think about polishing the existing best answer — also consider whether
+**varying your approach** for key parts might produce a better result. You don't need
+to start from scratch, but changing how you tackle the most important sections can
+lead somewhere that incremental refinement never would.
+
+- Could a different structure, method, or creative direction for the core parts
+  improve the result — even while keeping other parts that already work well?
+- Are all current answers converging on the same basic approach? If so, varying
+  has extra value — it explores paths that pure refinement misses.\""""
+
+
+def _build_changedoc_checklist_analysis() -> str:
+    """Build changedoc-anchored analysis section for checklist modes.
+
+    Replaces the generic _build_checklist_analysis() when changedoc is enabled.
+    Grounds evaluation in the agent's decision journal rather than generic
+    quality assessment. 7 steps that map to the changedoc checklist items.
+    """
+    return """## Changedoc-Anchored Analysis
+
+Complete your full analysis before reading the Decision section below. Do not let
+the decision criteria influence your assessment.
+
+### Decision Audit
+
+For each decision (DEC-*) in the changedoc:
+- **Rationale strength**: Is the "Why" field specific and tied to task requirements,
+  or generic and hand-wavy? A strong rationale references concrete constraints, trade-offs,
+  or evidence — not just "this seemed best."
+- **Alternative depth**: Are rejected alternatives genuinely different approaches, or
+  strawmen set up to lose? Would a thoughtful colleague have considered these same
+  alternatives?
+- **Implementation accuracy**: Do the Implementation fields reference actual code
+  locations that exist and match what was decided?
+
+Then ask: **What decisions are MISSING?** What important choices were made implicitly
+in code but never recorded? What trade-offs were navigated without being articulated?
+
+### Per-Answer Assessment
+
+For each answer, assess:
+- **Output quality**: Look at the actual result the user receives — the artifact,
+  deliverable, or answer itself. Is it something you would be proud to deliver? Does
+  it feel crafted and impressive, or merely functional? Be honest and specific.
+- **Changedoc-output alignment**: Does the output actually implement what the changedoc
+  decided? Or did the code drift from the documented decisions?
+
+### Best Answer Identification
+
+Which answer is strongest considering BOTH output quality AND decision quality?
+A polished output with a shallow changedoc is not better than a slightly rougher
+output backed by thorough, well-reasoned decisions — the decisions enable future
+iteration while polish is easily added.
+
+### Unique Content Audit
+
+For each non-best answer:
+- Does its changedoc contain decisions or rationale worth preserving that the best
+  answer's changedoc LACKS?
+- Are there NEW-marked decisions that represent genuinely original thinking?
+- "Worse overall" does not mean "has nothing to offer." Look carefully at the
+  decision journal, not just the output.
+
+If no answer has meaningful unique content beyond the best, say so explicitly.
+
+*If there is only one answer, evaluate its changedoc on its own merits — consider
+what decisions are missing or under-reasoned.*
+
+### The Ideal Decision Set
+
+Before evaluating whether the current answer is "good enough," first establish what
+decisions this task **demands**. Step back from the existing changedocs entirely.
+
+Given the original question, describe in concrete bullet points:
+- What decisions **MUST** be made for any competent solution?
+- What additional decisions would distinguish a **crafted** result from a merely
+  **competent** one?
+- What decisions would a user *wish* were articulated that they didn't think to ask for?
+- Where would genuinely novel or ambitious thinking (NEW markers) add the most value?
+
+Do not anchor to what already exists. Describe the ideal decision set as if designing
+a spec from scratch.
+
+### Gap Analysis
+
+Now compare the current best answer against your ideal:
+- **Missing decisions**: What decisions from your ideal set are absent from the changedoc?
+- **Weak decisions**: Where is rationale thin, alternatives shallow, or implementation
+  fields inaccurate?
+- **Output gaps**: Does the deliverable achieve genuine quality, depth, and polish —
+  or is it merely functional?
+- **Traceability gaps**: Are there code choices that lack corresponding changedoc entries?
+- **Novelty deficit**: Is there at least one genuinely novel or ambitious element, or
+  does everything take the safe, obvious path?
+
+Do not confuse *correctness fixes* with *quality improvements*. An answer can be
+technically correct and still have a shallow decision journal.
+
+*If there is only one answer, the gap analysis is especially important — the first
+attempt rarely captures all important decisions.*
+
+If the current best genuinely matches your ideal with only cosmetic gaps remaining,
+say so — but be rigorous.
+
+### Fresh Approach Consideration
+
+Don't only think about polishing the existing changedoc — also consider whether
+**different decisions entirely** might produce a better result. Could a fundamentally
+different architectural choice, creative direction, or problem decomposition lead
+somewhere that incremental refinement of existing decisions never would?
+
+- Are all current changedocs converging on the same basic decisions? If so, varying
+  has extra value — it explores decision paths that pure refinement misses.
+- Could challenging a core assumption in the changedoc unlock a better outcome?\""""
 
 
 def _build_checklist_decision(
@@ -383,6 +518,7 @@ def _build_checklist_gated_decision(
     checklist_items: list,
     terminate_action: str = "vote",
     iterate_action: str = "new_answer",
+    require_gap_report: bool = True,
 ) -> str:
     """Build checklist_gated decision section (tool-gated, hidden threshold).
 
@@ -391,6 +527,34 @@ def _build_checklist_gated_decision(
     submits scores via the submit_checklist MCP tool, and follows the verdict.
     """
     numbered = "\n".join(f"  T{i+1}. {item}  → **___% confidence**" for i, item in enumerate(checklist_items))
+    report_requirement = (
+        "### Gap Report (Required)\n\n"
+        "Before calling `submit_checklist`, you MUST write a markdown gap report in your workspace\n"
+        "(for example: `tasks/checklist_gap_report.md`).\n\n"
+        "The report must be comprehensive and concrete:\n"
+        "- Start with **Output Quality**: evaluate the actual result from the user's perspective.\n"
+        "  Is this something you would be proud to deliver? What would make it more impressive,\n"
+        "  richer, or more polished? Do not conflate 'works correctly' with 'high quality.'\n"
+        "  **Before writing this section**, use whatever tools you have to experience the output\n"
+        "  the way a user would — render it, screenshot it, open it, listen to it, read the final\n"
+        "  artifact. Do not evaluate output quality from source code alone.\n"
+        "- Then cover additional angles: requirements fit, correctness, depth/richness, UX/polish,\n"
+        "  accessibility, performance, reliability, security, maintainability, and testing/validation.\n"
+        "- For each gap, explain what is missing and what specific change should be made.\n"
+        "- Include a section named `Already Good Enough` listing only aspects that genuinely meet\n"
+        "  a high quality bar — not things that merely exist or function. 'Has responsive layout'\n"
+        "  is not a strength worth listing; 'layout handles all breakpoints with considered\n"
+        "  typography' might be.\n"
+    )
+    if not require_gap_report:
+        report_requirement = (
+            "### Gap Report (Recommended)\n\n"
+            "Write a markdown gap report in your workspace (for example:\n"
+            "`tasks/checklist_gap_report.md`). Start with output quality from the user's perspective —\n"
+            "experience the output the way a user would before evaluating it. Then cover other angles.\n"
+            "Include an `Already Good Enough` section listing only aspects that genuinely meet a high\n"
+            "bar. If you create one, pass it via `report_path`.\n"
+        )
 
     return f"""---
 
@@ -414,18 +578,30 @@ Be honest — do not inflate or deflate your scores.
 
 {numbered}
 
+{report_requirement}
+
 ### Submit Your Scores
 
-Call `submit_checklist` with your scores for each checklist item (T1 through T5).
-Each score must include a `reasoning` field that cites specific evidence from your
-analysis explaining why you gave that score. Also include an `improvements` summary
-describing the specific gaps from your Ideal Version / Gap Analysis that would make
-the answer substantially better.
+Call `submit_checklist` with per-item reasoning, an improvements summary, and a report path.
+Each score entry MUST include `"reasoning"` explaining why you gave that score —
+reference specific evidence from your analysis.
 
 **Important**: Do not hedge your improvements with language like "optional", "not
 required", "could include", or "nice-to-have". If you identify something that would
 make the answer better, state it as something that **should** be done. If the verdict
 tells you to iterate, you are expected to implement what you identified.
+
+  submit_checklist(
+    scores={{
+      "T1": {{"score": <0-100>, "reasoning": "<why — cite specific evidence>"}},
+      "T2": {{"score": <0-100>, "reasoning": "<why>"}},
+      "T3": {{"score": <0-100>, "reasoning": "<why>"}},
+      "T4": {{"score": <0-100>, "reasoning": "<why>"}},
+      "T5": {{"score": <0-100>, "reasoning": "<why>"}}
+    }},
+    report_path="<path to your markdown gap report>",
+    improvements="<specific gaps from your Ideal Version / Gap Analysis that would make the answer substantially better>"
+  )
 
 The tool will evaluate your scores and return a verdict telling you whether
 to call `{terminate_action}` or `{iterate_action}`. Follow the verdict.
@@ -1460,9 +1636,13 @@ class WorkspaceStructureSection(SystemPromptSection):
 
                 content_parts.append("### Code Branches\n")
                 if self.branch_name:
-                    content_parts.append(f"Your work is on branch `{self.branch_name}`. All changes are auto-committed when your turn ends.\n")
+                    content_parts.append(
+                        f"Your work is on branch `{self.branch_name}`. " "All changes are auto-committed when your turn ends. " "Manual commits are optional.\n",
+                    )
                 else:
-                    content_parts.append("All changes are auto-committed when your turn ends.\n")
+                    content_parts.append(
+                        "All changes are auto-committed when your turn ends. " "Manual commits are optional.\n",
+                    )
 
                 if self.other_branches:
                     if self.branch_diff_summaries:
@@ -2215,6 +2395,8 @@ class EvaluationSection(SystemPromptSection):
         voting_threshold: Optional[int] = None,
         answers_used: int = 0,
         answer_cap: Optional[int] = None,
+        checklist_require_gap_report: bool = True,
+        has_changedoc: bool = False,
     ):
         super().__init__(
             title="MassGen Coordination",
@@ -2228,6 +2410,8 @@ class EvaluationSection(SystemPromptSection):
         self.voting_threshold = voting_threshold
         self.answers_used = answers_used
         self.answer_cap = answer_cap
+        self.checklist_require_gap_report = checklist_require_gap_report
+        self.has_changedoc = has_changedoc
 
     def build_content(self) -> str:
         # Vote-only mode: agent has exhausted their answer limit
@@ -2323,27 +2507,32 @@ Your goal is to iteratively refine answers until they meet the quality bar.
             total = self.answer_cap or 5
             threshold = self.voting_threshold if self.voting_threshold is not None else 5
 
-            analysis = _build_checklist_analysis()
+            items = _CHECKLIST_ITEMS_CHANGEDOC if self.has_changedoc else _CHECKLIST_ITEMS
+            analysis = _build_changedoc_checklist_analysis() if self.has_changedoc else _build_checklist_analysis()
             if effective_sensitivity == "checklist":
                 decision = _build_checklist_decision(
                     threshold,
                     remaining,
                     total,
-                    _CHECKLIST_ITEMS,
+                    items,
                 )
             else:
                 decision = _build_checklist_scored_decision(
                     threshold,
                     remaining,
                     total,
-                    _CHECKLIST_ITEMS,
+                    items,
                 )
             evaluation_section = f"""{analysis}
 
 {decision}"""
         elif effective_sensitivity == "checklist_gated":
-            analysis = _build_checklist_analysis()
-            decision = _build_checklist_gated_decision(_CHECKLIST_ITEMS)
+            items = _CHECKLIST_ITEMS_CHANGEDOC if self.has_changedoc else _CHECKLIST_ITEMS
+            analysis = _build_changedoc_checklist_analysis() if self.has_changedoc else _build_checklist_analysis()
+            decision = _build_checklist_gated_decision(
+                items,
+                require_gap_report=self.checklist_require_gap_report,
+            )
             evaluation_section = f"""{analysis}
 
 {decision}"""
@@ -2424,8 +2613,13 @@ CRITICAL: New answers must be SUBSTANTIALLY different from existing answers.
         return f"""You are evaluating answers from multiple agents for final response to a message.
 Different agents may have different builtin tools and capabilities.
 {phase_context}{evaluation_section}
-Otherwise, digest existing answers, combine their strengths, and do additional work to address their weaknesses,
-then use the `new_answer` tool to record a better answer to the ORIGINAL MESSAGE.
+Otherwise, use the `new_answer` tool to record a better answer to the ORIGINAL MESSAGE. You have two strategies:
+- **Improve**: Digest existing answers, combine their strengths, and address their weaknesses.
+- **Vary**: Keep what works but try a different approach for key parts — a different structure,
+  a different method for the hard sections, or a different creative direction for part of the solution.
+Both are valid. You don't have to start from scratch to vary — changing how you tackle the most
+important parts can produce meaningfully different results. If all existing answers are converging
+on the same approach, varying is especially valuable.
 Each iteration costs time and resources. When you produce a `new_answer`, the result must be
 **obviously and substantially better** — a user should immediately see the improvement.
 Identify concrete improvements, then actually implement them — do not just acknowledge gaps.{novelty_section}
@@ -2448,7 +2642,16 @@ class DecompositionSection(SystemPromptSection):
         subtask: The agent's assigned subtask description (if any)
     """
 
-    def __init__(self, subtask: Optional[str] = None, voting_threshold: Optional[int] = None, voting_sensitivity: str = "roi", answers_used: int = 0, answer_cap: Optional[int] = None):
+    def __init__(
+        self,
+        subtask: Optional[str] = None,
+        voting_threshold: Optional[int] = None,
+        voting_sensitivity: str = "roi",
+        answers_used: int = 0,
+        answer_cap: Optional[int] = None,
+        checklist_require_gap_report: bool = True,
+        has_changedoc: bool = False,
+    ):
         super().__init__(
             title="MassGen Decomposition Coordination",
             priority=2,  # Same slot as EvaluationSection
@@ -2459,6 +2662,8 @@ class DecompositionSection(SystemPromptSection):
         self.voting_sensitivity = voting_sensitivity
         self.answers_used = answers_used
         self.answer_cap = answer_cap
+        self.checklist_require_gap_report = checklist_require_gap_report
+        self.has_changedoc = has_changedoc
 
     def _build_decision_block(self) -> str:
         """Build the new_answer vs stop decision block, threshold-aware if set."""
@@ -2467,13 +2672,14 @@ class DecompositionSection(SystemPromptSection):
             total = self.answer_cap or 5
 
             if self.voting_sensitivity in ("checklist", "checklist_scored"):
-                analysis = _build_checklist_analysis()
+                items = _CHECKLIST_ITEMS_CHANGEDOC if self.has_changedoc else _CHECKLIST_ITEMS
+                analysis = _build_changedoc_checklist_analysis() if self.has_changedoc else _build_checklist_analysis()
                 if self.voting_sensitivity == "checklist":
                     decision = _build_checklist_decision(
                         self.voting_threshold,
                         remaining,
                         total,
-                        _CHECKLIST_ITEMS,
+                        items,
                         terminate_action="stop",
                         iterate_action="new_answer",
                     )
@@ -2482,7 +2688,7 @@ class DecompositionSection(SystemPromptSection):
                         self.voting_threshold,
                         remaining,
                         total,
-                        _CHECKLIST_ITEMS,
+                        items,
                         terminate_action="stop",
                         iterate_action="new_answer",
                     )
@@ -2493,11 +2699,13 @@ Both are terminal actions that end your round.
 
 {decision}"""
             elif self.voting_sensitivity == "checklist_gated":
-                analysis = _build_checklist_analysis()
+                items = _CHECKLIST_ITEMS_CHANGEDOC if self.has_changedoc else _CHECKLIST_ITEMS
+                analysis = _build_changedoc_checklist_analysis() if self.has_changedoc else _build_checklist_analysis()
                 decision = _build_checklist_gated_decision(
-                    _CHECKLIST_ITEMS,
+                    items,
                     terminate_action="stop",
                     iterate_action="new_answer",
+                    require_gap_report=self.checklist_require_gap_report,
                 )
                 return f"""**CHOOSING THE RIGHT TOOL — `new_answer` vs `stop`:**
 Both are terminal actions that end your round.
@@ -2654,6 +2862,214 @@ class PlanningModeSection(SystemPromptSection):
 
     def build_content(self) -> str:
         return self.planning_mode_instruction
+
+
+_CHANGEDOC_FIRST_ROUND_PROMPT = """## Change Document (Decision Journal)
+
+**Before you start writing your answer**, create `tasks/changedoc.md` in your workspace.
+This is your decision journal — start it first, then update it as you make each significant
+decision while working.
+
+### Workflow
+
+1. **Create `tasks/changedoc.md` immediately** when you begin working. Write the Summary with your initial approach.
+2. **Log each significant decision as you make it.** When you choose an approach, architecture, tool, or trade-off — write a DEC entry in the changedoc before or as you implement it.
+3. **After implementing**, fill in the Implementation field on each decision with the actual files and symbols.
+4. **Submit your answer** via `new_answer` once your work is complete. The changedoc should already be up to date.
+
+The changedoc captures your reasoning in real-time, not as a summary after the fact. Focus on decisions where a reasonable person might have chosen differently.
+
+### What to document
+
+For each significant choice:
+- What you decided and why
+- What alternatives you considered and why you rejected them
+- Which parts of the original task drove the decision
+- **Where in the code** this decision is implemented (files, functions/classes, brief mechanism)
+
+### Code references
+
+Use relative paths within the workspace. Include both symbol names (functions, classes) and
+line numbers — your code is frozen once submitted, so line numbers are stable references for
+anyone reading your changedoc.
+
+Format: `relative/path/file.py:L10-25` → `ClassName.method()` — brief description
+
+### Decision provenance
+
+Every decision has an **Origin** field tracking who first introduced it. As the first agent,
+all your decisions are new — mark them with `NEW`. This helps future agents (and humans) see
+where each idea came from and which agents contributed genuinely new thinking vs refined
+existing ideas.
+
+### Template
+
+```markdown
+# Change Document
+
+**Based on:** (original — no prior answers)
+
+## Summary
+[1-2 sentences describing your approach and key reasoning]
+
+## Decisions
+
+### DEC-001: [Decision title]
+**Origin:** [your answer label] — NEW
+**Choice:** [What you chose]
+**Why:** [Rationale tied to task requirements]
+**Alternatives considered:**
+- [Alternative A]: [Why rejected]
+**Implementation:**
+- `src/handler.py:L15-42` → `RequestHandler.process()` — validates input then dispatches to worker pool
+- `src/config.py:L8-12` → `WORKER_COUNT` — set to 4 based on benchmark results
+
+### DEC-002: [Next decision]
+...
+
+## Deliberation Trail
+[Empty for first answer — subsequent agents will add entries here]
+```
+
+Write concisely — explain your thinking to a colleague who will pick up your work."""
+
+_CHANGEDOC_SUBSEQUENT_ROUND_PROMPT = """## Change Document (Decision Journal)
+
+**Before you start writing your answer**, create `tasks/changedoc.md` in your workspace.
+This is your decision journal — start it first by inheriting from the prior agent's changedoc,
+then update it as you make each decision.
+
+### Workflow
+
+1. **Create `tasks/changedoc.md` immediately** when you begin working. Copy the prior agent's
+changedoc as your starting point (their changedoc content is shown in `<changedoc>` tags
+alongside their answer).
+2. **Log each decision as you make it.** When you keep, change, or add a decision — update the changedoc before or as you implement it.
+3. **Update the Implementation fields** to reference YOUR code locations (the prior agent's line numbers refer to their frozen snapshot, not yours).
+4. **Submit your answer** via `new_answer` once your work is complete. The changedoc should already be up to date.
+
+### Inheriting from prior answers
+
+When you build on another agent's work:
+
+1. **Keep their existing decisions** that you agree with. Preserve the Origin field — do not change who first introduced a decision.
+2. **Modify decisions** when you disagree. Update the Origin to show modification (e.g., `agent1.1, modified by [your label]`). Explain the change in the Deliberation Trail.
+3. **Add genuinely new decisions** with Origin marked as `[your label] — NEW`. These are ideas not present in any prior answer — novel approaches, new features, or original solutions you introduce.
+4. **Update the Summary** to reflect your version of the answer.
+5. **Update Implementation fields** to point to your code. The prior agent's code references point to their frozen files — your implementation may have different paths, symbols, or line numbers.
+6. **Append to the Deliberation Trail** to record what changed and why, flagging NEW ideas explicitly.
+
+If you start fresh rather than building on an existing answer, note in the Deliberation Trail why you chose a different approach.
+
+### Code references
+
+Use relative paths within the workspace. Include symbol names and line numbers — your code is frozen once submitted.
+
+Format: `relative/path/file.py:L10-25` → `ClassName.method()` — brief description
+
+### Answer labels
+
+Use the answer labels shown in `<CURRENT ANSWERS>` (e.g., `agent1.1`, `agent2.1`) when referencing specific answers. These uniquely identify a particular version of an agent's work.
+
+### Template
+
+```markdown
+# Change Document
+
+**Based on:** [answer label, e.g., agent1.1]
+
+## Summary
+[1-2 sentences describing your approach]
+
+## Decisions
+
+### DEC-001: [Inherited decision title]
+**Origin:** agent1.1
+**Choice:** [What was chosen]
+**Why:** [Rationale]
+**Alternatives considered:**
+- [Alternative]: [Why rejected]
+**Implementation:**
+- `path/to/file.py:L10-42` → `ClassName.method()` — [brief mechanism description]
+
+### DEC-002: [Modified decision]
+**Origin:** agent1.1, modified by [your label]
+**Choice:** [Your revised choice]
+**Why:** [Why you changed it — agent1.1 chose X, but Y is better because...]
+**Alternatives considered:**
+- agent1.1's original approach: [Why you changed it]
+**Implementation:**
+- `path/to/file.py:L50-75` → `new_function()` — [mechanism]
+
+### DEC-003: [Your new idea]
+**Origin:** [your label] — NEW
+**Choice:** [What you introduced]
+**Why:** [Rationale — this wasn't in any prior answer]
+**Implementation:**
+- `path/to/new_file.py:L1-30` → `NovelClass` — [mechanism]
+
+## Deliberation Trail
+
+### [your label] (based on agent1.1):
+- DEC-001: Kept — [brief reason]
+- DEC-002: Modified — agent1.1 used X, changed to Y because [reason]
+- DEC-003: NEW — [what this adds that wasn't there before]
+
+## Key Changes from Prior
+- [Substantive change 1]
+- [Substantive change 2]
+```
+
+Write concisely — explain your thinking to a colleague who will pick up your work."""
+
+_CHANGEDOC_PRESENTER_INSTRUCTIONS = """
+### Change Document Consolidation
+
+The agents' answers include changedoc decision journals (shown in `<changedoc>` tags).
+Your final output MUST include a consolidated `tasks/changedoc.md` in your workspace that:
+
+1. **Finalizes the Summary** to reflect the final delivered answer.
+2. **Consolidates Decisions** into the definitive list. Remove superseded decisions. Keep the final version of each with full rationale.
+3. **Preserves Origin fields** on every decision — these track which agent first introduced each idea. Keep `NEW` markers to highlight genuinely novel contributions.
+4. **Updates all Implementation fields** to reference YOUR final code — file paths, symbol
+names, and line numbers pointing to the delivered files. The agents' code references point
+to their frozen snapshots; yours must point to the final deliverable.
+5. **Preserves the Deliberation Trail** showing how key decisions evolved. Clean up for readability but keep the substance, attribution, and `NEW` markers.
+6. **Removes the Key Changes section** (not needed in the final document).
+
+The final changedoc is a decision record, not a comparison report. Do not editorialize or
+narrate which agent "won" — just state what was decided, why, and where in the code it lives.
+A developer who was not present should be able to read the changedoc and:
+- Trace every decision to specific files and functions in the codebase
+- See where each idea originated (Origin field)
+- Identify which ideas were genuinely new contributions (NEW markers)
+- Follow how decisions evolved through the deliberation trail"""
+
+
+class ChangedocSection(SystemPromptSection):
+    """
+    Changedoc instructions for coordination.
+
+    Instructs agents to produce a decision journal (tasks/changedoc.md) alongside
+    their answer, explaining WHY choices were made. When prior answers exist,
+    agents inherit and extend the changedoc from the answer they build upon.
+
+    Args:
+        has_prior_answers: Whether other agents' answers are visible.
+    """
+
+    def __init__(self, has_prior_answers: bool = False):
+        super().__init__(
+            title="Change Document",
+            priority=Priority.MEDIUM,
+            xml_tag="changedoc_instructions",
+        )
+        self.has_prior_answers = has_prior_answers
+
+    def build_content(self) -> str:
+        if self.has_prior_answers:
+            return _CHANGEDOC_SUBSEQUENT_ROUND_PROMPT
+        return _CHANGEDOC_FIRST_ROUND_PROMPT
 
 
 class SubagentSection(SystemPromptSection):

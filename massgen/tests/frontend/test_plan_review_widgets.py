@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from massgen.frontend.displays import textual_terminal_display as textual_display_module
 from massgen.frontend.displays.textual_widgets.plan_approval_modal import (
     PlanApprovalModal,
+    PlanApprovalResult,
     PlanJsonEditorModal,
 )
 from massgen.frontend.displays.textual_widgets.plan_options import (
@@ -37,6 +38,16 @@ class _SelectEvent:
     def __init__(self, selector_id: str, value: str) -> None:
         self.select = SimpleNamespace(id=selector_id)
         self.value = value
+
+
+class _PlanSelectedEvent:
+    def __init__(self, plan_id, is_new: bool = False) -> None:
+        self.plan_id = plan_id
+        self.is_new = is_new
+        self.stopped = False
+
+    def stop(self) -> None:
+        self.stopped = True
 
 
 class _DummyPlan:
@@ -124,6 +135,74 @@ def test_plan_review_modal_routes_finalize_action():
     result = captured["result"]
     assert result.action == "finalize"
     assert result.approved is True
+
+
+def test_plan_review_modal_routes_finalize_manual_action():
+    modal = PlanApprovalModal(
+        tasks=[{"id": "T001", "chunk": "C01", "description": "Task"}],
+        plan_path=Path("/tmp/plan.json"),
+        plan_data={"tasks": [{"id": "T001", "chunk": "C01"}]},
+    )
+
+    captured = {}
+    modal.dismiss = lambda result: captured.setdefault("result", result)
+    modal.on_button_pressed(_ButtonEvent("finalize_manual_btn"))
+
+    result = captured["result"]
+    assert result.action == "finalize_manual"
+    assert result.approved is True
+
+
+def test_show_plan_approval_modal_routes_finalize_manual_to_non_auto_execute(
+    tmp_path,
+):
+    display = textual_display_module.TextualTerminalDisplay.__new__(
+        textual_display_module.TextualTerminalDisplay,
+    )
+    display._persist_planning_revision_snapshot = lambda *_args, **_kwargs: None
+    display._continue_planning_refinement = lambda *_args, **_kwargs: None
+
+    captured = {}
+
+    def _capture_execute(result, mode_state, auto_submit=True):
+        captured["result"] = result
+        captured["mode_state"] = mode_state
+        captured["auto_submit"] = auto_submit
+
+    display._execute_approved_plan = _capture_execute
+
+    plan_path = tmp_path / "project_plan.json"
+    plan_data = {"tasks": [{"id": "T001", "chunk": "C01", "description": "Task"}]}
+    approval_result = PlanApprovalResult(
+        approved=True,
+        action="finalize_manual",
+        plan_data=plan_data,
+        plan_path=plan_path,
+    )
+
+    display._app = SimpleNamespace(
+        _mode_bar=None,
+        notify=lambda *_args, **_kwargs: None,
+        call_from_thread=lambda fn: fn(),
+        push_screen=lambda _modal, callback: callback(approval_result),
+    )
+
+    mode_state = SimpleNamespace(
+        plan_revision=1,
+        quick_edit_restore_pending=False,
+        planning_feedback_history=[],
+        last_planning_mode="multi",
+        reset_plan_state=lambda: None,
+    )
+
+    display.show_plan_approval_modal(
+        tasks=plan_data["tasks"],
+        plan_path=plan_path,
+        plan_data=plan_data,
+        mode_state=mode_state,
+    )
+
+    assert captured["auto_submit"] is False
 
 
 def test_plan_review_modal_apply_json_edit_updates_plan_data(tmp_path):
@@ -322,6 +401,78 @@ def test_plan_options_emits_execute_mode_setting_messages():
     assert posted[0].enabled is False
     assert isinstance(posted[1], ExecuteRefinementModeChanged)
     assert posted[1].mode == "off"
+
+
+def test_plan_options_ignores_noop_plan_selector_change_in_execute_mode(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "plan.json").write_text(
+        json.dumps({"tasks": [{"id": "T001", "chunk": "C01", "status": "pending"}]}),
+    )
+    plan = _DummyPlan("plan_1", workspace, status="ready")
+
+    popover = PlanOptionsPopover(
+        plan_mode="execute",
+        available_plans=[plan],
+        current_plan_id=plan.plan_id,
+    )
+    popover._initialized = True
+    popover._update_plan_details = lambda *_args, **_kwargs: None
+    popover.refresh = lambda *_args, **_kwargs: None
+    popover.call_later = lambda *_args, **_kwargs: None
+
+    posted = []
+    popover.post_message = lambda message: posted.append(message)
+
+    popover.on_select_changed(_SelectEvent("plan_selector", "plan_1"))
+
+    assert posted == []
+
+
+def test_plan_options_ignores_noop_execute_setting_changes():
+    popover = PlanOptionsPopover(
+        plan_mode="execute",
+        current_execute_auto_continue=True,
+        current_execute_refinement_mode="inherit",
+    )
+    popover._initialized = True
+
+    posted = []
+    popover.post_message = lambda message: posted.append(message)
+
+    popover.on_select_changed(_SelectEvent("execute_auto_continue_selector", "auto"))
+    popover.on_select_changed(_SelectEvent("execute_refinement_mode_selector", "inherit"))
+
+    assert posted == []
+
+
+def test_on_plan_selected_ignores_noop_event_while_locked():
+    notifications = []
+    event = _PlanSelectedEvent("plan_1", is_new=False)
+    app = SimpleNamespace(
+        _mode_state=SimpleNamespace(is_locked=lambda: True, selected_plan_id="plan_1"),
+        notify=lambda message, **kwargs: notifications.append((message, kwargs)),
+    )
+
+    textual_display_module.TextualApp.on_plan_selected(app, event)
+
+    assert notifications == []
+    assert event.stopped is True
+
+
+def test_on_plan_selected_blocks_real_change_while_locked():
+    notifications = []
+    event = _PlanSelectedEvent("plan_2", is_new=False)
+    app = SimpleNamespace(
+        _mode_state=SimpleNamespace(is_locked=lambda: True, selected_plan_id="plan_1"),
+        notify=lambda message, **kwargs: notifications.append((message, kwargs)),
+    )
+
+    textual_display_module.TextualApp.on_plan_selected(app, event)
+
+    assert len(notifications) == 1
+    assert notifications[0][0] == "Cannot change plan selection during execution."
+    assert event.stopped is True
 
 
 def test_submit_question_queues_input_during_execution_without_bypass():
