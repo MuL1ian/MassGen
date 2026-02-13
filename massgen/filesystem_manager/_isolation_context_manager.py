@@ -229,7 +229,12 @@ class IsolationContextManager:
                     wt_repo.git.add("-A")
                     wt_repo.index.commit("[BASELINE] Mirror source working tree")
                 base_ref = wt_repo.head.commit.hexsha
-            except Exception:
+            except Exception as e:
+                log.warning(
+                    "Failed to create baseline commit for %s (drift detection disabled): %s",
+                    context_path,
+                    e,
+                )
                 base_ref = None
 
             # Store manager reference for cleanup
@@ -319,7 +324,7 @@ class IsolationContextManager:
                     elif os.path.isdir(dest_abs):
                         shutil.rmtree(dest_abs)
         except Exception as e:
-            log.debug(f"Failed to mirror source working tree into worktree: {e}")
+            log.warning("Failed to mirror source working tree into worktree: %s", e)
 
     def _create_shadow_context(self, context_path: str, agent_id: Optional[str]) -> str:
         """Create a shadow repository for the context path."""

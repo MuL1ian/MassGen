@@ -544,8 +544,8 @@ class ChangeApplier:
         if base_ref:
             try:
                 _record_name_status(repo.git.diff("--name-status", base_ref, "HEAD"))
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("Failed to diff base_ref %s against HEAD: %s", base_ref, e)
 
         try:
             _record_name_status(repo.git.diff("--name-status", "--cached"))

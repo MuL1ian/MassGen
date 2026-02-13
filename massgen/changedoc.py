@@ -25,6 +25,6 @@ def read_changedoc_from_workspace(workspace_path: Path) -> Optional[str]:
     try:
         content = changedoc_path.read_text().strip()
         return content if content else None
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         logger.warning("Failed to read changedoc from %s", changedoc_path)
         return None

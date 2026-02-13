@@ -155,7 +155,6 @@ class ConfigValidator:
         "checklist",
         "checklist_scored",
         "checklist_gated",
-        "critique",
     }
 
     # Valid answer novelty requirements

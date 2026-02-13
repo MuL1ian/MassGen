@@ -337,14 +337,6 @@ class Orchestrator(ChatAgent):
         # Format: {agent_id: set(subagent_id, ...)}
         self._injected_subagents: Dict[str, Set[str]] = {}
 
-        # Critique subagent state (independent reviewer per agent)
-        # Pending async tasks: {agent_id: asyncio.Task}
-        self._pending_critique_tasks: Dict[str, asyncio.Task] = {}
-        # Completed critique text ready for injection: {agent_id: critique_text}
-        self._completed_critiques: Dict[str, str] = {}
-        # Answer version when critique was spawned: {agent_id: answer_count}
-        self._critique_answer_versions: Dict[str, int] = {}
-
         # Async subagent configuration (parsed from coordination_config)
         async_subagent_config = {}
         if hasattr(self.config, "coordination_config"):
@@ -600,9 +592,6 @@ class Orchestrator(ChatAgent):
                 self._plan_session_id,
             )
 
-        # Initialize critique MCP tool if using critique mode
-        self._init_critique_tool()
-
     def _init_checklist_tool(self) -> None:
         """Register submit_checklist MCP tool if voting_sensitivity is checklist_gated.
 
@@ -847,520 +836,6 @@ class Orchestrator(ChatAgent):
             _cl_remaining,
             _has_answers,
         )
-
-    # ---------- Critique tool (voting_sensitivity == "critique") ----------
-
-    def _init_critique_tool(self) -> None:
-        """Register submit_critique MCP tool if voting_sensitivity is critique.
-
-        SDK-capable backends (ClaudeCode) get an in-process SDK MCP server.
-        CLI-based backends (Codex) get state stored on the backend; the backend
-        writes a stdio MCP server config at execution time when the workspace
-        path is known.
-        """
-        sensitivity = getattr(self.config, "voting_sensitivity", "")
-        if sensitivity != "critique":
-            return
-
-        for agent_id, agent in self.agents.items():
-            backend = agent.backend
-
-            # Create mutable state dict — orchestrator updates before each round
-            critique_state = {
-                "terminate_action": "stop" if self._is_decomposition_mode() else "vote",
-                "iterate_action": "new_answer",
-                "has_existing_answers": False,  # True once any answer exists for this agent
-            }
-            backend._critique_state = critique_state
-
-            if getattr(backend, "supports_sdk_mcp", False):
-                # SDK path: in-process MCP server (ClaudeCode)
-                self._init_critique_tool_sdk(
-                    agent_id,
-                    backend,
-                    critique_state,
-                )
-            else:
-                # Stdio path: backend writes specs file at execution time.
-                # Just storing _critique_state is enough; the backend's
-                # config-writing step picks it up.
-                logger.info(
-                    f"[Orchestrator] Critique tool for agent {agent_id}: " f"stdio mode (specs written at execution time)",
-                )
-
-    def _init_critique_tool_sdk(
-        self,
-        agent_id,
-        backend,
-        critique_state,
-    ) -> None:
-        """Register critique tool as an in-process SDK MCP server."""
-        try:
-            from claude_agent_sdk import create_sdk_mcp_server, tool
-        except ImportError:
-            logger.warning("claude-agent-sdk not available, critique tool will not be registered")
-            return
-
-        from .mcp_tools.critique_tools_server import evaluate_critique_submission
-
-        # Define tool schema
-        ticket_schema = {
-            "type": "object",
-            "properties": {
-                "id": {"type": "string", "description": "Ticket ID (D1, D2, ...)"},
-                "deficiency": {
-                    "type": "string",
-                    "minLength": 30,
-                    "description": "Specific problem (>= 30 chars)",
-                },
-                "severity": {
-                    "type": "string",
-                    "enum": ["approach", "feature", "polish"],
-                    "description": "approach = wrong strategy, feature = missing/broken, polish = cosmetic",
-                },
-                "impact": {"type": "string", "description": "Why it matters to the user"},
-                "verification": {
-                    "type": "string",
-                    "minLength": 10,
-                    "description": "How to confirm fixed (>= 10 chars)",
-                },
-                "smallest_fix": {"type": "string", "description": "Minimal edit to fix"},
-            },
-            "required": ["id", "deficiency", "severity", "impact", "verification", "smallest_fix"],
-        }
-        input_schema = {
-            "type": "object",
-            "properties": {
-                "approach_assessment": {
-                    "type": "object",
-                    "description": "Assessment of the approach taken by the best answer.",
-                    "properties": {
-                        "strategy_name": {"type": "string", "description": "Name the approach"},
-                        "ceiling": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 100,
-                            "description": "If perfectly polished, how good? (0-100)",
-                        },
-                        "ceiling_reasoning": {"type": "string", "description": "Why that ceiling?"},
-                        "alternative_approach": {
-                            "type": "string",
-                            "description": "Different approach or 'none identified'",
-                        },
-                    },
-                    "required": ["strategy_name", "ceiling", "ceiling_reasoning", "alternative_approach"],
-                },
-                "tickets": {
-                    "type": "array",
-                    "description": ("Deficiency tickets — specific problems with severity, impact, " "and verification. Empty array if no deficiencies found."),
-                    "items": ticket_schema,
-                },
-                "recommendation": {
-                    "type": "string",
-                    "enum": ["vote", "iterate"],
-                    "description": "Your recommendation (tool verdict may override this).",
-                },
-                "recommendation_reasoning": {
-                    "type": "string",
-                    "description": "Why you recommend this action.",
-                },
-            },
-            "required": ["approach_assessment", "tickets", "recommendation", "recommendation_reasoning"],
-        }
-
-        # Create tool function with closure over mutable state
-        state = critique_state
-
-        @tool(
-            name="submit_critique",
-            description=(
-                "Submit your deficiency critique. Provide an approach assessment, "
-                "deficiency tickets (each with severity, impact, and verification), "
-                "and your recommendation. The tool evaluates ticket significance and "
-                "returns a verdict telling you whether to iterate or vote."
-            ),
-            input_schema=input_schema,
-        )
-        async def submit_critique_handler(args, _state=state):
-            import json as _json
-
-            result = evaluate_critique_submission(
-                approach_assessment=args.get("approach_assessment", {}),
-                tickets=args.get("tickets", []),
-                recommendation=args.get("recommendation", ""),
-                recommendation_reasoning=args.get("recommendation_reasoning", ""),
-                state=_state,
-            )
-
-            return {
-                "content": [
-                    {
-                        "type": "text",
-                        "text": _json.dumps(result),
-                    },
-                ],
-            }
-
-        # Create SDK MCP server with this one tool
-        sdk_server = create_sdk_mcp_server(
-            name="massgen_critique",
-            version="1.0.0",
-            tools=[submit_critique_handler],
-        )
-
-        # Inject into backend's MCP servers
-        if not hasattr(backend, "config") or not isinstance(backend.config, dict):
-            logger.warning(
-                f"Agent {agent_id} backend has no dict config, skipping critique tool",
-            )
-            return
-
-        if "mcp_servers" not in backend.config:
-            backend.config["mcp_servers"] = {}
-
-        if isinstance(backend.config["mcp_servers"], dict):
-            backend.config["mcp_servers"]["massgen_critique"] = sdk_server
-        elif isinstance(backend.config["mcp_servers"], list):
-            backend.config["mcp_servers"].append(
-                {
-                    "name": "massgen_critique",
-                    "__sdk_server__": sdk_server,
-                },
-            )
-
-        logger.info(
-            f"[Orchestrator] Registered submit_critique SDK MCP tool for agent {agent_id}",
-        )
-
-    def _refresh_critique_state_for_agent(self, agent_id: str) -> None:
-        """Refresh the critique tool's mutable state dict for an agent.
-
-        Called after mid-stream injection so the submit_critique tool sees
-        up-to-date has_existing_answers.
-        """
-        agent = self.agents.get(agent_id)
-        if not agent or not hasattr(agent.backend, "_critique_state"):
-            return
-
-        _has_answers = bool(
-            self.coordination_tracker.answers_by_agent.get(agent_id),
-        )
-        agent.backend._critique_state.update(
-            {
-                "has_existing_answers": _has_answers,
-            },
-        )
-        logger.debug(
-            "[Orchestrator] Refreshed critique state for %s: has_answers=%s",
-            agent_id,
-            _has_answers,
-        )
-
-    # ---------- Critique subagent (independent reviewer) ----------
-
-    @staticmethod
-    def _build_critique_subagent_backend_config(src_backend: Dict[str, Any]) -> Dict[str, Any]:
-        """Build a safe backend config for critique subagents.
-
-        Keep core execution settings from the source backend so the spawned
-        critique process validates and runs under the same execution mode.
-        """
-        backend_config: Dict[str, Any] = {
-            "type": src_backend.get("type", "openai"),
-            "model": src_backend.get("model"),
-            "enable_mcp_command_line": src_backend.get("enable_mcp_command_line", False),
-            "command_line_execution_mode": src_backend.get("command_line_execution_mode", "local"),
-            "enable_code_based_tools": src_backend.get("enable_code_based_tools", False),
-        }
-
-        passthrough_keys = [
-            "base_url",
-            "reasoning",
-            "enable_web_search",
-            "exclude_file_operation_mcps",
-            "shared_tools_directory",
-            "auto_discover_custom_tools",
-            "exclude_custom_tools",
-            "direct_mcp_servers",
-        ]
-        for key in passthrough_keys:
-            if key in src_backend:
-                backend_config[key] = src_backend[key]
-
-        if backend_config["command_line_execution_mode"] == "docker":
-            docker_keys = [
-                "command_line_docker_image",
-                "command_line_docker_network_mode",
-                "command_line_docker_enable_sudo",
-                "command_line_docker_credentials",
-            ]
-            for key in docker_keys:
-                if key in src_backend:
-                    backend_config[key] = src_backend[key]
-
-        return backend_config
-
-    async def _maybe_spawn_critique_subagent(self, agent_id: str) -> None:
-        """Spawn an independent critique subagent for an agent's latest answer.
-
-        Called after an agent produces a new_answer. The critique runs in the
-        background (non-blocking) and its result is injected into the agent's
-        system message on the next round.
-
-        Guards:
-        - Only runs when voting_sensitivity == "critique"
-        - Cancels any existing pending critique for this agent (stale)
-        """
-        sensitivity = getattr(self.config, "voting_sensitivity", "")
-        if sensitivity != "critique":
-            return
-
-        # Cancel any existing pending critique for this agent
-        existing_task = self._pending_critique_tasks.get(agent_id)
-        if existing_task and not existing_task.done():
-            existing_task.cancel()
-            logger.info(
-                f"[Orchestrator] Cancelled stale critique subagent for {agent_id}",
-            )
-
-        # Get the agent's latest answer
-        answers = self.coordination_tracker.answers_by_agent.get(agent_id, [])
-        if not answers:
-            return
-        latest_answer = answers[-1]
-        answer_count = len(answers)
-
-        # Get agent workspace path
-        agent = self.agents.get(agent_id)
-        if not agent:
-            return
-        agent_workspace = None
-        if hasattr(agent, "backend") and hasattr(agent.backend, "filesystem_manager"):
-            fm = agent.backend.filesystem_manager
-            if fm and fm.cwd:
-                agent_workspace = str(fm.cwd)
-
-        # Build parent configs (same pattern as persona generation)
-        parent_configs = []
-        for aid, ag in self.agents.items():
-            agent_cfg: Dict[str, Any] = {"id": aid}
-            if hasattr(ag, "backend") and hasattr(ag.backend, "config"):
-                backend_cfg = {k: v for k, v in ag.backend.config.items() if k not in ("mcp_servers", "_config_path")}
-                agent_cfg["backend"] = backend_cfg
-            parent_configs.append(agent_cfg)
-
-        # Use log directory (not agent workspace, which gets cleared between rounds)
-        log_directory = None
-        try:
-            log_dir = get_log_session_dir()
-            if log_dir:
-                log_directory = str(log_dir)
-        except Exception:
-            pass
-        if log_directory:
-            critique_workspace = os.path.join(
-                log_directory,
-                "subagents",
-                f"critique_{agent_id}",
-            )
-        else:
-            import tempfile
-
-            critique_workspace = tempfile.mkdtemp(prefix=f"massgen_critique_{agent_id}_")
-        os.makedirs(critique_workspace, exist_ok=True)
-
-        # Get anonymous agent label
-        agent_num = self.coordination_tracker._get_agent_number(agent_id)
-        agent_label = f"Agent {agent_num}"
-
-        # Build the critique prompt
-        from .system_prompt_sections import build_critique_subagent_prompt
-
-        task = self.current_task or "Complete the assigned task"
-        critique_prompt = build_critique_subagent_prompt(
-            task=task,
-            answer_text=latest_answer,
-            agent_label=agent_label,
-        )
-
-        # Write CONTEXT.md for the subagent
-        context_md = os.path.join(critique_workspace, "CONTEXT.md")
-        with open(context_md, "w", encoding="utf-8") as f:
-            f.write(
-                f"# Critique Task Context\n\n" f"Task:\n{task}\n\n" f"Reviewing: {agent_label}'s answer (version {answer_count})\n\n" f"Goal: produce a structured critique with deficiency tickets.\n",
-            )
-
-        # TUI notification setup
-        display = getattr(self.coordination_ui, "display", None) if self.coordination_ui else None
-        critique_call_id = f"critique_{agent_id}_critique"
-
-        # Build context_paths so critiquer can read agent's workspace
-        context_paths: List[Dict[str, str]] = []
-        if agent_workspace:
-            context_paths.append(
-                {"path": agent_workspace, "permission": "read"},
-            )
-
-        async def _run_critique() -> None:
-            """Background task that spawns and awaits the critique subagent."""
-            try:
-                from massgen.subagent.manager import SubagentManager
-                from massgen.subagent.models import SubagentOrchestratorConfig
-
-                # Simplified agent configs (inherit model, enable tools)
-                simplified_configs = []
-                if parent_configs:
-                    src = next((cfg for cfg in parent_configs if cfg.get("id") == agent_id), parent_configs[0])
-                    src_backend = src.get("backend", {})
-                    simplified_configs.append(
-                        {
-                            "id": f"critique_{agent_id}",
-                            "backend": self._build_critique_subagent_backend_config(src_backend),
-                        },
-                    )
-
-                subagent_orch_config = SubagentOrchestratorConfig(
-                    enabled=True,
-                    agents=simplified_configs,
-                    coordination={
-                        "enable_subagents": False,
-                        "broadcast": False,
-                    },
-                )
-
-                manager = SubagentManager(
-                    parent_workspace=critique_workspace,
-                    parent_agent_id=f"critique_{agent_id}",
-                    orchestrator_id=self.orchestrator_id,
-                    parent_agent_configs=simplified_configs,
-                    max_concurrent=1,
-                    default_timeout=180,
-                    subagent_orchestrator_config=subagent_orch_config,
-                    log_directory=log_directory,
-                    parent_context_paths=context_paths,
-                )
-
-                def _status_callback(subagent_id: str):
-                    try:
-                        return manager.get_subagent_display_data(subagent_id)
-                    except Exception:
-                        return None
-
-                # Notify TUI
-                subagent_id = f"critique_{agent_id}"
-                if display and hasattr(display, "notify_runtime_subagent_started"):
-                    try:
-                        subagent_log_path = None
-                        if log_directory:
-                            subagent_log_path = str(
-                                Path(log_directory) / "subagents" / subagent_id,
-                            )
-                        display.notify_runtime_subagent_started(
-                            agent_id=agent_id,
-                            subagent_id=subagent_id,
-                            task=f"Critiquing {agent_label}'s answer v{answer_count}",
-                            timeout_seconds=180,
-                            call_id=critique_call_id,
-                            status_callback=_status_callback,
-                            log_path=subagent_log_path,
-                        )
-                    except Exception:
-                        pass
-
-                result = await manager.spawn_subagent(
-                    task=critique_prompt,
-                    subagent_id=subagent_id,
-                    timeout_seconds=180,
-                    refine=False,
-                )
-
-                # Store completed critique
-                if result.answer:
-                    self._completed_critiques[agent_id] = result.answer
-                    logger.info(
-                        f"[Orchestrator] Critique subagent completed for {agent_id}: " f"{len(result.answer)} chars",
-                    )
-                elif result.success:
-                    logger.warning(
-                        f"[Orchestrator] Critique subagent for {agent_id} succeeded but produced no answer",
-                    )
-                else:
-                    logger.warning(
-                        f"[Orchestrator] Critique subagent for {agent_id} failed: {result.error}",
-                    )
-
-                # Notify TUI completion
-                if display and hasattr(display, "notify_runtime_subagent_completed"):
-                    try:
-                        preview = ""
-                        if result.answer:
-                            preview = result.answer[:200]
-                        display.notify_runtime_subagent_completed(
-                            agent_id=agent_id,
-                            subagent_id=subagent_id,
-                            call_id=critique_call_id,
-                            status="completed" if result.answer else "failed",
-                            answer_preview=preview or None,
-                            error=result.error if not result.success else None,
-                        )
-                    except Exception:
-                        pass
-
-            except asyncio.CancelledError:
-                logger.info(
-                    f"[Orchestrator] Critique subagent for {agent_id} was cancelled",
-                )
-            except Exception as e:
-                logger.error(
-                    f"[Orchestrator] Critique subagent for {agent_id} error: {e}",
-                )
-
-        # Launch as background task
-        task_obj = asyncio.create_task(_run_critique())
-        self._pending_critique_tasks[agent_id] = task_obj
-        self._critique_answer_versions[agent_id] = answer_count
-        logger.info(
-            f"[Orchestrator] Spawned critique subagent for {agent_id} " f"(answer v{answer_count})",
-        )
-
-    def _get_critique_for_agent(self, agent_id: str) -> Optional[str]:
-        """Get the completed critique for an agent, if available and not stale.
-
-        A critique is valid when:
-        - It exists in _completed_critiques
-        - It was spawned for the previous answer version (not stale)
-
-        Returns:
-            Formatted critique text for system message injection, or None.
-        """
-        critique_text = self._completed_critiques.get(agent_id)
-        if not critique_text:
-            return None
-
-        # Check staleness: critique should be for answer N-1, and we're now on answer N
-        current_count = len(
-            self.coordination_tracker.answers_by_agent.get(agent_id, []),
-        )
-        spawned_for = self._critique_answer_versions.get(agent_id, 0)
-
-        # Valid if critique was for the most recent answer (spawned_for == current_count)
-        # because the agent hasn't produced a new answer yet since the critique was spawned
-        if spawned_for != current_count:
-            logger.info(
-                f"[Orchestrator] Skipping stale critique for {agent_id}: " f"spawned for v{spawned_for}, current v{current_count}",
-            )
-            return None
-
-        # Pop the critique so it's only injected once
-        self._completed_critiques.pop(agent_id, None)
-
-        from .system_prompt_sections import format_critique_injection
-
-        formatted = format_critique_injection(critique_text)
-        logger.info(
-            f"[Orchestrator] Injecting critique for {agent_id} ({len(formatted)} chars)",
-        )
-        return formatted
 
     def ensure_workspace_symlinks(self) -> None:
         """Ensure per-agent workspace symlinks exist in the current attempt log directory."""
@@ -4555,8 +4030,6 @@ Your answer:"""
                                     log_session_dir,
                                     self,
                                 )
-                            # Spawn independent critique subagent (background, non-blocking)
-                            await self._maybe_spawn_critique_subagent(agent_id)
                             restart_triggered_id = agent_id  # Last agent to provide new answer
                             reset_signal = True
 
@@ -5822,9 +5295,8 @@ Your answer:"""
             self.agent_states[agent_id].known_answer_ids.update(selected_answers.keys())
             self._register_injected_answer_updates(agent_id, list(selected_answers.keys()))
 
-            # Refresh checklist/critique tool state after injection (streak may have reset)
+            # Refresh checklist tool state after injection (streak may have reset)
             self._refresh_checklist_state_for_agent(agent_id)
-            self._refresh_critique_state_for_agent(agent_id)
 
             # Keep restart pending if additional unseen revisions still remain.
             self.agent_states[agent_id].restart_pending = self._has_unseen_answer_updates(agent_id)
@@ -6220,9 +5692,8 @@ Your answer:"""
             self.agent_states[agent_id].known_answer_ids.update(selected_answers.keys())
             self._register_injected_answer_updates(agent_id, list(selected_answers.keys()))
 
-            # Refresh checklist/critique tool state after injection (streak may have reset)
+            # Refresh checklist tool state after injection (streak may have reset)
             self._refresh_checklist_state_for_agent(agent_id)
-            self._refresh_critique_state_for_agent(agent_id)
 
             # Keep restart pending if additional unseen revisions still remain.
             self.agent_states[agent_id].restart_pending = self._has_unseen_answer_updates(agent_id)
@@ -6610,7 +6081,17 @@ Your answer:"""
     def _is_changedoc_enabled(self) -> bool:
         """Return True when changedoc decision journal is enabled."""
         coord = getattr(self.config, "coordination_config", None)
-        return bool(coord and getattr(coord, "enable_changedoc", False))
+        return bool(coord and getattr(coord, "enable_changedoc", True))
+
+    def _gather_agent_changedocs(self) -> Optional[Dict[str, str]]:
+        """Collect latest changedocs from all agents, or None if disabled/empty."""
+        if not self._is_changedoc_enabled():
+            return None
+        changedocs: Dict[str, str] = {}
+        for aid, ans_list in self.coordination_tracker.answers_by_agent.items():
+            if ans_list and ans_list[-1].changedoc:
+                changedocs[aid] = ans_list[-1].changedoc
+        return changedocs or None
 
     def _is_fairness_enabled(self) -> bool:
         """Return True when fairness controls are enabled."""
@@ -7823,15 +7304,6 @@ Your answer:"""
                 )
                 self._refresh_checklist_state_for_agent(agent_id)
 
-            # Update critique tool state if registered (separate from checklist)
-            if hasattr(agent.backend, "_critique_state"):
-                self._refresh_critique_state_for_agent(agent_id)
-
-            # Inject independent critique from critique subagent (if available)
-            critique_text = self._get_critique_for_agent(agent_id)
-            if critique_text:
-                system_message = f"{system_message}\n\n{critique_text}"
-
             # Inject phase-appropriate persona if enabled.
             # Use peer-only visibility (exclude the agent's own prior answer) so
             # persona easing starts only after true cross-agent exposure.
@@ -7861,14 +7333,7 @@ Your answer:"""
             agent_mapping = self.coordination_tracker.get_reverse_agent_mapping()
             _is_decomp = getattr(self.config, "coordination_mode", "voting") == "decomposition"
             # Gather changedocs from coordination tracker if enabled
-            _agent_changedocs = None
-            if self._is_changedoc_enabled():
-                _agent_changedocs = {}
-                for aid, ans_list in self.coordination_tracker.answers_by_agent.items():
-                    if ans_list and ans_list[-1].changedoc:
-                        _agent_changedocs[aid] = ans_list[-1].changedoc
-                if not _agent_changedocs:
-                    _agent_changedocs = None
+            _agent_changedocs = self._gather_agent_changedocs()
             if conversation_context and conversation_context.get(
                 "conversation_history",
             ):
@@ -10169,14 +9634,7 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             )
         else:
             # Gather changedocs for final presentation
-            _pres_changedocs = None
-            if self._is_changedoc_enabled():
-                _pres_changedocs = {}
-                for aid, ans_list in self.coordination_tracker.answers_by_agent.items():
-                    if ans_list and ans_list[-1].changedoc:
-                        _pres_changedocs[aid] = ans_list[-1].changedoc
-                if not _pres_changedocs:
-                    _pres_changedocs = None
+            _pres_changedocs = self._gather_agent_changedocs()
             presentation_content = self.message_templates.build_final_presentation_message(
                 original_task=self.current_task or "Task coordination",
                 vote_summary=normalized_voting_summary,

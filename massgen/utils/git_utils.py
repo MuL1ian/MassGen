@@ -7,6 +7,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 from git import InvalidGitRepositoryError, Repo
+from loguru import logger
 
 
 def get_git_root(path: str) -> Optional[str]:
@@ -136,8 +137,8 @@ def get_changes(repo: Repo, base_ref: Optional[str] = None) -> List[Dict[str, st
     if base_ref:
         try:
             _record_name_status(repo.git.diff("--name-status", base_ref, "HEAD"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to diff base_ref {} against HEAD: {}", base_ref, e)
 
     # Staged changes (index vs HEAD)
     try:

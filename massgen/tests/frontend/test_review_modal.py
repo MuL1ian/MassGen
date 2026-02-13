@@ -598,10 +598,9 @@ class TestDiffHeader:
 class TestOrchestratorSafety:
     """Tests that verify the orchestrator rejects changes on error rather than auto-approving."""
 
-    def test_show_change_review_modal_returns_false_on_no_app(self):
+    @pytest.mark.asyncio
+    async def test_show_change_review_modal_returns_false_on_no_app(self):
         """When no app is available, should return approved=False."""
-        import asyncio
-
         from massgen.frontend.displays.textual_terminal_display import (
             TextualTerminalDisplay,
         )
@@ -609,7 +608,5 @@ class TestOrchestratorSafety:
         display = TextualTerminalDisplay.__new__(TextualTerminalDisplay)
         display._app = None
 
-        result = asyncio.get_event_loop().run_until_complete(
-            display.show_change_review_modal([]),
-        )
+        result = await display.show_change_review_modal([])
         assert result.approved is False

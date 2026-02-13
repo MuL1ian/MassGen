@@ -84,6 +84,12 @@ class SystemMessageBuilder:
         self.session_id = session_id
         self.agent_temporary_workspace = agent_temporary_workspace
 
+    @property
+    def _changedoc_enabled(self) -> bool:
+        """Return True when changedoc decision journal is enabled."""
+        coord = getattr(self.config, "coordination_config", None)
+        return bool(coord and getattr(coord, "enable_changedoc", True))
+
     @staticmethod
     def _filter_skills_by_enabled_names(
         all_skills: List[Dict[str, Any]],
@@ -201,7 +207,7 @@ class SystemMessageBuilder:
         builder.add_section(OutputFirstVerificationSection(decomposition_mode=is_decomposition))
 
         # PRIORITY 1 (CRITICAL): MassGen Coordination - vote/new_answer or decomposition primitives
-        changedoc_enabled = self.config and hasattr(self.config, "coordination_config") and getattr(self.config.coordination_config, "enable_changedoc", False)
+        changedoc_enabled = self._changedoc_enabled
         if coordination_mode == "decomposition":
             decomp_sensitivity = voting_sensitivity_override or self.message_templates._voting_sensitivity
             builder.add_section(
@@ -482,7 +488,7 @@ class SystemMessageBuilder:
             logger.info(f"[SystemMessageBuilder] Added planning mode instructions for {agent_id}")
 
         # PRIORITY 10 (MEDIUM): Changedoc (conditional)
-        changedoc_enabled = self.config and hasattr(self.config, "coordination_config") and getattr(self.config.coordination_config, "enable_changedoc", False)
+        changedoc_enabled = self._changedoc_enabled
         if changedoc_enabled:
             from massgen.system_prompt_sections import ChangedocSection
 
@@ -612,7 +618,7 @@ This makes the work reusable for similar future tasks."""
                 logger.info("[SystemMessageBuilder] Added evolving skill output instructions for presentation")
 
             # Add changedoc consolidation instructions if enabled
-            changedoc_enabled = self.config and hasattr(self.config, "coordination_config") and getattr(self.config.coordination_config, "enable_changedoc", False)
+            changedoc_enabled = self._changedoc_enabled
             if changedoc_enabled:
                 from massgen.system_prompt_sections import (
                     _CHANGEDOC_PRESENTER_INSTRUCTIONS,
@@ -626,7 +632,7 @@ This makes the work reusable for similar future tasks."""
             return f"{filesystem_content}\n\n## Instructions\n{presentation_instructions}"
         else:
             # Add changedoc consolidation instructions if enabled (no filesystem case)
-            changedoc_enabled = self.config and hasattr(self.config, "coordination_config") and getattr(self.config.coordination_config, "enable_changedoc", False)
+            changedoc_enabled = self._changedoc_enabled
             if changedoc_enabled:
                 from massgen.system_prompt_sections import (
                     _CHANGEDOC_PRESENTER_INSTRUCTIONS,

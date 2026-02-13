@@ -2535,6 +2535,7 @@ def _parse_coordination_config(coord_cfg: Dict[str, Any]) -> "CoordinationConfig
         task_decomposer=task_decomposer_config,
         write_mode=coord_cfg.get("write_mode"),
         drift_conflict_policy=coord_cfg.get("drift_conflict_policy", "skip"),
+        enable_changedoc=coord_cfg.get("enable_changedoc", True),
     )
 
 
@@ -3040,6 +3041,7 @@ async def run_question_with_history(
                 ),
                 write_mode=coordination_settings.get("write_mode"),
                 drift_conflict_policy=coordination_settings.get("drift_conflict_policy", "skip"),
+                enable_changedoc=coordination_settings.get("enable_changedoc", True),
             )
 
     print(f"\n🤖 {BRIGHT_CYAN}{mode_text}{RESET}", flush=True)
@@ -3497,6 +3499,7 @@ async def run_single_question(
                 ),
                 write_mode=coordination_settings.get("write_mode"),
                 drift_conflict_policy=coordination_settings.get("drift_conflict_policy", "skip"),
+                enable_changedoc=coordination_settings.get("enable_changedoc", True),
             )
 
         # Get orchestrator parameters from config
