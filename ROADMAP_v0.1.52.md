@@ -1,8 +1,8 @@
-# MassGen v0.1.51 Roadmap
+# MassGen v0.1.52 Roadmap
 
 ## Overview
 
-Version 0.1.51 focuses on worktree isolation improvements (pushed from v0.1.50) and targeted agent queries.
+Version 0.1.52 focuses on worktree isolation improvements (pushed from v0.1.51) and targeted agent queries for more efficient coordination.
 
 - **Git Worktree Isolation for Agent Changes** (Required): Worktree isolation improvements for agent file changes
 - **Refactor ask_others for Targeted Agent Queries** (Required): Support targeted queries to specific agents
@@ -26,7 +26,7 @@ Version 0.1.51 focuses on worktree isolation improvements (pushed from v0.1.50) 
 **Issue**: [#853](https://github.com/massgen/MassGen/issues/853)
 
 #### 1.1 Isolation Improvements
-- [ ] Review current worktree isolation implementation from v0.1.48-v0.1.50
+- [ ] Review current worktree isolation implementation from v0.1.48-v0.1.51
 - [ ] Identify edge cases and improvement areas
 - [ ] Implement fixes and enhancements
 
@@ -68,13 +68,13 @@ Version 0.1.51 focuses on worktree isolation improvements (pushed from v0.1.50) 
 
 ## Timeline
 
-**Target Release**: February 13, 2026
+**Target Release**: February 16, 2026
 
-### Phase 1 (Feb 11-12)
+### Phase 1 (Feb 13-15)
 - Worktree Isolation Improvements (Milestone 1)
 - Targeted Query Implementation (Milestone 2.1)
 
-### Phase 2 (Feb 12-13)
+### Phase 2 (Feb 15-16)
 - Testing & Validation (Milestones 1.2, 2.2)
 
 ---
@@ -102,7 +102,8 @@ This release builds on previous work:
 - **v0.1.48**: Worktree Isolation (#857), Decomposition Mode (#858)
 - **v0.1.49**: Fairness Gate, Checklist Voting, Log Analysis TUI (#869)
 - **v0.1.50**: Chunked Plan Execution (#877), Skill Lifecycle Management (#878)
+- **v0.1.51**: Change Documents (#896), Changedoc Evaluation, Drift Conflict Policy
 
 And sets the foundation for:
-- **v0.1.52**: Quickstart model curation (#840), TUI screenshot support (#831)
-- **v0.1.53**: Per-agent isolated write contexts (#854), multi-turn round/log fixes (#848)
+- **v0.1.53**: Quickstart model curation (#840), TUI screenshot support (#831)
+- **v0.1.54**: Per-agent isolated write contexts (#854), multi-turn round/log fixes (#848)

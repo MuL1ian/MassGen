@@ -9,16 +9,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Recent Releases
 
+**v0.1.51 (February 13, 2026)** - Change Documents & Coordination Traceability
+Decision journal system for multi-agent coordination traceability. Changedoc-anchored evaluation checklists with gap reports. Review modal with multi-file diff visualization. Drift conflict policy for safer change application. `--cwd-context` CLI flag. Final lock UI prototypes.
+
 **v0.1.50 (February 11, 2026)** - Chunked Plan Execution & Skill Lifecycle Management
 Chunked plan execution for safer long-form task completion with progress checkpoints. Skill lifecycle management with consolidation, organizer, and previous-session skill loading. Iterative planning review modal. Responsive TUI mode bar. Worktree improvements with branch accumulation and cross-agent diff visibility.
 
 **v0.1.49 (February 9, 2026)** - Coordination Quality: Log Analysis TUI, Fairness Gate & Checklist Voting
 Log analysis mode built into TUI mode bar for in-app run analysis. Fairness gate prevents fast agents from dominating coordination. Checklist voting tool for structured quality evaluation. Automated testing infrastructure with CI/CD and SVG snapshot baselines.
 
-**v0.1.48 (February 6, 2026)** - Decomposition Mode & Worktree Isolation
-New decomposition coordination mode decomposes tasks into subtasks assigned to individual agents with a presenter role. Worktree isolation for file writes with review modal for approving changes. Quickstart wizard Docker setup with animated pull progress.
-
 ---
+
+## [0.1.51] - 2026-02-13
+
+### Added
+- **Change Documents (Changedoc)** ([#896](https://github.com/massgen/MassGen/pull/896)): Decision journals agents write in `tasks/changedoc.md` during coordination, capturing decision provenance, rationale, and code traceability
+  - Observation context: changedocs passed to other agents in `<changedoc>` tags for shared decision awareness
+  - Config: `enable_changedoc: true` (default on)
+
+- **Changedoc-Anchored Evaluation Checklist** ([#896](https://github.com/massgen/MassGen/pull/896)): 5 changedoc-specific checklist items for structured quality evaluation
+  - Decision Completeness, Rationale Quality, Traceability, Output Quality, Novel Elements
+
+- **Checklist Gap Report** ([#896](https://github.com/massgen/MassGen/pull/896)): Mandatory structured gap analysis before verdict
+  - Config: `checklist_require_gap_report: true` (default on)
+
+- **Drift Conflict Policy**: Configurable handling of target-file drift when applying isolated changes
+  - `drift_conflict_policy: skip|prefer_presenter|fail`
+
+- **Scratch Directory in Worktrees**: `.massgen_scratch/` for agent temporary files, git-excluded
+
+- **CLI `--cwd-context` Flag**: Inject CWD into context paths — `ro`/`read` for read-only, `rw`/`write` for write access
+  - Equivalent to `Ctrl+P` in TUI
+
+- **Final Presentation Matrix**: Deterministic decision matrix for final presentation path selection
+
+### Changed
+- **Review Modal Improvements**: Multi-context, multi-file diff visualization with critique capabilities
+
+- **Final Lock UI Prototypes**: 8 experimental layout options (Signal Strip, Editorial Split, Command Deck, etc.)
+
+- **Mode Bar Responsive Labels**: Compact labels adapting to terminal width
+
+### Fixed
+- Final presentation fallback for empty presentations
+- Task execution timing fixes
+
+### Documentation, Configurations and Resources
+- **Changedoc System Prompt Sections**: New `<changedoc>` observation context blocks in agent system prompts
+- **Checklist Gap Report Config**: New `checklist_require_gap_report` YAML parameter (default: `true`)
+- **Drift Conflict Policy Config**: New `drift_conflict_policy` YAML parameter (`skip`/`prefer_presenter`/`fail`)
+- **Scratch Directory Convention**: `.massgen_scratch/` added to `.gitignore` in worktrees
+
+### Technical Details
+- **Major Focus**: Change documents for multi-agent coordination traceability, changedoc-anchored evaluation checklists
+- **PRs Merged**: [#896](https://github.com/massgen/MassGen/pull/896) (Changedoc system), even_execute_time branch
+- **Contributors**: @ncrispino and the MassGen team
 
 ## [0.1.50] - 2026-02-11
 
