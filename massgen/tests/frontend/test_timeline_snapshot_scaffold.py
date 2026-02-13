@@ -32,6 +32,9 @@ def _configure_snapshot_terminal_environment(monkeypatch) -> None:  # noqa: ANN0
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.setenv("COLORTERM", "truecolor")
+    monkeypatch.setenv("COLUMNS", "140")
+    monkeypatch.setenv("LINES", "42")
+    monkeypatch.setenv("FORCE_COLOR", "1")
 
 
 class _TimelineSnapshotApp(App):
@@ -367,9 +370,13 @@ async def _seed_real_tui_final_lock_snapshot(pilot) -> None:  # noqa: ANN001 - f
     app.query_one("#status_cwd", Static).update("[dim]📁[/] /workspace")
     if app._tab_bar:
         app._tab_bar.set_winner("agent_a")
+    app._refresh_input_modes_row_layout()
+    if app._mode_bar:
+        app._mode_bar._refresh_responsive_labels()
     app.set_focus(None)
     _complete_tool_appearance_states(app)
     _stop_all_tui_timers(app)
+    await pilot.pause()
     await pilot.pause()
 
 

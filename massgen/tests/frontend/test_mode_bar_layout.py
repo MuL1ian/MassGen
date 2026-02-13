@@ -482,6 +482,9 @@ async def test_normal_mode_keeps_meta_panel_inline_when_content_fits(monkeypatch
         "get_user_settings",
         lambda: SimpleNamespace(theme="dark", vim_mode=True),
     )
+    # Pin CWD to a short deterministic path so hint text width is stable
+    # across local (macOS) and CI (Ubuntu) environments.
+    monkeypatch.setattr(Path, "cwd", staticmethod(lambda: Path("/home/u/project")))
 
     display = TextualTerminalDisplay(
         ["agent_a", "agent_b"],
@@ -502,12 +505,13 @@ async def test_normal_mode_keeps_meta_panel_inline_when_content_fits(monkeypatch
     )
     display._app = app
 
-    async with app.run_test(headless=True, size=(129, 24)) as pilot:
+    async with app.run_test(headless=True, size=(150, 24)) as pilot:
         await pilot.pause()
         app._update_vim_indicator(False)
         assert app._mode_bar is not None
         app._mode_bar.set_plan_mode("normal")
         app._refresh_input_modes_row_layout()
+        await pilot.pause()
         await pilot.pause()
 
         input_modes_row = app.query_one("#input_modes_row")
