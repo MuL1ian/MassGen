@@ -60,6 +60,16 @@ MassGen is a cutting-edge multi-agent system that leverages the power of collabo
 
 Think of it as a "parallel study group" for AI - inspired by advanced systems like **xAI's Grok Heavy** and **Google DeepMind's Gemini Deep Think**. Agents learn from each other to produce better results than any single agent could achieve alone.
 
+.. raw:: html
+
+   <div style="text-align: center; margin: 20px 0;">
+     <a href="case_studies/index.html" style="display: inline-block; padding: 12px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 1.1em; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4); transition: transform 0.2s, box-shadow 0.2s;">
+       🎨 View Interactive Case Studies →
+     </a>
+   </div>
+
+See visual comparisons between MassGen and single-agent solutions, highlighting how MassGen unifies different agentic approaches for better outcomes.
+
 
 How Does MassGen Compare?
 -------------------------
@@ -115,6 +125,29 @@ Quick Start
       Standard OpenAI-compatible interface for seamless integration with existing applications.
 
 :doc:`quickstart/installation` · :doc:`quickstart/running-massgen` · :doc:`quickstart/configuration`
+
+Video Tutorials
+---------------
+
+.. raw:: html
+
+   <div style="text-align: center; margin: 20px 0;">
+     <a href="https://www.youtube.com/watch?v=JMCnQL615Ek" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 10px 20px; background: #ff0000; color: white; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 1em; box-shadow: 0 2px 10px rgba(255, 0, 0, 0.3);">
+       ▶️ Getting Started
+     </a>
+   </div>
+
+Learn how to install, configure, and run your first multi-agent collaboration with MassGen.
+
+.. raw:: html
+
+   <div style="text-align: center; margin: 20px 0;">
+     <a href="https://www.youtube.com/watch?v=Dfz3D460EDs" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 10px 20px; background: #ff0000; color: white; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 1em; box-shadow: 0 2px 10px rgba(255, 0, 0, 0.3);">
+       ▶️ Develop on MassGen
+     </a>
+   </div>
+
+Explore how to build custom agents and tools with MassGen.
 
 Key Features
 ------------
