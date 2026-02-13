@@ -4646,7 +4646,11 @@ if TEXTUAL_AVAILABLE:
                 meta_required = max(vim_required, hint_required, 24)
                 one_row_required = mode_required + meta_required + 6
 
-                if "meta-stacked" in input_modes_row.classes:
+                if width >= 150 and "meta-stacked" not in input_modes_row.classes:
+                    # Keep a small tolerance on the tested wide threshold so
+                    # minor width deltas do not force a stacked layout.
+                    stack_meta = one_row_required > width + 2
+                elif "meta-stacked" in input_modes_row.classes:
                     # Small hysteresis prevents stack/unstack oscillation.
                     stack_meta = one_row_required > max(0, width - 2)
                 else:
