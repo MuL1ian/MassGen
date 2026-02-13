@@ -121,6 +121,7 @@ class TestKnownInternalParamsExcluded:
         "max_midstream_injections_per_round",
         "use_two_tier_workspace",
         "write_mode",
+        "drift_conflict_policy",
         "context_paths",
         "context_write_access_enabled",
         "enable_mcp_command_line",

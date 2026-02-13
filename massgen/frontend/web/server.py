@@ -4437,6 +4437,7 @@ async def run_coordination_with_history(
                     False,
                 ),
                 persona_generator=persona_generator_config,
+                drift_conflict_policy=coord_cfg.get("drift_conflict_policy", "skip"),
             )
 
         # Get context sharing parameters
@@ -4843,6 +4844,7 @@ async def run_coordination(
                     False,
                 ),
                 persona_generator=persona_generator_config,
+                drift_conflict_policy=coord_cfg.get("drift_conflict_policy", "skip"),
             )
 
         # Get context sharing parameters

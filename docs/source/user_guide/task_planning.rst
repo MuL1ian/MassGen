@@ -156,6 +156,11 @@ In execute options you can choose:
 * **Pause after each chunk** (manual confirmation between chunks)
 * **Execute refinement mode**: inherit / force ON / force OFF
 
+.. note::
+
+   CWD context toggling (``Ctrl+P``) is disabled while Execute mode is active.
+   Set CWD context before entering Execute mode, or pass ``--cwd-context ro|rw`` at launch.
+
 Context Path Preservation
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 

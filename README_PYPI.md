@@ -520,6 +520,11 @@ MassGen agents can leverage various tools to enhance their problem-solving capab
 | `--backend`        | Backend type for quick setup without a config file (`claude`, `claude_code`, `gemini`, `grok`, `openai`, `azure_openai`, `zai`). Optional for [models with default backends](massgen/utils.py).|
 | `--model`          | Model name for quick setup (e.g., `gemini-2.5-flash`, `gpt-5-nano`, ...). `--config` and `--model` are mutually exclusive - use one or the other. |
 | `--system-message` | System prompt for the agent in quick setup mode. If `--config` is provided, `--system-message` is omitted. |
+| `--cwd-context`    | Add current working directory as runtime context path: `ro`/`read` for read-only, `rw`/`write` for write access. In TUI, this initializes the same state as `Ctrl+P`. |
+| `--plan`           | Planning-only mode. Agents create a structured task plan without auto-executing it. |
+| `--plan-depth`     | Plan granularity for `--plan`: `dynamic`, `shallow`, `medium`, or `deep`. |
+| `--plan-and-execute` | Run both phases: create a plan, then execute it automatically. |
+| `--execute-plan`   | Execute an existing plan by path, plan ID, or `latest`. |
 | `--no-display`     | Disable real-time streaming UI coordination display (fallback to simple text output).|
 | `--no-logs`        | Disable real-time logging.|
 | `--debug`          | Enable debug mode with verbose logging (NEW in v0.0.13). Shows detailed orchestrator activities, agent messages, backend operations, and tool calls. Debug logs are saved to `agent_outputs/log_{time}/massgen_debug.log`. |
@@ -1025,6 +1030,12 @@ massgen --config @examples/tools/code-execution/multi_agent_playwright_automatio
 ```bash
 # Start interactive chat (no initial question)
 massgen --config @examples/basic/multi/three_agents_default
+
+# Add CWD context quickly (read-only)
+massgen --config @examples/basic/multi/three_agents_default --cwd-context ro
+
+# Add CWD context quickly (read+write)
+massgen --config @examples/basic/multi/three_agents_default --cwd-context rw
 
 # Debug mode for troubleshooting
 massgen --config @examples/basic/multi/three_agents_default \

@@ -322,3 +322,134 @@ def test_orchestrator_execute_mode_restores_previous_workspace_and_archives_prio
     active_plan = json.loads((agent_workspace / "tasks" / "plan.json").read_text())
     assert active_plan.get("execution_scope", {}).get("active_chunk") == "C02_build"
     assert [task["id"] for task in active_plan.get("tasks", [])] == ["T002"]
+
+
+@pytest.mark.asyncio
+async def test_execute_plan_phase_timeout_skips_chunk_and_advances_to_next_chunk(
+    temp_plans_dir,
+    tmp_path,
+    monkeypatch,
+):
+    """Chunk timeout should be recorded then execution should continue to next chunk.
+
+    Regression guard:
+    A timed-out chunk must not abort the whole execution run when later chunks
+    can still be attempted.
+    """
+    import massgen.cli as cli_module
+
+    storage = PlanStorage()
+    session = storage.create_plan("planning_session", "/tmp/logs")
+    _write_frozen_plan(
+        session,
+        {
+            "tasks": [
+                {"id": "T001", "description": "Core playable", "chunk": "C01_build"},
+                {
+                    "id": "T002",
+                    "description": "UI polish",
+                    "chunk": "C02_polish",
+                    "depends_on": ["T001"],
+                },
+            ],
+        },
+    )
+
+    agent_workspace = tmp_path / "agent_workspace"
+    agent_workspace.mkdir(parents=True)
+    agents = {"agent_a": _DummyAgent(agent_workspace)}
+
+    monkeypatch.setattr(
+        cli_module,
+        "create_agents_from_config",
+        lambda *args, **kwargs: agents,
+    )
+
+    attempts = {"count": 0}
+
+    async def _fake_run_single_question(*args, **kwargs):
+        attempts["count"] += 1
+        tasks_dir = agent_workspace / "tasks"
+        tasks_dir.mkdir(parents=True, exist_ok=True)
+        current_plan = json.loads((tasks_dir / "plan.json").read_text())
+        active_chunk = current_plan.get("execution_scope", {}).get("active_chunk")
+        if active_chunk == "C01_build":
+            (tasks_dir / "plan.json").write_text(
+                json.dumps(
+                    {
+                        "tasks": [
+                            {
+                                "id": "T001",
+                                "chunk": "C01_build",
+                                "status": "in_progress",
+                            },
+                        ],
+                        "execution_scope": {"active_chunk": "C01_build"},
+                    },
+                    indent=2,
+                ),
+            )
+            return {
+                "answer": "partial",
+                "coordination_result": {
+                    "selected_agent": "agent_a",
+                    "is_orchestrator_timeout": True,
+                    "timeout_reason": "Time limit exceeded",
+                },
+            }
+
+        if active_chunk == "C02_polish":
+            (tasks_dir / "plan.json").write_text(
+                json.dumps(
+                    {
+                        "tasks": [
+                            {
+                                "id": "T002",
+                                "chunk": "C02_polish",
+                                "status": "completed",
+                            },
+                        ],
+                        "execution_scope": {"active_chunk": "C02_polish"},
+                    },
+                    indent=2,
+                ),
+            )
+            return {
+                "answer": "done",
+                "coordination_result": {
+                    "selected_agent": "agent_a",
+                    "is_orchestrator_timeout": False,
+                    "timeout_reason": None,
+                },
+            }
+
+        raise AssertionError(f"unexpected active chunk in test: {active_chunk}")
+
+    monkeypatch.setattr(cli_module, "run_single_question", _fake_run_single_question)
+
+    config = {
+        "agents": [{"type": "mock", "model": "mock-model"}],
+        "orchestrator": {"coordination": {"max_orchestration_restarts": 0}},
+        "timeout": {"orchestrator_timeout_seconds": 30},
+    }
+
+    final_answer, _ = await cli_module._execute_plan_phase(
+        config=config,
+        plan_session=session,
+        question="Build chunks",
+        automation=True,
+    )
+
+    assert final_answer == "done"
+    assert attempts["count"] == 2
+
+    metadata = session.load_metadata()
+    assert metadata.status == "completed"
+    assert metadata.current_chunk is None
+
+    history = metadata.chunk_history or []
+    assert len(history) == 2
+    assert history[0].get("chunk") == "C01_build"
+    assert history[0].get("status") == "timed_out"
+    assert history[1].get("chunk") == "C02_polish"
+    assert history[1].get("status") == "completed"

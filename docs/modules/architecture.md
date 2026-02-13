@@ -40,6 +40,29 @@ base.py (abstract interface)
             +-- grok.py (xAI)
 ```
 
+## Coordination as Evolutionary Search
+
+MassGen's coordination loop maps to a genetic algorithm where the "population" is the set of agent answers and each round is a generation:
+
+| GA Concept | MassGen Equivalent |
+|---|---|
+| **Population** | Current set of agent answers |
+| **Selection** | Voting — agents evaluate and vote for the strongest answer |
+| **Crossover** | Synthesis — agents combine strengths from multiple answers into a new one |
+| **Mutation** | Variation — agents try different approaches for key parts of the solution |
+| **Fitness** | Checklist evaluation (gap analysis, ideal version comparison) |
+| **Speciation** | Persona generation — agents with different perspectives/methodologies explore different regions of the solution space |
+
+### Diversity mechanisms
+
+Without active diversity pressure, agents converge on the same approach and produce increasingly similar answers (the equivalent of a GA losing population diversity). MassGen maintains diversity through two layers:
+
+1. **Persona generation** (explicit, configurable): When enabled, assigns agents different perspectives (`diversity_mode: perspective`), solution types (`implementation`), or working methodologies (`methodology`). This is the strongest diversity lever — it shapes how agents think from the start.
+
+2. **Default prompt instructions** (always active): The evaluation prompts include a "Fresh Approach Consideration" that encourages agents to vary their approach for key parts rather than always refining the current best. The `new_answer` instruction explicitly presents "Vary" as a valid strategy alongside "Improve."
+
+The balance between convergence (selection + synthesis) and diversity (variation + personas) is key. Too much convergence produces polished mediocrity. Too much diversity prevents answers from maturing. The checklist-gated voting controls when agents stop iterating, while personas and variation instructions control how different each iteration is.
+
 ## Agent Statelessness and Anonymity
 
 Agents are STATELESS and ANONYMOUS across coordination rounds. Each round:

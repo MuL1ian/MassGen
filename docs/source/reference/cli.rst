@@ -59,6 +59,22 @@ CLI Parameters
      - Model name for quick setup (e.g., ``gemini-2.5-flash``, ``gpt-5-nano``). Mutually exclusive with ``--config``
    * - ``--system-message TEXT``
      - System prompt for the agent in quick setup mode. Omitted if ``--config`` is provided
+   * - ``--cwd-context {ro,rw,read,write}``
+     - Add the current working directory to ``orchestrator.context_paths`` for this run. ``ro/read`` grants read-only access, ``rw/write`` grants write permission
+   * - ``--plan``
+     - Planning-only mode. Agents create a structured task plan without auto-executing it
+   * - ``--plan-depth {dynamic,shallow,medium,deep}``
+     - Controls plan granularity for ``--plan`` mode
+   * - ``--plan-steps N``
+     - Optional explicit task-count target for planning output (must be > 0)
+   * - ``--plan-chunks N``
+     - Optional explicit chunk-count target for planning output (must be > 0)
+   * - ``--broadcast {human,agents,false}``
+     - Planning collaboration mode: ask user questions, coordinate among agents, or run fully autonomous
+   * - ``--plan-and-execute``
+     - Full workflow: create a plan, then execute it immediately
+   * - ``--execute-plan PLAN_PATH``
+     - Execute an existing plan by plan directory, plan ID, or ``latest``
    * - ``--no-display``
      - Disable real-time streaming UI coordination display (fallback to simple text output)
    * - ``--no-logs``
@@ -158,6 +174,22 @@ Interactive Mode
    # Multi-agent interactive
    massgen \
      --config @examples/basic/multi/three_agents_default.yaml
+
+Quick CWD Context Access
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   # Add current directory as read-only context
+   massgen --config my_config.yaml --cwd-context ro "Review this codebase"
+
+   # Add current directory as writable context
+   massgen --config my_config.yaml --cwd-context rw "Apply the requested refactor"
+
+.. note::
+
+   In the Textual TUI, ``--cwd-context`` initializes the same CWD context state as the ``Ctrl+P`` toggle.
+   In Execute mode, ``Ctrl+P`` is intentionally blocked to avoid changing context scope mid-execution.
 
 Debug Mode
 ~~~~~~~~~~

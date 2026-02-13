@@ -334,6 +334,7 @@ class LLMBackend(ABC):
             "plan_target_chunks",
             "use_two_tier_workspace",  # Two-tier workspace (scratch/deliverable) + git versioning
             "write_mode",  # Isolated write context mode (auto/worktree/isolated/legacy)
+            "drift_conflict_policy",  # Isolated apply drift resolution policy
             # Multimodal tools configuration (handled by CustomToolAndMCPBackend)
             "enable_multimodal_tools",
             "multimodal_config",
@@ -351,6 +352,7 @@ class LLMBackend(ABC):
             # Per-agent voting sensitivity (coordination config, not API param)
             "voting_sensitivity",
             "voting_threshold",
+            "checklist_require_gap_report",
             # Decomposition mode parameters (handled by orchestrator, not passed to API)
             "coordination_mode",
             "presenter_agent",

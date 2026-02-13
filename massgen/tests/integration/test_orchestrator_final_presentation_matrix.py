@@ -3,11 +3,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from git import Repo
 
 from massgen.backend.base import StreamChunk
+from massgen.filesystem_manager import IsolationContextManager, ReviewResult
 
 
 async def _collect_chunks(stream):
@@ -15,6 +19,20 @@ async def _collect_chunks(stream):
     async for chunk in stream:
         chunks.append(chunk)
     return chunks
+
+
+def _init_git_repo(path: Path, files: dict[str, str]) -> Repo:
+    repo = Repo.init(path)
+    with repo.config_writer() as config:
+        config.set_value("user", "email", "test@test.com")
+        config.set_value("user", "name", "Test")
+    for rel_path, content in files.items():
+        file_path = path / rel_path
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(content)
+    repo.index.add(list(files.keys()))
+    repo.index.commit("init")
+    return repo
 
 
 @pytest.mark.asyncio
@@ -180,3 +198,406 @@ async def test_get_final_presentation_enables_context_write_access(mock_orchestr
     assert ppm.compute_calls >= 1
     assert agent.backend._planning_mode is False
     assert any(chunk.type == "status" for chunk in chunks)
+
+
+@pytest.mark.asyncio
+async def test_review_isolated_changes_applies_uncommitted_presenter_changes(mock_orchestrator, tmp_path):
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent_id = "agent_a"
+    agent = orchestrator.agents[agent_id]
+
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    _init_git_repo(repo_path, {"app.py": "print('v1')\n"})
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    isolation_manager = IsolationContextManager(
+        session_id="test-review-uncommitted",
+        write_mode="worktree",
+        workspace_path=str(workspace),
+    )
+    isolated_path = isolation_manager.initialize_context(str(repo_path), agent_id=agent_id)
+    (Path(isolated_path) / "app.py").write_text("print('v2-uncommitted')\n")
+
+    chunks = await _collect_chunks(
+        orchestrator._review_isolated_changes(
+            agent=agent,
+            isolation_manager=isolation_manager,
+            selected_agent_id=agent_id,
+        ),
+    )
+
+    assert (repo_path / "app.py").read_text() == "print('v2-uncommitted')\n"
+    assert any("Applied 1 file change(s)" in (getattr(chunk, "content", "") or "") for chunk in chunks)
+
+
+@pytest.mark.asyncio
+async def test_review_isolated_changes_applies_committed_presenter_changes(mock_orchestrator, tmp_path):
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent_id = "agent_a"
+    agent = orchestrator.agents[agent_id]
+
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    _init_git_repo(repo_path, {"app.py": "print('v1')\n"})
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    isolation_manager = IsolationContextManager(
+        session_id="test-review-committed",
+        write_mode="worktree",
+        workspace_path=str(workspace),
+    )
+    isolated_path = isolation_manager.initialize_context(str(repo_path), agent_id=agent_id)
+    (Path(isolated_path) / "app.py").write_text("print('v2-committed')\n")
+    wt_repo = Repo(isolated_path)
+    wt_repo.git.add("-A")
+    wt_repo.index.commit("presenter commit")
+
+    chunks = await _collect_chunks(
+        orchestrator._review_isolated_changes(
+            agent=agent,
+            isolation_manager=isolation_manager,
+            selected_agent_id=agent_id,
+        ),
+    )
+
+    assert (repo_path / "app.py").read_text() == "print('v2-committed')\n"
+    assert any("Applied 1 file change(s)" in (getattr(chunk, "content", "") or "") for chunk in chunks)
+
+
+@pytest.mark.asyncio
+async def test_review_isolated_changes_applies_committed_and_uncommitted_changes(mock_orchestrator, tmp_path):
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent_id = "agent_a"
+    agent = orchestrator.agents[agent_id]
+
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    _init_git_repo(
+        repo_path,
+        {
+            "committed.py": "print('base-committed')\n",
+            "uncommitted.py": "print('base-uncommitted')\n",
+        },
+    )
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    isolation_manager = IsolationContextManager(
+        session_id="test-review-mixed",
+        write_mode="worktree",
+        workspace_path=str(workspace),
+    )
+    isolated_path = isolation_manager.initialize_context(str(repo_path), agent_id=agent_id)
+    wt_repo = Repo(isolated_path)
+
+    (Path(isolated_path) / "committed.py").write_text("print('committed-new')\n")
+    wt_repo.git.add("-A")
+    wt_repo.index.commit("manual committed change")
+
+    (Path(isolated_path) / "uncommitted.py").write_text("print('uncommitted-new')\n")
+
+    chunks = await _collect_chunks(
+        orchestrator._review_isolated_changes(
+            agent=agent,
+            isolation_manager=isolation_manager,
+            selected_agent_id=agent_id,
+        ),
+    )
+
+    assert (repo_path / "committed.py").read_text() == "print('committed-new')\n"
+    assert (repo_path / "uncommitted.py").read_text() == "print('uncommitted-new')\n"
+    assert any("Applied 2 file change(s)" in (getattr(chunk, "content", "") or "") for chunk in chunks)
+
+
+@pytest.mark.asyncio
+async def test_review_isolated_changes_respects_prefix_for_committed_changes(mock_orchestrator, tmp_path):
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent_id = "agent_a"
+    agent = orchestrator.agents[agent_id]
+
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    _init_git_repo(
+        repo_path,
+        {
+            "root.txt": "root-base\n",
+            "inside/dir/allowed.txt": "allowed-base\n",
+        },
+    )
+    context_path = repo_path / "inside" / "dir"
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    isolation_manager = IsolationContextManager(
+        session_id="test-review-prefix-committed",
+        write_mode="worktree",
+        workspace_path=str(workspace),
+    )
+    isolated_path = isolation_manager.initialize_context(str(context_path), agent_id=agent_id)
+    (Path(isolated_path) / "inside" / "dir" / "allowed.txt").write_text("allowed-updated\n")
+    (Path(isolated_path) / "root.txt").write_text("root-updated\n")
+    wt_repo = Repo(isolated_path)
+    wt_repo.git.add("-A")
+    wt_repo.index.commit("commit both files")
+
+    chunks = await _collect_chunks(
+        orchestrator._review_isolated_changes(
+            agent=agent,
+            isolation_manager=isolation_manager,
+            selected_agent_id=agent_id,
+        ),
+    )
+
+    assert (context_path / "allowed.txt").read_text() == "allowed-updated\n"
+    assert (repo_path / "root.txt").read_text() == "root-base\n"
+    assert any("Applied 1 file change(s)" in (getattr(chunk, "content", "") or "") for chunk in chunks)
+
+
+@pytest.mark.asyncio
+async def test_review_isolated_changes_applies_selected_hunks_only(mock_orchestrator, tmp_path):
+    """Review metadata with approved_hunks_by_context should apply only selected hunks."""
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent_id = "agent_a"
+    agent = orchestrator.agents[agent_id]
+
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    original_lines = [f"line {i}\n" for i in range(1, 13)]
+    _init_git_repo(repo_path, {"app.py": "".join(original_lines)})
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    isolation_manager = IsolationContextManager(
+        session_id="test-review-hunk-apply",
+        write_mode="worktree",
+        workspace_path=str(workspace),
+    )
+    isolated_path = isolation_manager.initialize_context(str(repo_path), agent_id=agent_id)
+    updated_lines = original_lines.copy()
+    updated_lines[1] = "line two changed\n"
+    updated_lines[10] = "line eleven changed\n"
+    (Path(isolated_path) / "app.py").write_text("".join(updated_lines))
+
+    context_path = str(repo_path.resolve())
+
+    class _DisplayStub:
+        async def show_change_review_modal(self, _changes):
+            return ReviewResult(
+                approved=True,
+                metadata={
+                    "selection_mode": "selected",
+                    "approved_files_by_context": {context_path: ["app.py"]},
+                    "approved_hunks_by_context": {context_path: {"app.py": [0]}},
+                },
+            )
+
+    orchestrator.coordination_ui = SimpleNamespace(display=_DisplayStub())
+
+    chunks = await _collect_chunks(
+        orchestrator._review_isolated_changes(
+            agent=agent,
+            isolation_manager=isolation_manager,
+            selected_agent_id=agent_id,
+        ),
+    )
+
+    final_lines = (repo_path / "app.py").read_text().splitlines(keepends=True)
+    assert final_lines[1] == "line two changed\n"
+    assert final_lines[10] == "line 11\n"
+    assert any("Applied 1 file change(s)" in (getattr(chunk, "content", "") or "") for chunk in chunks)
+
+
+@pytest.mark.asyncio
+async def test_review_isolated_changes_builds_on_dirty_source_baseline(mock_orchestrator, tmp_path):
+    """Presenter edits should build on source dirty state, not clean HEAD snapshot."""
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent_id = "agent_a"
+    agent = orchestrator.agents[agent_id]
+
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    _init_git_repo(repo_path, {"app.py": "print('base')\n"})
+
+    # Simulate user launching MassGen with unstaged local edits
+    (repo_path / "app.py").write_text("print('local-dirty')\n")
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    isolation_manager = IsolationContextManager(
+        session_id="test-review-dirty-baseline",
+        write_mode="worktree",
+        workspace_path=str(workspace),
+    )
+    isolated_path = isolation_manager.initialize_context(str(repo_path), agent_id=agent_id)
+
+    # Presenter modifies on top of dirty baseline and commits
+    app_path = Path(isolated_path) / "app.py"
+    app_path.write_text(app_path.read_text().rstrip("\n") + " + presenter\n")
+    wt_repo = Repo(isolated_path)
+    wt_repo.git.add("-A")
+    wt_repo.index.commit("presenter commit on dirty baseline")
+
+    chunks = await _collect_chunks(
+        orchestrator._review_isolated_changes(
+            agent=agent,
+            isolation_manager=isolation_manager,
+            selected_agent_id=agent_id,
+        ),
+    )
+
+    assert (repo_path / "app.py").read_text() == "print('local-dirty') + presenter\n"
+    assert any("Applied 1 file change(s)" in (getattr(chunk, "content", "") or "") for chunk in chunks)
+
+
+@pytest.mark.asyncio
+async def test_review_isolated_changes_skips_drifted_target_files(mock_orchestrator, tmp_path):
+    """If source changed after baseline capture, drifted files are skipped (not overwritten)."""
+    orchestrator = mock_orchestrator(num_agents=1)
+    agent_id = "agent_a"
+    agent = orchestrator.agents[agent_id]
+
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    _init_git_repo(
+        repo_path,
+        {
+            "app.py": "print('base-app')\n",
+            "safe.py": "print('base-safe')\n",
+        },
+    )
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    isolation_manager = IsolationContextManager(
+        session_id="test-review-drift",
+        write_mode="worktree",
+        workspace_path=str(workspace),
+    )
+    isolated_path = isolation_manager.initialize_context(str(repo_path), agent_id=agent_id)
+
+    # Presenter changes two files.
+    (Path(isolated_path) / "app.py").write_text("print('presenter-app')\n")
+    (Path(isolated_path) / "safe.py").write_text("print('presenter-safe')\n")
+    wt_repo = Repo(isolated_path)
+    wt_repo.git.add("-A")
+    wt_repo.index.commit("presenter updates app + safe")
+
+    # Source drifts after baseline: app.py changed independently.
+    (repo_path / "app.py").write_text("print('source-drifted-app')\n")
+
+    chunks = await _collect_chunks(
+        orchestrator._review_isolated_changes(
+            agent=agent,
+            isolation_manager=isolation_manager,
+            selected_agent_id=agent_id,
+        ),
+    )
+
+    # Drifted file should be preserved; safe file should still apply.
+    assert (repo_path / "app.py").read_text() == "print('source-drifted-app')\n"
+    assert (repo_path / "safe.py").read_text() == "print('presenter-safe')\n"
+    assert any("Skipped 1 drifted file(s)" in (getattr(chunk, "content", "") or "") for chunk in chunks)
+    assert any("app.py" in (getattr(chunk, "content", "") or "") for chunk in chunks)
+
+
+@pytest.mark.asyncio
+async def test_review_isolated_changes_prefer_presenter_policy_applies_drifted_files(mock_orchestrator, tmp_path):
+    """prefer_presenter policy should apply presenter version even when target drift exists."""
+    orchestrator = mock_orchestrator(num_agents=1)
+    orchestrator.config.coordination_config.drift_conflict_policy = "prefer_presenter"
+    agent_id = "agent_a"
+    agent = orchestrator.agents[agent_id]
+
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    _init_git_repo(repo_path, {"app.py": "print('base-app')\n"})
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    isolation_manager = IsolationContextManager(
+        session_id="test-review-drift-prefer-presenter",
+        write_mode="worktree",
+        workspace_path=str(workspace),
+    )
+    isolated_path = isolation_manager.initialize_context(str(repo_path), agent_id=agent_id)
+    (Path(isolated_path) / "app.py").write_text("print('presenter-app')\n")
+    wt_repo = Repo(isolated_path)
+    wt_repo.git.add("-A")
+    wt_repo.index.commit("presenter update")
+
+    # Target drifts after baseline.
+    (repo_path / "app.py").write_text("print('source-drifted-app')\n")
+
+    chunks = await _collect_chunks(
+        orchestrator._review_isolated_changes(
+            agent=agent,
+            isolation_manager=isolation_manager,
+            selected_agent_id=agent_id,
+        ),
+    )
+
+    assert (repo_path / "app.py").read_text() == "print('presenter-app')\n"
+    assert any("Detected 1 drifted file(s)" in (getattr(chunk, "content", "") or "") for chunk in chunks)
+    assert any("prefer_presenter" in (getattr(chunk, "content", "") or "") for chunk in chunks)
+
+
+@pytest.mark.asyncio
+async def test_review_isolated_changes_fail_policy_blocks_apply_on_drift(mock_orchestrator, tmp_path):
+    """fail policy should block apply when any drift is detected."""
+    orchestrator = mock_orchestrator(num_agents=1)
+    orchestrator.config.coordination_config.drift_conflict_policy = "fail"
+    agent_id = "agent_a"
+    agent = orchestrator.agents[agent_id]
+
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    _init_git_repo(
+        repo_path,
+        {
+            "app.py": "print('base-app')\n",
+            "safe.py": "print('base-safe')\n",
+        },
+    )
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    isolation_manager = IsolationContextManager(
+        session_id="test-review-drift-fail",
+        write_mode="worktree",
+        workspace_path=str(workspace),
+    )
+    isolated_path = isolation_manager.initialize_context(str(repo_path), agent_id=agent_id)
+    (Path(isolated_path) / "app.py").write_text("print('presenter-app')\n")
+    (Path(isolated_path) / "safe.py").write_text("print('presenter-safe')\n")
+    wt_repo = Repo(isolated_path)
+    wt_repo.git.add("-A")
+    wt_repo.index.commit("presenter updates")
+
+    # Drift one target file after baseline.
+    (repo_path / "app.py").write_text("print('source-drifted-app')\n")
+
+    chunks = await _collect_chunks(
+        orchestrator._review_isolated_changes(
+            agent=agent,
+            isolation_manager=isolation_manager,
+            selected_agent_id=agent_id,
+        ),
+    )
+
+    # No files should apply under fail policy.
+    assert (repo_path / "app.py").read_text() == "print('source-drifted-app')\n"
+    assert (repo_path / "safe.py").read_text() == "print('base-safe')\n"
+    assert any("Drift conflict policy is 'fail'" in ((getattr(chunk, "error", "") or "") + (getattr(chunk, "content", "") or "")) for chunk in chunks)
+    assert any("app.py" in (getattr(chunk, "content", "") or "") for chunk in chunks)

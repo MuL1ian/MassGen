@@ -1026,7 +1026,15 @@ class PlanOptionsPopover(Widget):
 
         if selector_id == "plan_selector":
             value = str(event.value)
-            self._current_plan_id = None if value == "latest" else value
+            next_plan_id = None if value == "latest" else value
+
+            # Textual can emit Changed events when a Select is recomposed with the
+            # same value. Treat those as no-ops to avoid message/recompose loops.
+            if next_plan_id == self._current_plan_id:
+                _popover_log("  -> ignoring no-op plan_selector change")
+                return
+
+            self._current_plan_id = next_plan_id
 
             # Update plan details display
             self._update_plan_details(value)
@@ -1071,11 +1079,18 @@ class PlanOptionsPopover(Widget):
             target_chunks = int(raw_value) if raw_value.isdigit() else None
             self.post_message(PlanChunkTargetChanged(target_chunks))
         elif selector_id == "execute_auto_continue_selector":
-            self.post_message(ExecuteAutoContinueChanged(str(event.value) == "auto"))
+            enabled = str(event.value) == "auto"
+            if enabled == self._current_execute_auto_continue:
+                return
+            self._current_execute_auto_continue = enabled
+            self.post_message(ExecuteAutoContinueChanged(enabled))
         elif selector_id == "execute_refinement_mode_selector":
             mode = str(event.value)
             if mode not in {"inherit", "on", "off"}:
                 mode = "inherit"
+            if mode == self._current_execute_refinement_mode:
+                return
+            self._current_execute_refinement_mode = mode
             self.post_message(ExecuteRefinementModeChanged(mode))
 
         elif selector_id == "broadcast_selector":

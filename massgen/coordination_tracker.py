@@ -98,6 +98,7 @@ class AgentAnswer:
     agent_id: str
     content: str
     timestamp: float
+    changedoc: Optional[str] = None  # Content from changedoc.md decision journal
 
     @property
     def label(self) -> str:

@@ -606,10 +606,13 @@ class Orchestrator(ChatAgent):
 
         from massgen.system_prompt_sections import (
             _CHECKLIST_ITEMS,
+            _CHECKLIST_ITEMS_CHANGEDOC,
             _checklist_confidence_cutoff,
             _checklist_effective_threshold,
             _checklist_required_true,
         )
+
+        items = _CHECKLIST_ITEMS_CHANGEDOC if self._is_changedoc_enabled() else _CHECKLIST_ITEMS
 
         for agent_id, agent in self.agents.items():
             backend = agent.backend
@@ -626,12 +629,21 @@ class Orchestrator(ChatAgent):
                 "terminate_action": "stop" if self._is_decomposition_mode() else "vote",
                 "iterate_action": "new_answer",
                 "has_existing_answers": False,  # True once any answer exists for this agent
+                "require_gap_report": bool(
+                    getattr(self.config, "checklist_require_gap_report", True),
+                ),
+                "workspace_path": getattr(
+                    getattr(backend, "filesystem_manager", None),
+                    "cwd",
+                    None,
+                ),
+                "report_cutoff": 70,
                 # Pre-computed so stdio server doesn't need massgen imports
                 "required": _checklist_required_true(effective_t),
                 "cutoff": _checklist_confidence_cutoff(effective_t),
             }
             backend._checklist_state = checklist_state
-            backend._checklist_items = list(_CHECKLIST_ITEMS)
+            backend._checklist_items = list(items)
 
             if getattr(backend, "supports_sdk_mcp", False):
                 # SDK path: in-process MCP server (ClaudeCode)
@@ -639,10 +651,7 @@ class Orchestrator(ChatAgent):
                     agent_id,
                     backend,
                     checklist_state,
-                    _CHECKLIST_ITEMS,
-                    _checklist_effective_threshold,
-                    _checklist_required_true,
-                    _checklist_confidence_cutoff,
+                    items,
                 )
             else:
                 # Stdio path: backend writes specs file at execution time.
@@ -658,9 +667,6 @@ class Orchestrator(ChatAgent):
         backend,
         checklist_state,
         checklist_items,
-        effective_threshold_fn,
-        required_true_fn,
-        confidence_cutoff_fn,
     ) -> None:
         """Register checklist tool as an in-process SDK MCP server."""
         try:
@@ -668,6 +674,8 @@ class Orchestrator(ChatAgent):
         except ImportError:
             logger.warning("claude-agent-sdk not available, checklist tool will not be registered")
             return
+
+        from .mcp_tools.checklist_tools_server import evaluate_checklist_submission
 
         # Define tool schema — each score entry requires a reasoning string
         # to force the model to justify every item.  `improvements` captures
@@ -700,6 +708,10 @@ class Orchestrator(ChatAgent):
                     "type": "string",
                     "description": ("Substantial features or content that would make the answer " "obviously better — not minor tweaks. If nothing meaningful, " "say so."),
                 },
+                "report_path": {
+                    "type": "string",
+                    "description": ("Path to the markdown gap report in the workspace. " "Required when checklist report gating is enabled."),
+                },
             },
             "required": ["scores", "improvements"],
         }
@@ -714,7 +726,8 @@ class Orchestrator(ChatAgent):
                 "Submit your checklist evaluation. Each score in 'scores' must be "
                 "an object with 'score' (0-100) and 'reasoning' (why you gave that "
                 "score). The 'improvements' field should describe features or content "
-                "that an ideal answer would have but no existing answer has attempted."
+                "that an ideal answer would have but no existing answer has attempted. "
+                "Use 'report_path' to pass a markdown gap report when required."
             ),
             input_schema=input_schema,
         )
@@ -722,73 +735,19 @@ class Orchestrator(ChatAgent):
             import json as _json
 
             raw_scores = args.get("scores", {})
-            # Extract numeric scores from {"score": int, "reasoning": str} entries
-            scores = {}
-            for k, v in raw_scores.items():
-                if isinstance(v, dict):
-                    scores[k] = v.get("score", 0)
-                else:
-                    scores[k] = v
-            threshold = _state["threshold"]
-            remaining = _state["remaining"]
-            total = _state["total"]
-            terminate = _state["terminate_action"]
-            iterate = _state["iterate_action"]
-
-            effective_t = effective_threshold_fn(threshold, remaining, total)
-            required = required_true_fn(effective_t)
-            cutoff = confidence_cutoff_fn(effective_t)
-
-            items_detail = []
-            true_count = 0
-            for i, item_text in enumerate(items):
-                key = f"T{i+1}"
-                score = scores.get(key, 0)
-                passed = score >= cutoff
-                if passed:
-                    true_count += 1
-                items_detail.append({"id": key, "score": score, "passed": passed})
-
-            # Force iterate when no answers exist yet (can't vote/stop for nothing)
-            has_answers = _state.get("has_existing_answers", False)
-            if not has_answers:
-                verdict = iterate
-                explanation = f"First answer — no existing answers to evaluate. " f"Verdict: {verdict}."
-            else:
-                verdict = terminate if true_count >= required else iterate
-                if verdict == iterate:
-                    failed_ids = [d["id"] for d in items_detail if not d["passed"]]
-                    improvements_text = (args.get("improvements") or "").strip()
-                    explanation = (
-                        f"{true_count} of {len(items)} items passed "
-                        f"(required: {required}). Verdict: {verdict}. "
-                        f"Items that need improvement: {', '.join(failed_ids)}. "
-                        f"Your new answer MUST make material changes — do NOT "
-                        f"simply copy or resubmit the same content."
-                    )
-                    if improvements_text:
-                        explanation += (
-                            f" Your own improvements analysis identified: "
-                            f"{improvements_text} — use this as your implementation "
-                            f"plan. The result must be obviously better, not just "
-                            f"marginally different."
-                        )
-                else:
-                    explanation = f"{true_count} of {len(items)} items passed " f"(required: {required}). Verdict: {verdict}."
+            result = evaluate_checklist_submission(
+                scores=raw_scores,
+                improvements=args.get("improvements", ""),
+                report_path=args.get("report_path", ""),
+                items=items,
+                state=_state,
+            )
 
             return {
                 "content": [
                     {
                         "type": "text",
-                        "text": _json.dumps(
-                            {
-                                "verdict": verdict,
-                                "explanation": explanation,
-                                "true_count": true_count,
-                                "required": required,
-                                "items": items_detail,
-                            },
-                        ),
+                        "text": _json.dumps(result),
                     },
                 ],
             }
@@ -860,6 +819,15 @@ class Orchestrator(ChatAgent):
                 "has_existing_answers": _has_answers,
                 "required": _checklist_required_true(effective_t),
                 "cutoff": _checklist_confidence_cutoff(effective_t),
+                "require_gap_report": bool(
+                    getattr(self.config, "checklist_require_gap_report", True),
+                ),
+                "workspace_path": getattr(
+                    getattr(agent.backend, "filesystem_manager", None),
+                    "cwd",
+                    None,
+                ),
+                "report_cutoff": 70,
             },
         )
         logger.debug(
@@ -3986,6 +3954,24 @@ Your answer:"""
                                 result_data,
                                 snapshot_timestamp=answer_timestamp,
                             )
+                            # Attach changedoc from workspace if enabled
+                            if self._is_changedoc_enabled() and agent and agent.backend.filesystem_manager:
+                                from massgen.changedoc import (
+                                    read_changedoc_from_workspace,
+                                )
+
+                                ws_path = agent.backend.filesystem_manager.cwd
+                                if ws_path:
+                                    changedoc_content = read_changedoc_from_workspace(Path(ws_path))
+                                    if changedoc_content:
+                                        answers_list = self.coordination_tracker.answers_by_agent.get(agent_id, [])
+                                        if answers_list:
+                                            answers_list[-1].changedoc = changedoc_content
+                                            logger.info(
+                                                "[Orchestrator] Attached changedoc (%d chars) to %s",
+                                                len(changedoc_content),
+                                                answers_list[-1].label,
+                                            )
                             if self._is_decomposition_mode():
                                 self.agent_states[agent_id].decomposition_answer_streak += 1
                                 # Agent has produced a new self revision; keep its own seen
@@ -4559,6 +4545,21 @@ Your answer:"""
                     logger.info(
                         f"[Orchestrator._save_agent_snapshot] Saved answer to {answer_file}",
                     )
+
+                    # Save changedoc alongside answer if enabled
+                    if self._is_changedoc_enabled() and agent.backend.filesystem_manager:
+                        from massgen.changedoc import read_changedoc_from_workspace
+
+                        ws_path = agent.backend.filesystem_manager.cwd
+                        if ws_path:
+                            changedoc_content = read_changedoc_from_workspace(Path(ws_path))
+                            if changedoc_content:
+                                changedoc_file = timestamped_dir / "changedoc.md"
+                                changedoc_file.write_text(changedoc_content)
+                                logger.info(
+                                    "[Orchestrator._save_agent_snapshot] Saved changedoc to %s",
+                                    changedoc_file,
+                                )
 
             except Exception as e:
                 logger.warning(
@@ -6077,6 +6078,21 @@ Your answer:"""
         """Return True when orchestration is running in decomposition mode."""
         return getattr(self.config, "coordination_mode", "voting") == "decomposition"
 
+    def _is_changedoc_enabled(self) -> bool:
+        """Return True when changedoc decision journal is enabled."""
+        coord = getattr(self.config, "coordination_config", None)
+        return bool(coord and getattr(coord, "enable_changedoc", True))
+
+    def _gather_agent_changedocs(self) -> Optional[Dict[str, str]]:
+        """Collect latest changedocs from all agents, or None if disabled/empty."""
+        if not self._is_changedoc_enabled():
+            return None
+        changedocs: Dict[str, str] = {}
+        for aid, ans_list in self.coordination_tracker.answers_by_agent.items():
+            if ans_list and ans_list[-1].changedoc:
+                changedocs[aid] = ans_list[-1].changedoc
+        return changedocs or None
+
     def _is_fairness_enabled(self) -> bool:
         """Return True when fairness controls are enabled."""
         return bool(getattr(self.config, "fairness_enabled", True))
@@ -7250,6 +7266,11 @@ Your answer:"""
                 agent_mapping=self.coordination_tracker.get_reverse_agent_mapping(),
                 voting_sensitivity_override=getattr(agent, "voting_sensitivity", None),
                 voting_threshold=getattr(self.config, "voting_threshold", None),
+                checklist_require_gap_report=getattr(
+                    self.config,
+                    "checklist_require_gap_report",
+                    True,
+                ),
                 answers_used=self._get_agent_answer_count_for_limit(agent_id),
                 answer_cap=self.config.max_new_answers_per_agent,
                 coordination_mode=getattr(self.config, "coordination_mode", "voting"),
@@ -7266,6 +7287,19 @@ Your answer:"""
                     {
                         "threshold": getattr(self.config, "voting_threshold", 5) or 5,
                         "total": self.config.max_new_answers_per_agent or 5,
+                        "require_gap_report": bool(
+                            getattr(
+                                self.config,
+                                "checklist_require_gap_report",
+                                True,
+                            ),
+                        ),
+                        "workspace_path": getattr(
+                            getattr(agent.backend, "filesystem_manager", None),
+                            "cwd",
+                            None,
+                        ),
+                        "report_cutoff": 70,
                     },
                 )
                 self._refresh_checklist_state_for_agent(agent_id)
@@ -7298,6 +7332,8 @@ Your answer:"""
             # Get global agent mapping for consistent anonymous IDs across all components
             agent_mapping = self.coordination_tracker.get_reverse_agent_mapping()
             _is_decomp = getattr(self.config, "coordination_mode", "voting") == "decomposition"
+            # Gather changedocs from coordination tracker if enabled
+            _agent_changedocs = self._gather_agent_changedocs()
             if conversation_context and conversation_context.get(
                 "conversation_history",
             ):
@@ -7314,6 +7350,7 @@ Your answer:"""
                     paraphrase=paraphrase,
                     agent_mapping=agent_mapping,
                     decomposition_mode=_is_decomp,
+                    agent_changedocs=_agent_changedocs,
                 )
             else:
                 # Fallback to standard conversation building
@@ -7325,6 +7362,7 @@ Your answer:"""
                     paraphrase=paraphrase,
                     agent_mapping=agent_mapping,
                     decomposition_mode=_is_decomp,
+                    agent_changedocs=_agent_changedocs,
                 )
 
             # Inject restart context if this is a restart attempt (like multi-turn context)
@@ -8861,6 +8899,8 @@ Your answer:"""
             return await stream.__anext__()
         except StopAsyncIteration:
             return ("done", None)
+        except asyncio.CancelledError:
+            raise  # Must re-raise CancelledError
         except Exception as e:
             return ("error", str(e))
 
@@ -9593,11 +9633,14 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                 "Ensure quality, fill any gaps, resolve conflicts, and answer the original query comprehensively."
             )
         else:
+            # Gather changedocs for final presentation
+            _pres_changedocs = self._gather_agent_changedocs()
             presentation_content = self.message_templates.build_final_presentation_message(
                 original_task=self.current_task or "Task coordination",
                 vote_summary=normalized_voting_summary,
                 all_answers=normalized_all_answers,
                 selected_agent_id=selected_agent_id,
+                agent_changedocs=_pres_changedocs,
             )
 
         # Add worktree location to presentation message
@@ -10303,6 +10346,39 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                 normalized[os.path.abspath(context_path)] = [path for path in approved_paths if isinstance(path, str)]
             return normalized
 
+        def _normalize_approved_hunks_by_context(
+            metadata: Any,
+        ) -> Dict[str, Dict[str, List[int]]]:
+            if not isinstance(metadata, dict):
+                return {}
+            raw_mapping = metadata.get("approved_hunks_by_context")
+            if not isinstance(raw_mapping, dict):
+                return {}
+
+            normalized: Dict[str, Dict[str, List[int]]] = {}
+            for context_path, hunks_by_file in raw_mapping.items():
+                if not isinstance(context_path, str):
+                    continue
+                if not isinstance(hunks_by_file, dict):
+                    continue
+                context_hunks: Dict[str, List[int]] = {}
+                for file_path, hunk_indexes in hunks_by_file.items():
+                    if not isinstance(file_path, str):
+                        continue
+                    if not isinstance(hunk_indexes, list):
+                        continue
+                    normalized_indexes: List[int] = []
+                    for hunk_idx in hunk_indexes:
+                        try:
+                            hunk_idx_int = int(hunk_idx)
+                        except (TypeError, ValueError):
+                            continue
+                        if hunk_idx_int >= 0:
+                            normalized_indexes.append(hunk_idx_int)
+                    context_hunks[file_path] = sorted(set(normalized_indexes))
+                normalized[os.path.abspath(context_path)] = context_hunks
+            return normalized
+
         def _is_in_context_prefix(rel_path: str, context_prefix: str) -> bool:
             normalized_rel = rel_path.replace("\\", "/").strip("/")
             normalized_prefix = context_prefix.replace("\\", "/").strip("/")
@@ -10319,8 +10395,14 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
             if not original_path:
                 continue
 
-            changes = isolation_manager.get_changes(original_path)
-            diff = isolation_manager.get_diff(original_path)
+            changes = isolation_manager.get_changes(
+                original_path,
+                include_committed_since_base=True,
+            )
+            diff = isolation_manager.get_diff(
+                original_path,
+                include_committed_since_base=True,
+            )
 
             if changes or diff:
                 # For worktree mode, repo_root may differ from original_path
@@ -10356,6 +10438,7 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                         "original_path": original_abs,
                         "isolated_path": ctx_info.get("isolated_path"),
                         "repo_root": repo_root,
+                        "base_ref": ctx_info.get("base_ref"),
                         "context_prefix": context_prefix,
                         "changes": filtered_changes,
                         "diff": diff,
@@ -10397,8 +10480,8 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                 review_result = await display.show_change_review_modal(all_changes)
                 logger.info(f"[Orchestrator] Review modal returned: approved={review_result.approved}")
             except Exception as e:
-                logger.warning(f"[Orchestrator] Review modal failed: {e}, auto-approving")
-                review_result = ReviewResult(approved=True, approved_files=None)
+                logger.warning(f"[Orchestrator] Review modal failed: {e}, rejecting for safety")
+                review_result = ReviewResult(approved=False, metadata={"error": str(e)})
         else:
             # Non-TUI mode: auto-approve all changes
             logger.info("[Orchestrator] Non-TUI mode: auto-approving isolated changes")
@@ -10406,19 +10489,44 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
         # 5. Apply approved changes
         if review_result.approved:
             applier = ChangeApplier()
-            applied_files = []
+            applied_files: List[str] = []
+            drifted_files_all: List[str] = []
             approved_files_by_context = _normalize_approved_files_by_context(review_result.metadata)
+            approved_hunks_by_context = _normalize_approved_hunks_by_context(review_result.metadata)
+            drift_conflict_policy = (
+                getattr(
+                    getattr(self.config, "coordination_config", None),
+                    "drift_conflict_policy",
+                    "skip",
+                )
+                or "skip"
+            )
+            if drift_conflict_policy not in {"skip", "prefer_presenter", "fail"}:
+                logger.warning(
+                    "[Orchestrator] Invalid drift_conflict_policy=%s; defaulting to 'skip'",
+                    drift_conflict_policy,
+                )
+                drift_conflict_policy = "skip"
 
             logger.info(
-                f"[Orchestrator] Applying approved changes: " f"approved_files={review_result.approved_files}, " f"contexts={len(all_changes)}",
+                "[Orchestrator] Applying approved changes: " f"approved_files={review_result.approved_files}, " f"contexts={len(all_changes)}, " f"drift_conflict_policy={drift_conflict_policy}",
             )
 
+            def _format_file_list(file_paths: List[str], max_items: int = 10) -> str:
+                deduped = sorted({path for path in file_paths if isinstance(path, str) and path.strip()})
+                if len(deduped) <= max_items:
+                    return ", ".join(deduped)
+                remaining = len(deduped) - max_items
+                return f"{', '.join(deduped[:max_items])}, +{remaining} more"
+
+            apply_plan: List[Dict[str, Any]] = []
             for ctx in all_changes:
                 try:
                     context_path = os.path.abspath(ctx["original_path"])
                     target = context_path
                     context_prefix = ctx.get("context_prefix")
                     approved_files_for_context: Optional[List[str]]
+                    approved_hunks_for_context: Optional[Dict[str, List[int]]] = approved_hunks_by_context.get(context_path)
 
                     if review_result.approved_files is None:
                         approved_files_for_context = None
@@ -10441,13 +10549,31 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                     logger.info(
                         "[Orchestrator] ChangeApplier: " f"source={ctx['isolated_path']}, " f"target={target}, " f"context_prefix={context_prefix}",
                     )
-                    files = applier.apply_changes(
+                    drifted_files = applier.detect_target_drift(
                         source_path=ctx["isolated_path"],
                         target_path=target,
+                        base_ref=ctx.get("base_ref"),
                         approved_files=approved_files_for_context,
                         context_prefix=context_prefix,
                     )
-                    applied_files.extend(files)
+                    if drifted_files:
+                        drifted_files_all.extend(drifted_files)
+                        logger.warning(
+                            "[Orchestrator] Detected drifted files for context " f"{context_path}: {drifted_files}",
+                        )
+
+                    apply_plan.append(
+                        {
+                            "source_path": ctx["isolated_path"],
+                            "target_path": target,
+                            "approved_files_for_context": approved_files_for_context,
+                            "approved_hunks_for_context": approved_hunks_for_context,
+                            "context_prefix": context_prefix,
+                            "base_ref": ctx.get("base_ref"),
+                            "drifted_files": drifted_files,
+                            "combined_diff": ctx.get("diff"),
+                        },
+                    )
                 except Exception as e:
                     logger.error(f"[Orchestrator] Failed to apply changes to {ctx['original_path']}: {e}")
                     yield StreamChunk(
@@ -10456,12 +10582,69 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                         source=selected_agent_id,
                     )
 
+            drifted_files_unique = sorted(set(drifted_files_all))
+            drifted_files_total = len(drifted_files_unique)
+            drifted_file_list = _format_file_list(drifted_files_unique) if drifted_files_unique else ""
+
+            if drifted_files_total and drift_conflict_policy == "fail":
+                yield StreamChunk(
+                    type="status",
+                    content=(f"Detected {drifted_files_total} drifted file(s) (policy=fail): " f"{drifted_file_list}"),
+                    source=selected_agent_id,
+                )
+                yield StreamChunk(
+                    type="error",
+                    error=("Drift conflict policy is 'fail'; no changes were applied. " "Resolve drift or use coordination.drift_conflict_policy " "set to 'skip' or 'prefer_presenter'."),
+                    source=selected_agent_id,
+                )
+            else:
+                if drifted_files_total and drift_conflict_policy == "prefer_presenter":
+                    yield StreamChunk(
+                        type="status",
+                        content=(f"Detected {drifted_files_total} drifted file(s) " f"(policy=prefer_presenter): {drifted_file_list}"),
+                        source=selected_agent_id,
+                    )
+
+                for plan_entry in apply_plan:
+                    blocked_files = plan_entry["drifted_files"] if drift_conflict_policy == "skip" else None
+                    files = applier.apply_changes(
+                        source_path=plan_entry["source_path"],
+                        target_path=plan_entry["target_path"],
+                        approved_files=plan_entry["approved_files_for_context"],
+                        approved_hunks=plan_entry["approved_hunks_for_context"],
+                        context_prefix=plan_entry["context_prefix"],
+                        base_ref=plan_entry["base_ref"],
+                        blocked_files=blocked_files,
+                        combined_diff=plan_entry["combined_diff"],
+                    )
+                    applied_files.extend(files)
+
             if applied_files:
                 yield StreamChunk(
                     type="status",
-                    content=f"Applied {len(applied_files)} file change(s): {', '.join(applied_files)}",
+                    content=f"Applied {len(applied_files)} file change(s): {_format_file_list(applied_files)}",
                     source=selected_agent_id,
                 )
+
+                # Report skipped files (approved but not applied due to drift)
+                if drifted_files_total and drift_conflict_policy == "skip":
+                    yield StreamChunk(
+                        type="status",
+                        content=(f"Skipped {drifted_files_total} drifted file(s) " f"(policy=skip): {drifted_file_list}"),
+                        source=selected_agent_id,
+                    )
+
+                # Report rejected files (user deselected in review modal)
+                if review_result.approved_files is not None:
+                    total_available = sum(len(ctx.get("changes", [])) for ctx in all_changes)
+                    rejected_count = total_available - len(review_result.approved_files)
+                    if rejected_count > 0:
+                        yield StreamChunk(
+                            type="status",
+                            content=f"User excluded {rejected_count} file(s) from apply",
+                            source=selected_agent_id,
+                        )
+
                 logger.info(f"[Orchestrator] Applied isolated changes: {applied_files}")
             else:
                 logger.warning("[Orchestrator] Review approved but no files were applied (empty change set)")
@@ -10470,6 +10653,12 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                     content="Review approved but no changed files were found to apply",
                     source=selected_agent_id,
                 )
+                if drifted_files_total and drift_conflict_policy == "skip":
+                    yield StreamChunk(
+                        type="status",
+                        content=(f"Skipped {drifted_files_total} drifted file(s) " f"(policy=skip): {drifted_file_list}"),
+                        source=selected_agent_id,
+                    )
         else:
             yield StreamChunk(
                 type="status",
@@ -11333,6 +11522,8 @@ Then call either submit(confirmed=True) if the answer is satisfactory, or restar
             "answers": answers,
             "vote_results": vote_results,
             "usage": total_usage,
+            "is_orchestrator_timeout": self.is_orchestrator_timeout,
+            "timeout_reason": self.timeout_reason,
         }
 
     def get_status(self) -> Dict[str, Any]:

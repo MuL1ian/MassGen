@@ -83,6 +83,9 @@ class GitDiffReviewModal(BaseModal):
         ("r", "reject_all", "Reject All"),
         ("enter", "approve_selected", "Approve Selected"),
         ("space", "toggle_selected", "Toggle File"),
+        ("h", "toggle_selected_hunk", "Toggle Hunk"),
+        ("[", "select_previous_hunk", "Previous Hunk"),
+        ("]", "select_next_hunk", "Next Hunk"),
         ("up", "select_previous_file", "Previous File"),
         ("down", "select_next_file", "Next File"),
     ]
@@ -109,6 +112,9 @@ class GitDiffReviewModal(BaseModal):
         self._all_file_paths: List[str] = []
         self._per_file_diffs: Dict[str, str] = {}
         self._selected_file: Optional[str] = None
+        self._hunks_by_file: Dict[str, List[Dict[str, Any]]] = {}
+        self._hunk_approvals: Dict[str, Dict[int, bool]] = {}
+        self._selected_hunk_index_by_file: Dict[str, int] = {}
 
         # Build file list, approval map, and per-file diffs
         for ctx in changes:
@@ -140,6 +146,11 @@ class GitDiffReviewModal(BaseModal):
                         else:
                             status = change.get("status", "?")
                             self._per_file_diffs[file_key] = self._make_placeholder_diff(file_path, status)
+
+                    hunks = self._parse_hunks(self._per_file_diffs.get(file_key, ""))
+                    self._hunks_by_file[file_key] = hunks
+                    self._hunk_approvals[file_key] = {idx: True for idx in range(len(hunks))}
+                    self._selected_hunk_index_by_file[file_key] = 0
 
         # Default to first file selected
         if self._all_file_paths:
@@ -175,12 +186,14 @@ class GitDiffReviewModal(BaseModal):
                 markup=True,
             )
             yield Static(
-                "[dim]Click [bold]\u2713[/bold]/[bold]\u25cb[/bold] to toggle"
-                " | Click filename to view diff"
-                " | [bold]\u2191/\u2193[/bold] navigate"
-                " | [bold]Space[/bold] toggle selected"
-                " | [bold]a[/bold] approve all"
-                " | [bold]r[/bold] reject[/]",
+                "[dim][bold]\u2191\u2193[/bold] navigate"
+                " [bold]Space[/bold] toggle"
+                " [bold]h[/bold] hunk"
+                " [bold]\\[[/bold][bold]\\][/bold] prev/next hunk"
+                " [bold]a[/bold] approve all"
+                " [bold]r[/bold] reject"
+                " [bold]Enter[/bold] apply selected"
+                " [bold]Esc[/bold] cancel[/]",
                 classes="modal-instructions",
                 markup=True,
             )
@@ -346,6 +359,39 @@ class GitDiffReviewModal(BaseModal):
 
         return None
 
+    @staticmethod
+    def _parse_hunks(file_diff: str) -> List[Dict[str, Any]]:
+        """Parse unified diff hunks for a single file."""
+        if not file_diff:
+            return []
+
+        hunks: List[Dict[str, Any]] = []
+        current: Optional[Dict[str, Any]] = None
+
+        for line in file_diff.splitlines(keepends=True):
+            if line.startswith("@@"):
+                if current is not None:
+                    hunks.append(current)
+                current = {
+                    "header": line.rstrip("\n"),
+                    "lines": [],
+                }
+                continue
+
+            if current is None:
+                continue
+
+            if line.startswith("\\ No newline at end of file"):
+                continue
+
+            if line[:1] in {" ", "+", "-"}:
+                current["lines"].append(line)
+
+        if current is not None:
+            hunks.append(current)
+
+        return hunks
+
     def _make_placeholder_diff(self, file_path: str, status: str) -> str:
         """Create a placeholder diff text when no actual diff is available."""
         status_labels = {
@@ -360,6 +406,19 @@ class GitDiffReviewModal(BaseModal):
         label = status_labels.get(status.upper(), f"Changed ({status})")
         return f"--- {file_path}\n+++ {file_path}\n\n  ({label} - no diff content available)"
 
+    @staticmethod
+    def _parse_hunk_start_lines(header: str) -> tuple:
+        """Extract old and new start line numbers from a @@ hunk header.
+
+        Returns:
+            (old_start, new_start) tuple of ints, or (1, 1) on parse failure.
+        """
+        match = re.match(r"@@\s+-(\d+)", header)
+        old_start = int(match.group(1)) if match else 1
+        match2 = re.match(r"@@\s+-\d+(?:,\d+)?\s+\+(\d+)", header)
+        new_start = int(match2.group(1)) if match2 else 1
+        return old_start, new_start
+
     def _render_diff_markup(self, file_path: Optional[str]) -> str:
         """Render a file's diff as Rich-markup-formatted text.
 
@@ -368,6 +427,7 @@ class GitDiffReviewModal(BaseModal):
         - Removed lines (-) in red on dark red background
         - Hunk headers (@@) in cyan bold
         - Diff meta lines (diff, index, ---/+++) in dim
+        - Line numbers shown as old:new gutter prefix
         """
         if not file_path:
             return "[dim]Select a file to view its diff[/]"
@@ -378,6 +438,12 @@ class GitDiffReviewModal(BaseModal):
 
         lines = raw_diff.split("\n")
         rendered: List[str] = []
+        hunk_index = -1
+        selected_hunk = self._selected_hunk_index_by_file.get(file_path, 0)
+        hunk_approvals = self._hunk_approvals.get(file_path, {})
+        current_hunk_approved = True
+        old_line = 0
+        new_line = 0
 
         for line in lines:
             escaped = self._escape_markup(line)
@@ -387,11 +453,36 @@ class GitDiffReviewModal(BaseModal):
             elif line.startswith("--- ") or line.startswith("+++ "):
                 rendered.append(f"[bold]{escaped}[/]")
             elif line.startswith("@@"):
-                rendered.append(f"[bold cyan]{escaped}[/]")
+                hunk_index += 1
+                old_line, new_line = self._parse_hunk_start_lines(line)
+                current_hunk_approved = hunk_approvals.get(hunk_index, True)
+                marker = "\u2713" if current_hunk_approved else "\u25cb"
+                header_text = f"[{marker}] {escaped}"
+                if hunk_index == selected_hunk:
+                    rendered.append(f"[bold cyan reverse]{header_text}[/]")
+                elif current_hunk_approved:
+                    rendered.append(f"[bold cyan]{header_text}[/]")
+                else:
+                    rendered.append(f"[dim]{header_text}[/]")
             elif line.startswith("+"):
-                rendered.append(f"[#56d364 on #0d2818]{escaped}[/]")
+                gutter = f"[dim]{'':>4s} {new_line:>4d} [/]"
+                new_line += 1
+                if current_hunk_approved:
+                    rendered.append(f"{gutter}[#56d364 on #0d2818]{escaped}[/]")
+                else:
+                    rendered.append(f"{gutter}[dim]{escaped}[/]")
             elif line.startswith("-"):
-                rendered.append(f"[#f85149 on #2d1010]{escaped}[/]")
+                gutter = f"[dim]{old_line:>4d} {'':>4s} [/]"
+                old_line += 1
+                if current_hunk_approved:
+                    rendered.append(f"{gutter}[#f85149 on #2d1010]{escaped}[/]")
+                else:
+                    rendered.append(f"{gutter}[dim]{escaped}[/]")
+            elif line[:1] == " ":
+                gutter = f"[dim]{old_line:>4d} {new_line:>4d} [/]"
+                old_line += 1
+                new_line += 1
+                rendered.append(f"{gutter}[dim]{escaped}[/]")
             else:
                 rendered.append(f"[dim]{escaped}[/]")
 
@@ -408,10 +499,15 @@ class GitDiffReviewModal(BaseModal):
         if self._selected_file:
             file_path = self._file_key_to_path.get(self._selected_file, self._selected_file)
             context_path = self._file_key_to_context.get(self._selected_file, "")
+            hunk_count = len(self._hunks_by_file.get(self._selected_file, []))
+            selected_hunk = self._selected_hunk_index_by_file.get(self._selected_file, 0)
+            selected_hunk_label = ""
+            if hunk_count:
+                selected_hunk_label = f" [dim]\u2022 hunk {selected_hunk + 1}/{hunk_count}[/]"
             if len(self.changes) > 1:
                 context_name = Path(context_path).name if context_path else "context"
-                return f"[bold]Diff:[/] " f"[italic]{self._escape_markup(context_name)}:{self._escape_markup(file_path)}[/]"
-            return f"[bold]Diff:[/] [italic]{self._escape_markup(file_path)}[/]"
+                return f"[bold]Diff:[/] " f"[italic]{self._escape_markup(context_name)}:{self._escape_markup(file_path)}[/]" f"{selected_hunk_label}"
+            return f"[bold]Diff:[/] [italic]{self._escape_markup(file_path)}[/]" f"{selected_hunk_label}"
         return "[bold]Diff Preview[/]"
 
     def _build_summary_markup(
@@ -587,15 +683,26 @@ class GitDiffReviewModal(BaseModal):
     def _toggle_file_approval(self, file_path: str) -> None:
         """Toggle a single file's approval state and update its indicator."""
         current = self.file_approvals.get(file_path, True)
-        self.file_approvals[file_path] = not current
+        new_value = not current
+        self.file_approvals[file_path] = new_value
+        hunk_approvals = self._hunk_approvals.get(file_path)
+        if hunk_approvals:
+            for hunk_idx in list(hunk_approvals.keys()):
+                hunk_approvals[hunk_idx] = new_value
         self._refresh_toggle(file_path)
+        self._update_diff_panel()
         self._update_summary()
 
     def _set_all_approvals(self, value: bool) -> None:
         """Set all files to approved or unapproved."""
         for file_path in self._all_file_paths:
             self.file_approvals[file_path] = value
+            hunk_approvals = self._hunk_approvals.get(file_path)
+            if hunk_approvals:
+                for hunk_idx in list(hunk_approvals.keys()):
+                    hunk_approvals[hunk_idx] = value
             self._refresh_toggle(file_path)
+        self._update_diff_panel()
         self._update_summary()
 
     def _move_selection(self, step: int) -> None:
@@ -610,6 +717,38 @@ class GitDiffReviewModal(BaseModal):
         current_index = self._all_file_paths.index(self._selected_file)
         next_index = (current_index + step) % len(self._all_file_paths)
         self._select_file(self._all_file_paths[next_index])
+
+    def _move_selected_hunk(self, step: int) -> None:
+        """Move selected hunk within the currently selected file."""
+        if not self._selected_file:
+            return
+        hunks = self._hunks_by_file.get(self._selected_file, [])
+        if not hunks:
+            return
+
+        current = self._selected_hunk_index_by_file.get(self._selected_file, 0)
+        next_index = (current + step) % len(hunks)
+        self._selected_hunk_index_by_file[self._selected_file] = next_index
+        self._update_diff_panel()
+
+    def _toggle_selected_hunk(self) -> None:
+        """Toggle approval for the selected hunk in the current file."""
+        if not self._selected_file:
+            return
+        hunks = self._hunks_by_file.get(self._selected_file, [])
+        if not hunks:
+            self._toggle_file_approval(self._selected_file)
+            return
+
+        selected_hunk = self._selected_hunk_index_by_file.get(self._selected_file, 0)
+        approvals = self._hunk_approvals.get(self._selected_file, {})
+        current = approvals.get(selected_hunk, True)
+        approvals[selected_hunk] = not current
+
+        self.file_approvals[self._selected_file] = any(approvals.values())
+        self._refresh_toggle(self._selected_file)
+        self._update_diff_panel()
+        self._update_summary()
 
     def _refresh_toggle(self, file_path: str) -> None:
         """Update the approval toggle indicator for a file."""
@@ -633,12 +772,17 @@ class GitDiffReviewModal(BaseModal):
         """Approve only selected (checked) files and dismiss."""
         approved_files = [path for path, approved in self.file_approvals.items() if approved]
         approved_files_by_context: Dict[str, List[str]] = {}
+        approved_hunks_by_context: Dict[str, Dict[str, List[int]]] = {}
         for file_key in approved_files:
             context_path = self._file_key_to_context.get(file_key)
             file_path = self._file_key_to_path.get(file_key)
             if not context_path or not file_path:
                 continue
             approved_files_by_context.setdefault(context_path, []).append(file_path)
+            hunk_approvals = self._hunk_approvals.get(file_key, {})
+            if hunk_approvals:
+                approved_hunks = [idx for idx, is_approved in sorted(hunk_approvals.items()) if is_approved]
+                approved_hunks_by_context.setdefault(context_path, {})[file_path] = approved_hunks
 
         self.dismiss(
             ReviewResult(
@@ -647,6 +791,7 @@ class GitDiffReviewModal(BaseModal):
                 metadata={
                     "selection_mode": "selected",
                     "approved_files_by_context": approved_files_by_context,
+                    "approved_hunks_by_context": approved_hunks_by_context,
                 },
             ),
         )
@@ -703,6 +848,18 @@ class GitDiffReviewModal(BaseModal):
         """Keyboard shortcut: Toggle the currently selected file's approval."""
         if self._selected_file:
             self._toggle_file_approval(self._selected_file)
+
+    def action_toggle_selected_hunk(self) -> None:
+        """Keyboard shortcut: Toggle currently selected hunk approval."""
+        self._toggle_selected_hunk()
+
+    def action_select_previous_hunk(self) -> None:
+        """Keyboard shortcut: Move to previous hunk."""
+        self._move_selected_hunk(-1)
+
+    def action_select_next_hunk(self) -> None:
+        """Keyboard shortcut: Move to next hunk."""
+        self._move_selected_hunk(1)
 
     def action_select_previous_file(self) -> None:
         """Keyboard shortcut: Select previous file."""

@@ -50,6 +50,7 @@ class DiversityMode:
 
     PERSPECTIVE = "perspective"  # Different values/priorities, same problem
     IMPLEMENTATION = "implementation"  # Different solution types/interpretations
+    METHODOLOGY = "methodology"  # Different working approaches, same problem
 
 
 @dataclass
@@ -61,6 +62,7 @@ class PersonaGeneratorConfig:
         diversity_mode: Type of diversity to generate:
             - "perspective": Different values/priorities (what to optimize for)
             - "implementation": Different solution types/interpretations (what kind of solution)
+            - "methodology": Different working approaches (how to tackle the work)
         persona_guidelines: Optional custom guidelines for persona generation
         persist_across_turns: If True, reuse personas across turns in multi-turn sessions.
             If False (default), generate fresh personas each turn.
@@ -73,7 +75,8 @@ class PersonaGeneratorConfig:
 
     def __post_init__(self):
         # Validate diversity_mode
-        if self.diversity_mode not in (DiversityMode.PERSPECTIVE, DiversityMode.IMPLEMENTATION):
+        valid_modes = (DiversityMode.PERSPECTIVE, DiversityMode.IMPLEMENTATION, DiversityMode.METHODOLOGY)
+        if self.diversity_mode not in valid_modes:
             self.diversity_mode = DiversityMode.PERSPECTIVE
 
 
@@ -534,6 +537,9 @@ Generate personas now:"""
         Returns:
             Dictionary mapping agent_id to GeneratedPersona with default personas
         """
+        if self.diversity_mode == DiversityMode.METHODOLOGY:
+            return self._generate_methodology_fallback_personas(agent_ids)
+
         fallback_templates = [
             (
                 "analytical",
@@ -570,6 +576,53 @@ Generate personas now:"""
                 },
             )
             logger.debug(f"Using fallback persona for {agent_id}: {style}")
+
+        return personas
+
+    def _generate_methodology_fallback_personas(self, agent_ids: List[str]) -> Dict[str, GeneratedPersona]:
+        """Generate fallback personas for methodology mode (different working approaches)."""
+        fallback_templates = [
+            (
+                "top-down",
+                "Start by sketching the full structure and architecture before writing any details. Work from the big picture down to"
+                " specifics, ensuring everything fits together before diving deep into any one part.",
+            ),
+            (
+                "risk-first",
+                "Identify the hardest, riskiest, or most uncertain part of the task and tackle it first. Get that working before"
+                " building anything else — if the hard part doesn't work, everything else is wasted effort.",
+            ),
+            (
+                "iterative",
+                "Begin with the simplest complete version that could possibly work, then improve it in passes. Each iteration should"
+                " produce something functional — layer on sophistication gradually rather than trying to get everything right the"
+                " first time.",
+            ),
+            (
+                "example-driven",
+                "Start from concrete examples of what the desired output should look like. Work backwards from those examples to"
+                " figure out what's needed, letting the concrete cases drive the design rather than abstract planning.",
+            ),
+            (
+                "foundation-first",
+                "Build the solid foundational infrastructure first using proven patterns and reliable approaches. Only innovate or"
+                " experiment once the base is rock-solid — creativity on a strong foundation beats ambitious ideas on a shaky one.",
+            ),
+        ]
+
+        personas = {}
+        for i, agent_id in enumerate(agent_ids):
+            style, text = fallback_templates[i % len(fallback_templates)]
+            personas[agent_id] = GeneratedPersona(
+                agent_id=agent_id,
+                persona_text=text,
+                attributes={
+                    "thinking_style": style,
+                    "focus_area": "general",
+                    "communication": "balanced",
+                },
+            )
+            logger.debug(f"Using fallback methodology persona for {agent_id}: {style}")
 
         return personas
 
@@ -801,6 +854,14 @@ Generate personas now:"""
                 agent_ids_json,
                 guidelines_section,
             )
+        elif self.diversity_mode == DiversityMode.METHODOLOGY:
+            return self._build_methodology_diversity_prompt(
+                agent_ids,
+                task,
+                agents_list,
+                agent_ids_json,
+                guidelines_section,
+            )
         else:
             return self._build_perspective_diversity_prompt(
                 agent_ids,
@@ -929,6 +990,76 @@ The JSON must have this structure:
     "personas": {{
         "<agent_id>": {{
             "persona_text": "Solution direction statement...",
+            "attributes": {{
+                "approach_summary": "2-3 word summary"
+            }}
+        }}
+    }}
+}}
+
+Agent IDs: {agent_ids_json}
+
+Write personas.json now."""
+
+    def _build_methodology_diversity_prompt(
+        self,
+        agent_ids: List[str],
+        task: str,
+        agents_list: str,
+        agent_ids_json: str,
+        guidelines_section: str,
+    ) -> str:
+        """Build prompt for methodology-based diversity (different working approaches)."""
+        return f"""You are assigning different WORKING APPROACHES to {len(agent_ids)} AI agents who will work on a task in parallel.
+
+## Task
+{task}
+
+## Agents
+{agents_list}
+{guidelines_section}
+## Your Goal
+Give each agent a genuinely different METHODOLOGY for how they tackle the work.
+The value of multiple agents is that they approach the same problem in fundamentally different
+ways — different processes, different starting points, different ways of structuring their work.
+This naturally produces different solutions even when agents have the same goal.
+
+## What Makes Good Methodology Diversity
+
+Think about HOW each agent works, not WHAT they optimize for or WHAT they build:
+- Where do they start? (big picture first? hardest problem first? simplest prototype first?)
+- How do they structure their process? (top-down? bottom-up? inside-out?)
+- What do they do when stuck? (experiment? analyze? simplify? reframe?)
+- What's their relationship to risk? (bold experiments? proven patterns? defensive builds?)
+
+Examples (do NOT use these literally - create approaches appropriate for the task):
+- "Start with the hardest, riskiest piece first. Get that working, then build everything else around it."
+- "Begin with a complete but minimal version, then iteratively layer on sophistication."
+- "Work top-down: sketch the full architecture first, then fill in each component."
+- "Start from concrete examples of the desired output, then reverse-engineer the solution."
+- "Build the foundational infrastructure with proven patterns first, then innovate on top."
+
+The approaches should be different enough that agents will naturally produce different solutions
+even if given the same task and the same goals.
+
+## Requirements
+1. Keep personas concise (3-5 sentences)
+2. Focus on HOW to approach the work, not WHAT to optimize for or WHAT kind of solution
+3. Do NOT prescribe specific technologies, file structures, or code patterns
+4. Do NOT tell them what to value - tell them how to work
+5. Each agent must solve the ENTIRE task - approaches differ, scope does not
+6. If agent has existing instructions, add working approach without changing their workflow
+7. Each persona must explicitly reinforce complete end-to-end delivery quality
+8. Never assign a narrow role (e.g., "only testing" or "only frontend")
+
+## Output Format
+IMPORTANT: Write the JSON to a file called `personas.json` in your workspace.
+
+The JSON must have this structure:
+{{
+    "personas": {{
+        "<agent_id>": {{
+            "persona_text": "Working approach statement...",
             "attributes": {{
                 "approach_summary": "2-3 word summary"
             }}
