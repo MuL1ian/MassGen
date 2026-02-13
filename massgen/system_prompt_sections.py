@@ -2656,6 +2656,214 @@ class PlanningModeSection(SystemPromptSection):
         return self.planning_mode_instruction
 
 
+_CHANGEDOC_FIRST_ROUND_PROMPT = """## Change Document (Decision Journal)
+
+**Before you start writing your answer**, create `tasks/changedoc.md` in your workspace.
+This is your decision journal — start it first, then update it as you make each significant
+decision while working.
+
+### Workflow
+
+1. **Create `tasks/changedoc.md` immediately** when you begin working. Write the Summary with your initial approach.
+2. **Log each significant decision as you make it.** When you choose an approach, architecture, tool, or trade-off — write a DEC entry in the changedoc before or as you implement it.
+3. **After implementing**, fill in the Implementation field on each decision with the actual files and symbols.
+4. **Submit your answer** via `new_answer` once your work is complete. The changedoc should already be up to date.
+
+The changedoc captures your reasoning in real-time, not as a summary after the fact. Focus on decisions where a reasonable person might have chosen differently.
+
+### What to document
+
+For each significant choice:
+- What you decided and why
+- What alternatives you considered and why you rejected them
+- Which parts of the original task drove the decision
+- **Where in the code** this decision is implemented (files, functions/classes, brief mechanism)
+
+### Code references
+
+Use relative paths within the workspace. Include both symbol names (functions, classes) and
+line numbers — your code is frozen once submitted, so line numbers are stable references for
+anyone reading your changedoc.
+
+Format: `relative/path/file.py:L10-25` → `ClassName.method()` — brief description
+
+### Decision provenance
+
+Every decision has an **Origin** field tracking who first introduced it. As the first agent,
+all your decisions are new — mark them with `NEW`. This helps future agents (and humans) see
+where each idea came from and which agents contributed genuinely new thinking vs refined
+existing ideas.
+
+### Template
+
+```markdown
+# Change Document
+
+**Based on:** (original — no prior answers)
+
+## Summary
+[1-2 sentences describing your approach and key reasoning]
+
+## Decisions
+
+### DEC-001: [Decision title]
+**Origin:** [your answer label] — NEW
+**Choice:** [What you chose]
+**Why:** [Rationale tied to task requirements]
+**Alternatives considered:**
+- [Alternative A]: [Why rejected]
+**Implementation:**
+- `src/handler.py:L15-42` → `RequestHandler.process()` — validates input then dispatches to worker pool
+- `src/config.py:L8-12` → `WORKER_COUNT` — set to 4 based on benchmark results
+
+### DEC-002: [Next decision]
+...
+
+## Deliberation Trail
+[Empty for first answer — subsequent agents will add entries here]
+```
+
+Write concisely — explain your thinking to a colleague who will pick up your work."""
+
+_CHANGEDOC_SUBSEQUENT_ROUND_PROMPT = """## Change Document (Decision Journal)
+
+**Before you start writing your answer**, create `tasks/changedoc.md` in your workspace.
+This is your decision journal — start it first by inheriting from the prior agent's changedoc,
+then update it as you make each decision.
+
+### Workflow
+
+1. **Create `tasks/changedoc.md` immediately** when you begin working. Copy the prior agent's
+changedoc as your starting point (their changedoc content is shown in `<changedoc>` tags
+alongside their answer).
+2. **Log each decision as you make it.** When you keep, change, or add a decision — update the changedoc before or as you implement it.
+3. **Update the Implementation fields** to reference YOUR code locations (the prior agent's line numbers refer to their frozen snapshot, not yours).
+4. **Submit your answer** via `new_answer` once your work is complete. The changedoc should already be up to date.
+
+### Inheriting from prior answers
+
+When you build on another agent's work:
+
+1. **Keep their existing decisions** that you agree with. Preserve the Origin field — do not change who first introduced a decision.
+2. **Modify decisions** when you disagree. Update the Origin to show modification (e.g., `agent1.1, modified by [your label]`). Explain the change in the Deliberation Trail.
+3. **Add genuinely new decisions** with Origin marked as `[your label] — NEW`. These are ideas not present in any prior answer — novel approaches, new features, or original solutions you introduce.
+4. **Update the Summary** to reflect your version of the answer.
+5. **Update Implementation fields** to point to your code. The prior agent's code references point to their frozen files — your implementation may have different paths, symbols, or line numbers.
+6. **Append to the Deliberation Trail** to record what changed and why, flagging NEW ideas explicitly.
+
+If you start fresh rather than building on an existing answer, note in the Deliberation Trail why you chose a different approach.
+
+### Code references
+
+Use relative paths within the workspace. Include symbol names and line numbers — your code is frozen once submitted.
+
+Format: `relative/path/file.py:L10-25` → `ClassName.method()` — brief description
+
+### Answer labels
+
+Use the answer labels shown in `<CURRENT ANSWERS>` (e.g., `agent1.1`, `agent2.1`) when referencing specific answers. These uniquely identify a particular version of an agent's work.
+
+### Template
+
+```markdown
+# Change Document
+
+**Based on:** [answer label, e.g., agent1.1]
+
+## Summary
+[1-2 sentences describing your approach]
+
+## Decisions
+
+### DEC-001: [Inherited decision title]
+**Origin:** agent1.1
+**Choice:** [What was chosen]
+**Why:** [Rationale]
+**Alternatives considered:**
+- [Alternative]: [Why rejected]
+**Implementation:**
+- `path/to/file.py:L10-42` → `ClassName.method()` — [brief mechanism description]
+
+### DEC-002: [Modified decision]
+**Origin:** agent1.1, modified by [your label]
+**Choice:** [Your revised choice]
+**Why:** [Why you changed it — agent1.1 chose X, but Y is better because...]
+**Alternatives considered:**
+- agent1.1's original approach: [Why you changed it]
+**Implementation:**
+- `path/to/file.py:L50-75` → `new_function()` — [mechanism]
+
+### DEC-003: [Your new idea]
+**Origin:** [your label] — NEW
+**Choice:** [What you introduced]
+**Why:** [Rationale — this wasn't in any prior answer]
+**Implementation:**
+- `path/to/new_file.py:L1-30` → `NovelClass` — [mechanism]
+
+## Deliberation Trail
+
+### [your label] (based on agent1.1):
+- DEC-001: Kept — [brief reason]
+- DEC-002: Modified — agent1.1 used X, changed to Y because [reason]
+- DEC-003: NEW — [what this adds that wasn't there before]
+
+## Key Changes from Prior
+- [Substantive change 1]
+- [Substantive change 2]
+```
+
+Write concisely — explain your thinking to a colleague who will pick up your work."""
+
+_CHANGEDOC_PRESENTER_INSTRUCTIONS = """
+### Change Document Consolidation
+
+The agents' answers include changedoc decision journals (shown in `<changedoc>` tags).
+Your final output MUST include a consolidated `tasks/changedoc.md` in your workspace that:
+
+1. **Finalizes the Summary** to reflect the final delivered answer.
+2. **Consolidates Decisions** into the definitive list. Remove superseded decisions. Keep the final version of each with full rationale.
+3. **Preserves Origin fields** on every decision — these track which agent first introduced each idea. Keep `NEW` markers to highlight genuinely novel contributions.
+4. **Updates all Implementation fields** to reference YOUR final code — file paths, symbol
+names, and line numbers pointing to the delivered files. The agents' code references point
+to their frozen snapshots; yours must point to the final deliverable.
+5. **Preserves the Deliberation Trail** showing how key decisions evolved. Clean up for readability but keep the substance, attribution, and `NEW` markers.
+6. **Removes the Key Changes section** (not needed in the final document).
+
+The final changedoc is a decision record, not a comparison report. Do not editorialize or
+narrate which agent "won" — just state what was decided, why, and where in the code it lives.
+A developer who was not present should be able to read the changedoc and:
+- Trace every decision to specific files and functions in the codebase
+- See where each idea originated (Origin field)
+- Identify which ideas were genuinely new contributions (NEW markers)
+- Follow how decisions evolved through the deliberation trail"""
+
+
+class ChangedocSection(SystemPromptSection):
+    """
+    Changedoc instructions for coordination.
+
+    Instructs agents to produce a decision journal (tasks/changedoc.md) alongside
+    their answer, explaining WHY choices were made. When prior answers exist,
+    agents inherit and extend the changedoc from the answer they build upon.
+
+    Args:
+        has_prior_answers: Whether other agents' answers are visible.
+    """
+
+    def __init__(self, has_prior_answers: bool = False):
+        super().__init__(
+            title="Change Document",
+            priority=Priority.MEDIUM,
+            xml_tag="changedoc_instructions",
+        )
+        self.has_prior_answers = has_prior_answers
+
+    def build_content(self) -> str:
+        if self.has_prior_answers:
+            return _CHANGEDOC_SUBSEQUENT_ROUND_PROMPT
+        return _CHANGEDOC_FIRST_ROUND_PROMPT
+
+
 class SubagentSection(SystemPromptSection):
     """
     Subagent delegation guidance for spawning independent agent instances.

@@ -164,6 +164,7 @@ class CoordinationConfig:
     use_two_tier_workspace: bool = False  # Enable scratch/deliverable structure + git versioning
     task_decomposer: TaskDecomposerConfig = field(default_factory=TaskDecomposerConfig)
     write_mode: Optional[str] = None  # "auto" | "worktree" | "isolated" | "legacy"
+    enable_changedoc: bool = True  # Write changedoc.md decision journal during coordination
 
     def __post_init__(self):
         """Validate configuration after initialization."""

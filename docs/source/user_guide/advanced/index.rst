@@ -14,6 +14,7 @@ Advanced features in MassGen:
 * **Task planning** - Structured task breakdown and execution
 * **Subagents** - Spawn parallel child processes for independent tasks
 * **Planning mode** - Safe execution with human approval
+* **Change documents** - Decision journals for traceability and attribution
 * **Multimodal support** - Image, audio, and video understanding
 * **Computer use** - Browser and desktop automation
 * **Terminal evaluation** - Record and evaluate terminal sessions
@@ -90,6 +91,17 @@ Guides in This Section
 
       :doc:`Read the Planning Mode guide → <planning_mode>`
 
+   .. grid-item-card:: Change Documents
+
+      Decision journals for traceability
+
+      * Why each decision was made
+      * Code references per decision
+      * Multi-agent attribution
+      * Feature-level provenance
+
+      :doc:`Read the Change Documents guide → <change_documents>`
+
    .. grid-item-card:: 🖼️ Multimodal
 
       Image, audio, video support
@@ -141,6 +153,7 @@ Related Documentation
    agent_task_planning
    subagents
    planning_mode
+   change_documents
    multimodal
    computer_use
    terminal_evaluation

@@ -467,6 +467,15 @@ class SystemMessageBuilder:
             builder.add_section(PlanningModeSection(self.config.coordination_config.planning_mode_instruction))
             logger.info(f"[SystemMessageBuilder] Added planning mode instructions for {agent_id}")
 
+        # PRIORITY 10 (MEDIUM): Changedoc (conditional)
+        changedoc_enabled = self.config and hasattr(self.config, "coordination_config") and getattr(self.config.coordination_config, "enable_changedoc", False)
+        if changedoc_enabled:
+            from massgen.system_prompt_sections import ChangedocSection
+
+            has_prior_answers = bool(answers)
+            builder.add_section(ChangedocSection(has_prior_answers=has_prior_answers))
+            logger.info(f"[SystemMessageBuilder] Added changedoc instructions for {agent_id} (prior_answers={has_prior_answers})")
+
         # Build and return the complete structured system prompt
         return builder.build()
 
@@ -588,10 +597,29 @@ This makes the work reusable for similar future tasks."""
                 sections_content.append(evolving_skill_instructions)
                 logger.info("[SystemMessageBuilder] Added evolving skill output instructions for presentation")
 
+            # Add changedoc consolidation instructions if enabled
+            changedoc_enabled = self.config and hasattr(self.config, "coordination_config") and getattr(self.config.coordination_config, "enable_changedoc", False)
+            if changedoc_enabled:
+                from massgen.system_prompt_sections import (
+                    _CHANGEDOC_PRESENTER_INSTRUCTIONS,
+                )
+
+                sections_content.append(_CHANGEDOC_PRESENTER_INSTRUCTIONS)
+                logger.info("[SystemMessageBuilder] Added changedoc consolidation instructions for presentation")
+
             # Combine: filesystem sections + presentation instructions
             filesystem_content = "\n\n".join(sections_content)
             return f"{filesystem_content}\n\n## Instructions\n{presentation_instructions}"
         else:
+            # Add changedoc consolidation instructions if enabled (no filesystem case)
+            changedoc_enabled = self.config and hasattr(self.config, "coordination_config") and getattr(self.config.coordination_config, "enable_changedoc", False)
+            if changedoc_enabled:
+                from massgen.system_prompt_sections import (
+                    _CHANGEDOC_PRESENTER_INSTRUCTIONS,
+                )
+
+                presentation_instructions += _CHANGEDOC_PRESENTER_INSTRUCTIONS
+
             # No filesystem - just return presentation instructions
             return presentation_instructions
 

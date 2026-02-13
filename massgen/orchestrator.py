@@ -3986,6 +3986,24 @@ Your answer:"""
                                 result_data,
                                 snapshot_timestamp=answer_timestamp,
                             )
+                            # Attach changedoc from workspace if enabled
+                            if self._is_changedoc_enabled() and agent and agent.backend.filesystem_manager:
+                                from massgen.changedoc import (
+                                    read_changedoc_from_workspace,
+                                )
+
+                                ws_path = agent.backend.filesystem_manager.cwd
+                                if ws_path:
+                                    changedoc_content = read_changedoc_from_workspace(Path(ws_path))
+                                    if changedoc_content:
+                                        answers_list = self.coordination_tracker.answers_by_agent.get(agent_id, [])
+                                        if answers_list:
+                                            answers_list[-1].changedoc = changedoc_content
+                                            logger.info(
+                                                "[Orchestrator] Attached changedoc (%d chars) to %s",
+                                                len(changedoc_content),
+                                                answers_list[-1].label,
+                                            )
                             if self._is_decomposition_mode():
                                 self.agent_states[agent_id].decomposition_answer_streak += 1
                                 # Agent has produced a new self revision; keep its own seen
@@ -4559,6 +4577,21 @@ Your answer:"""
                     logger.info(
                         f"[Orchestrator._save_agent_snapshot] Saved answer to {answer_file}",
                     )
+
+                    # Save changedoc alongside answer if enabled
+                    if self._is_changedoc_enabled() and agent.backend.filesystem_manager:
+                        from massgen.changedoc import read_changedoc_from_workspace
+
+                        ws_path = agent.backend.filesystem_manager.cwd
+                        if ws_path:
+                            changedoc_content = read_changedoc_from_workspace(Path(ws_path))
+                            if changedoc_content:
+                                changedoc_file = timestamped_dir / "changedoc.md"
+                                changedoc_file.write_text(changedoc_content)
+                                logger.info(
+                                    "[Orchestrator._save_agent_snapshot] Saved changedoc to %s",
+                                    changedoc_file,
+                                )
 
             except Exception as e:
                 logger.warning(
@@ -6077,6 +6110,11 @@ Your answer:"""
         """Return True when orchestration is running in decomposition mode."""
         return getattr(self.config, "coordination_mode", "voting") == "decomposition"
 
+    def _is_changedoc_enabled(self) -> bool:
+        """Return True when changedoc decision journal is enabled."""
+        coord = getattr(self.config, "coordination_config", None)
+        return bool(coord and getattr(coord, "enable_changedoc", False))
+
     def _is_fairness_enabled(self) -> bool:
         """Return True when fairness controls are enabled."""
         return bool(getattr(self.config, "fairness_enabled", True))
@@ -7298,6 +7336,15 @@ Your answer:"""
             # Get global agent mapping for consistent anonymous IDs across all components
             agent_mapping = self.coordination_tracker.get_reverse_agent_mapping()
             _is_decomp = getattr(self.config, "coordination_mode", "voting") == "decomposition"
+            # Gather changedocs from coordination tracker if enabled
+            _agent_changedocs = None
+            if self._is_changedoc_enabled():
+                _agent_changedocs = {}
+                for aid, ans_list in self.coordination_tracker.answers_by_agent.items():
+                    if ans_list and ans_list[-1].changedoc:
+                        _agent_changedocs[aid] = ans_list[-1].changedoc
+                if not _agent_changedocs:
+                    _agent_changedocs = None
             if conversation_context and conversation_context.get(
                 "conversation_history",
             ):
@@ -7314,6 +7361,7 @@ Your answer:"""
                     paraphrase=paraphrase,
                     agent_mapping=agent_mapping,
                     decomposition_mode=_is_decomp,
+                    agent_changedocs=_agent_changedocs,
                 )
             else:
                 # Fallback to standard conversation building
@@ -7325,6 +7373,7 @@ Your answer:"""
                     paraphrase=paraphrase,
                     agent_mapping=agent_mapping,
                     decomposition_mode=_is_decomp,
+                    agent_changedocs=_agent_changedocs,
                 )
 
             # Inject restart context if this is a restart attempt (like multi-turn context)
@@ -9593,11 +9642,21 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                 "Ensure quality, fill any gaps, resolve conflicts, and answer the original query comprehensively."
             )
         else:
+            # Gather changedocs for final presentation
+            _pres_changedocs = None
+            if self._is_changedoc_enabled():
+                _pres_changedocs = {}
+                for aid, ans_list in self.coordination_tracker.answers_by_agent.items():
+                    if ans_list and ans_list[-1].changedoc:
+                        _pres_changedocs[aid] = ans_list[-1].changedoc
+                if not _pres_changedocs:
+                    _pres_changedocs = None
             presentation_content = self.message_templates.build_final_presentation_message(
                 original_task=self.current_task or "Task coordination",
                 vote_summary=normalized_voting_summary,
                 all_answers=normalized_all_answers,
                 selected_agent_id=selected_agent_id,
+                agent_changedocs=_pres_changedocs,
             )
 
         # Add worktree location to presentation message

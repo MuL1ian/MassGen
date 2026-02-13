@@ -16,6 +16,7 @@ All logs are stored in the ``.massgen/massgen_logs/`` directory with timestamped
            ├── agent_a/                    # Agent-specific coordination logs
            │   └── YYYYMMDD_HHMMSS_NNNNNN/ # Timestamped coordination steps
            │       ├── answer.txt          # Agent's answer at this step
+           │       ├── changedoc.md        # Decision journal snapshot (if changedoc enabled)
            │       ├── context.txt         # Context available to agent
            │       ├── execution_trace.md  # Full tool calls, results, and reasoning
            │       └── workspace/          # Agent workspace (if filesystem tools used)
@@ -30,6 +31,7 @@ All logs are stored in the ``.massgen/massgen_logs/`` directory with timestamped
            ├── final/                      # Final presentation phase
            │   └── agent_X/                # Winning agent's final work
            │       ├── answer.txt          # Final answer
+           │       ├── changedoc.md        # Consolidated decision journal (if changedoc enabled)
            │       └── context.txt         # Final context
            ├── coordination_events.json    # Structured coordination events
            ├── coordination_table.txt      # Human-readable coordination table
