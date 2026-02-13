@@ -647,7 +647,7 @@ class CoordinationTracker:
         # Handle both "voted_for" and "agent_id" keys (orchestrator uses "agent_id")
         voted_for = vote_data.get("voted_for") or vote_data.get("agent_id", "unknown")
         reason = vote_data.get("reason", "")
-        suggestions = vote_data.get("suggestions")  # Extract optional suggestions
+        suggestions = vote_data.get("suggestions")  # Extract required suggestions
 
         # Convert real agent IDs to anonymous IDs and answer labels
         voter_anon_id = self.get_anonymous_id(agent_id)
@@ -709,6 +709,7 @@ class CoordinationTracker:
             "voted_for": voted_for,  # Real agent ID for compatibility
             "voted_for_label": voted_for_label,  # Answer label for display
             "reason": reason,
+            "suggestions": suggestions,  # Include suggestions for other agents
             "available_answers": self.iteration_available_labels.copy(),
         }
         self._add_event(

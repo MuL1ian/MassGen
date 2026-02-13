@@ -353,6 +353,7 @@ class StreamingBufferMixin:
         voted_for_agent: str,
         voted_for_label: Optional[str],
         reason: str,
+        suggestions: Optional[Dict[str, str]] = None,
         available_options: Optional[List[str]] = None,
     ) -> None:
         """Add a vote submission to the execution trace.
@@ -361,6 +362,7 @@ class StreamingBufferMixin:
             voted_for_agent: The agent ID that was voted for
             voted_for_label: The answer label voted for (e.g., "agent1.2")
             reason: The reason for the vote
+            suggestions: Suggestions for other agents (agent_id -> feedback)
             available_options: List of available answer labels when vote was cast
         """
         if self._execution_trace:
@@ -368,6 +370,7 @@ class StreamingBufferMixin:
                 voted_for_agent=voted_for_agent,
                 voted_for_label=voted_for_label,
                 reason=reason,
+                suggestions=suggestions,
                 available_options=available_options,
             )
 

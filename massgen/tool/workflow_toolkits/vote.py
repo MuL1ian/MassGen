@@ -7,6 +7,17 @@ from typing import Any, Dict, List, Optional
 
 from .base import BaseToolkit, ToolType
 
+SUGGESTIONS_DESCRIPTION = (
+    "**REQUIRED**: Provide constructive feedback to help other agents improve their answers "
+    "(not the agent you voted for). "
+    "This is crucial for multi-agent learning and collaboration. "
+    "Map agent IDs to specific, actionable suggestions "
+    "(e.g., {'agent2': 'Consider adding error handling for edge case X', "
+    "'agent3': 'The approach could be simplified by using Y instead of Z'}). "
+    "You should provide meaningful feedback for at least one other agent. "
+    "Empty dict {} is technically allowed but strongly discouraged."
+)
+
 
 class VoteToolkit(BaseToolkit):
     """Vote toolkit for agent coordination workflows."""
@@ -110,11 +121,11 @@ class VoteToolkit(BaseToolkit):
                         },
                         "suggestions": {
                             "type": "object",
-                            "description": "Optional feedback for other agents (not the one you voted for). Map agent IDs to specific suggestions.",
+                            "description": SUGGESTIONS_DESCRIPTION,
                             "additionalProperties": {"type": "string"},
                         },
                     },
-                    "required": ["agent_id", "reason"],
+                    "required": ["agent_id", "reason", "suggestions"],
                 },
             }
 
@@ -144,11 +155,11 @@ class VoteToolkit(BaseToolkit):
                             },
                             "suggestions": {
                                 "type": "object",
-                                "description": "Optional feedback for other agents (not the one you voted for). Map agent IDs to specific suggestions.",
+                                "description": SUGGESTIONS_DESCRIPTION,
                                 "additionalProperties": {"type": "string"},
                             },
                         },
-                        "required": ["agent_id", "reason"],
+                        "required": ["agent_id", "reason", "suggestions"],
                     },
                 },
             }
@@ -179,11 +190,11 @@ class VoteToolkit(BaseToolkit):
                             },
                             "suggestions": {
                                 "type": "object",
-                                "description": "Optional feedback for other agents (not the one you voted for). Map agent IDs to specific suggestions.",
+                                "description": SUGGESTIONS_DESCRIPTION,
                                 "additionalProperties": {"type": "string"},
                             },
                         },
-                        "required": ["agent_id", "reason"],
+                        "required": ["agent_id", "reason", "suggestions"],
                     },
                 },
             }

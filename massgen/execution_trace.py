@@ -212,6 +212,7 @@ class ExecutionTraceWriter:
         voted_for_agent: str,
         voted_for_label: Optional[str],
         reason: str,
+        suggestions: Optional[Dict[str, str]] = None,
         available_options: Optional[List[str]] = None,
     ) -> None:
         """Record a vote submission during enforcement phase.
@@ -220,6 +221,7 @@ class ExecutionTraceWriter:
             voted_for_agent: The agent ID that was voted for
             voted_for_label: The answer label voted for (e.g., "agent1.2")
             reason: The reason for the vote
+            suggestions: Suggestions for other agents (agent_id -> feedback)
             available_options: List of available answer labels when vote was cast
         """
         self.finalize_reasoning()  # Close any open reasoning block
@@ -232,6 +234,7 @@ class ExecutionTraceWriter:
                     "voted_for_agent": voted_for_agent,
                     "voted_for_label": voted_for_label,
                     "reason": reason,
+                    "suggestions": suggestions,
                     "available_options": available_options or [],
                 },
             ),
@@ -311,6 +314,7 @@ class ExecutionTraceWriter:
                 voted_for_agent = entry.content["voted_for_agent"]
                 voted_for_label = entry.content.get("voted_for_label")
                 reason = entry.content["reason"]
+                suggestions = entry.content.get("suggestions")
                 available_options = entry.content.get("available_options", [])
                 vote_target = voted_for_label or voted_for_agent
                 lines.append(f"### Vote Cast: {vote_target}")
@@ -318,6 +322,10 @@ class ExecutionTraceWriter:
                     lines.append(f"**Available options**: {', '.join(available_options)}")
                 lines.append(f"**Voted for**: {vote_target}")
                 lines.append(f"**Reason**: {reason}")
+                if suggestions:
+                    lines.append("**Suggestions for other agents**:")
+                    for agent_id, suggestion in suggestions.items():
+                        lines.append(f"  - {agent_id}: {suggestion}")
                 lines.append("")
 
         # Aggregated errors section

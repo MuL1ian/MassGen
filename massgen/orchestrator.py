@@ -5076,7 +5076,7 @@ Your answer:"""
                         "",
                         *feedback_for_agent,
                         "",
-                    ]
+                    ],
                 )
 
             injection_parts.extend(
@@ -5099,7 +5099,7 @@ Your answer:"""
                     "",
                     "DO NOT ignore this update - you must explicitly evaluate and decide!",
                     "=" * 60,
-                ]
+                ],
             )
 
         return "\n".join(injection_parts)
@@ -8324,13 +8324,83 @@ Your answer:"""
                             reason = tool_args.get("reason", "")
                             suggestions_anon = tool_args.get("suggestions")  # Dict with anon IDs
 
+                            # VALIDATE: suggestions field must be provided as a dict
+                            # Empty dict {} is acceptable, but field cannot be missing/null
+                            if suggestions_anon is None or not isinstance(suggestions_anon, dict):
+                                if attempt < max_attempts - 1:
+                                    error_msg = (
+                                        "Vote rejected: 'suggestions' field is required. "
+                                        "Provide it as a dict mapping agent IDs to suggestions (e.g., {'agent2': 'Consider...'}) "
+                                        "or empty dict {} if no suggestions."
+                                    )
+
+                                    # Send retry message
+                                    yield ("content", f"❌ Retry ({attempt + 1}/{max_attempts}): {error_msg}")
+
+                                    # Track enforcement event
+                                    buffer_preview, buffer_chars = self._get_buffer_content(agent)
+                                    self.coordination_tracker.track_enforcement_event(
+                                        agent_id=agent_id,
+                                        reason="missing_suggestions_field",
+                                        attempt=attempt + 1,
+                                        max_attempts=max_attempts,
+                                        tool_calls=["vote"],
+                                        error_message=error_msg,
+                                        buffer_preview=buffer_preview,
+                                        buffer_chars=buffer_chars,
+                                    )
+
+                                    # Create tool error message for retry
+                                    enforcement_msg = self._create_tool_error_messages(
+                                        agent,
+                                        [tool_call],
+                                        error_msg,
+                                    )
+                                    attempt += 1
+                                    continue  # Retry with updated conversation
+                                else:
+                                    yield ("error", f"Missing suggestions field after {max_attempts} attempts")
+                                    yield ("done", None)
+                                    return
+
+                            # VALIDATE: Cannot give suggestions to the voted-for agent
+                            if voted_agent_anon in suggestions_anon:
+                                if attempt < max_attempts - 1:
+                                    error_msg = f"Vote rejected: Cannot provide suggestions to the agent you voted for ({voted_agent_anon}). " f"Suggestions should be for other agents only."
+
+                                    yield ("content", f"❌ Retry ({attempt + 1}/{max_attempts}): {error_msg}")
+
+                                    buffer_preview, buffer_chars = self._get_buffer_content(agent)
+                                    self.coordination_tracker.track_enforcement_event(
+                                        agent_id=agent_id,
+                                        reason="suggestion_to_voted_agent",
+                                        attempt=attempt + 1,
+                                        max_attempts=max_attempts,
+                                        tool_calls=["vote"],
+                                        error_message=error_msg,
+                                        buffer_preview=buffer_preview,
+                                        buffer_chars=buffer_chars,
+                                    )
+
+                                    enforcement_msg = self._create_tool_error_messages(
+                                        agent,
+                                        [tool_call],
+                                        error_msg,
+                                    )
+                                    attempt += 1
+                                    continue
+                                else:
+                                    yield ("error", f"Invalid suggestions target after {max_attempts} attempts")
+                                    yield ("done", None)
+                                    return
+
                             # Convert anonymous agent ID back to real agent ID
                             # Use global agent mapping (consistent with vote tool enum and injection)
                             agent_mapping = self.coordination_tracker.get_anonymous_agent_mapping()
 
                             # Convert anonymous suggestions keys to real agent IDs
                             suggestions_real = None
-                            if suggestions_anon and isinstance(suggestions_anon, dict):
+                            if isinstance(suggestions_anon, dict):
                                 suggestions_real = {agent_mapping.get(anon_id, anon_id): feedback for anon_id, feedback in suggestions_anon.items()}
 
                             voted_agent = agent_mapping.get(
@@ -8416,12 +8486,13 @@ Your answer:"""
                                     voted_for_agent=voted_agent,
                                     voted_for_label=_agent_voted_for_label,
                                     reason=reason,
+                                    suggestions=suggestions_real,
                                     available_options=available_options,
                                 )
 
                             yield (
                                 "result",
-                                ("vote", {"agent_id": voted_agent, "reason": reason}),
+                                ("vote", {"agent_id": voted_agent, "reason": reason, "suggestions": suggestions_real}),
                             )
                             yield ("done", None)
                             return
