@@ -97,3 +97,15 @@ async def test_presentation_fallback_uses_stored_answer(mock_orchestrator, monke
     assert fallback_chunks
     assert stored_answer in fallback_chunks[0].content
     assert orchestrator._final_presentation_content == stored_answer
+
+
+def test_get_coordination_result_includes_timeout_metadata(mock_orchestrator):
+    """Execution mode needs explicit timeout signals for chunk retry handling."""
+    orchestrator = mock_orchestrator(num_agents=1)
+    orchestrator.is_orchestrator_timeout = True
+    orchestrator.timeout_reason = "Time limit exceeded (120.0s/120s)"
+
+    result = orchestrator.get_coordination_result()
+
+    assert result["is_orchestrator_timeout"] is True
+    assert result["timeout_reason"] == "Time limit exceeded (120.0s/120s)"

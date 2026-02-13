@@ -172,6 +172,23 @@ Features:
 * Conversation context preserved across turns
 * Session history saved in ``.massgen/sessions/``
 * Real-time agent coordination visualization
+* Optional CWD context shortcut via ``--cwd-context ro|rw``
+
+CWD Context Shortcut
+~~~~~~~~~~~~~~~~~~~~
+
+Use ``--cwd-context`` when you want quick access to your current directory without editing YAML:
+
+.. code-block:: bash
+
+   # Read-only current directory context
+   uv run massgen --config @examples/basic/multi/three_agents_default --cwd-context ro "Review this repository"
+
+   # Writable current directory context
+   uv run massgen --config @examples/basic/multi/three_agents_default --cwd-context rw "Implement the requested changes"
+
+In Textual TUI sessions, this initializes the same state as pressing ``Ctrl+P``.
+During Execute mode, ``Ctrl+P`` is blocked so context scope cannot change mid-execution.
 
 See :doc:`../user_guide/sessions/multi_turn_mode` for the complete guide.
 

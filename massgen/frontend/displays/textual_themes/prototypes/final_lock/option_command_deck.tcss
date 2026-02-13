@@ -1,0 +1,195 @@
+/* Prototype: Option C - Command Deck
+   Goal: Ops-console vibe with strong controls and explicit state framing.
+*/
+
+Screen {
+    background: #05090f;
+    color: #b8d3ff;
+}
+
+.hidden {
+    display: none;
+}
+
+TimelineSection {
+    width: 100%;
+    height: 100%;
+    padding: 1 2;
+    background: #05090f;
+}
+
+TimelineSection.answer-locked {
+    overflow-y: hidden;
+    padding: 0;
+}
+
+TimelineSection .answer-lock-hidden {
+    display: none;
+}
+
+TimelineSection FinalPresentationCard.final-card-locked {
+    height: 1fr;
+    margin: 0;
+}
+
+TimelineSection FinalPresentationCard.final-card-locked #final_card_body {
+    height: 1fr;
+}
+
+TimelineSection FinalPresentationCard.final-card-locked #final_card_content {
+    height: 1fr;
+    overflow-y: auto;
+}
+
+TimelineSection FinalPresentationCard.final-card-compact {
+    height: 4;
+    margin: 0;
+}
+
+TimelineSection FinalPresentationCard.final-card-compact #final_card_content {
+    display: none;
+}
+
+FinalPresentationCard.option-command-deck {
+    width: 100%;
+    height: 1fr;
+    margin: 0;
+    border: double #2a5ee8;
+    background: #08162a;
+}
+
+FinalPresentationCard.option-command-deck #final_card_header {
+    height: 4;
+    background: #0c2342;
+    border-bottom: heavy #2a5ee8;
+    padding: 0 2;
+}
+
+FinalPresentationCard.option-command-deck #final_card_title {
+    height: 1;
+    color: #dbe7ff;
+    text-style: bold;
+}
+
+FinalPresentationCard.option-command-deck #final_card_winner {
+    height: 1;
+    color: #8fe2ff;
+    text-style: bold;
+}
+
+FinalPresentationCard.option-command-deck #final_card_votes {
+    height: 1;
+    color: #87a7d8;
+    border: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+FinalPresentationCard.option-command-deck #final_card_body {
+    width: 100%;
+    height: 1fr;
+    layout: horizontal;
+}
+
+FinalPresentationCard.option-command-deck #final_card_content {
+    width: 1fr;
+    height: 1fr;
+    padding: 1 2;
+    background: #08162a;
+    color: #b8d3ff;
+}
+
+FinalPresentationCard.option-command-deck #final_card_stream,
+FinalPresentationCard.option-command-deck #final_card_text {
+    color: #b8d3ff;
+}
+
+FinalPresentationCard.option-command-deck #file_explorer_panel {
+    width: 40;
+    min-width: 30;
+    border-left: heavy #2a5ee8;
+    background: #061225;
+    color: #9fc0ff;
+    padding: 0 1;
+}
+
+FinalPresentationCard.option-command-deck #file_explorer_panel #file_tree {
+    height: 1fr;
+    max-height: 999;
+}
+
+FinalPresentationCard.option-command-deck #file_explorer_panel #file_preview_header,
+FinalPresentationCard.option-command-deck #file_explorer_panel #file_preview {
+    display: none;
+}
+
+FinalPresentationCard.option-command-deck #final_card_post_eval {
+    height: auto;
+    max-height: 6;
+    background: #081935;
+    border-top: heavy #2a5ee8;
+}
+
+FinalPresentationCard.option-command-deck #post_eval_status {
+    color: #6fe3ff;
+}
+
+FinalPresentationCard.option-command-deck #final_card_context_paths {
+    height: auto;
+    max-height: 8;
+    background: #061225;
+    border-top: heavy #2a5ee8;
+}
+
+FinalPresentationCard.option-command-deck #context_paths_header {
+    color: #8fc9ff;
+}
+
+FinalPresentationCard.option-command-deck .context-path-new {
+    color: #79e6a3;
+}
+
+FinalPresentationCard.option-command-deck .context-path-modified {
+    color: #ffc86f;
+}
+
+FinalPresentationCard.option-command-deck #final_card_footer {
+    height: 2;
+    background: #0b203d;
+    border-top: heavy #2a5ee8;
+    padding: 0 2;
+}
+
+FinalPresentationCard.option-command-deck .footer-link {
+    width: auto;
+    height: 1;
+    color: #85b7ff;
+    text-style: bold underline;
+    border: none;
+    background: #12386b;
+    padding: 0 1;
+    margin-right: 1;
+}
+
+FinalPresentationCard.option-command-deck .footer-link:hover {
+    color: #dbe7ff;
+    background: #1a4e93;
+    text-style: bold;
+}
+
+FinalPresentationCard.option-command-deck .verified-indicator {
+    width: auto;
+    display: block;
+    color: #b8d3ff;
+}
+
+FinalPresentationCard.option-command-deck #continue_message {
+    display: none;
+    color: #87a7d8;
+    margin-top: 0;
+}
+
+FinalPresentationCard.option-command-deck #final_card_button_spacer {
+    display: none;
+    width: 0;
+}

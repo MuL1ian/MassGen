@@ -46,6 +46,10 @@ class TestPersonaGeneratorConfig:
         config = PersonaGeneratorConfig(diversity_mode="implementation")
         assert config.diversity_mode == DiversityMode.IMPLEMENTATION
 
+    def test_valid_methodology_mode(self):
+        config = PersonaGeneratorConfig(diversity_mode="methodology")
+        assert config.diversity_mode == DiversityMode.METHODOLOGY
+
 
 # ---------------------------------------------------------------------------
 # GeneratedPersona
@@ -82,6 +86,7 @@ class TestDiversityMode:
     def test_constants(self):
         assert DiversityMode.PERSPECTIVE == "perspective"
         assert DiversityMode.IMPLEMENTATION == "implementation"
+        assert DiversityMode.METHODOLOGY == "methodology"
 
 
 # ---------------------------------------------------------------------------
@@ -286,6 +291,24 @@ class TestFallbackPersonas:
         assert "focus_area" in persona.attributes
         assert "communication" in persona.attributes
 
+    def test_fallback_methodology_mode_prescribes_approaches(self):
+        gen = PersonaGenerator(diversity_mode="methodology")
+        gen.strategy = "complementary"
+        result = gen._generate_fallback_personas(["a", "b", "c", "d", "e"])
+        # Each agent should have a different approach
+        styles = [p.attributes["thinking_style"] for p in result.values()]
+        assert len(set(styles)) == 5
+        # Persona text should describe a working approach, not just a thinking style
+        for persona in result.values():
+            assert len(persona.persona_text) > 0
+
+    def test_fallback_methodology_mode_cycles(self):
+        gen = PersonaGenerator(diversity_mode="methodology")
+        gen.strategy = "complementary"
+        result = gen._generate_fallback_personas(["a", "b", "c", "d", "e", "f"])
+        styles = [result[aid].attributes["thinking_style"] for aid in ["a", "f"]]
+        assert styles[0] == styles[1]
+
 
 # ---------------------------------------------------------------------------
 # PersonaGenerator._create_simplified_agent_configs
@@ -383,6 +406,45 @@ class TestBuildSubagentPrompt:
             existing_system_messages={"agent_a": "You are a security expert"},
         )
         assert "You are a security expert" in prompt
+
+    def test_methodology_mode_prompt(self):
+        gen = self._make_generator(diversity_mode="methodology")
+        prompt = gen._build_subagent_personas_prompt(
+            agent_ids=["agent_a", "agent_b"],
+            task="Build a portfolio website",
+            existing_system_messages={},
+        )
+        # Should focus on working approaches / methodology
+        assert "WORKING APPROACH" in prompt or "METHODOLOGY" in prompt
+        assert "agent_a" in prompt
+        assert "agent_b" in prompt
+        assert "personas.json" in prompt
+        # Should NOT be about perspectives or solution types
+        assert "PERSPECTIVES" not in prompt
+        assert "SOLUTION APPROACHES" not in prompt
+
+    def test_methodology_mode_emphasizes_how_to_work(self):
+        gen = self._make_generator(diversity_mode="methodology")
+        prompt = gen._build_subagent_personas_prompt(
+            agent_ids=["agent_a", "agent_b", "agent_c"],
+            task="Create a presentation about climate change",
+            existing_system_messages={},
+        )
+        prompt_lower = prompt.lower()
+        # Should emphasize how agents approach/tackle/structure work
+        assert "how" in prompt_lower
+        assert any(word in prompt_lower for word in ["approach", "tackle", "structure", "process", "method"])
+
+    def test_methodology_mode_requests_different_approaches(self):
+        gen = self._make_generator(diversity_mode="methodology")
+        prompt = gen._build_subagent_personas_prompt(
+            agent_ids=["agent_a", "agent_b"],
+            task="Refactor the authentication module",
+            existing_system_messages={},
+        )
+        prompt_lower = prompt.lower()
+        # Should request genuinely different approaches
+        assert "different" in prompt_lower
 
 
 # ---------------------------------------------------------------------------

@@ -692,8 +692,8 @@ ModeToggle.state-multi {
 
 /* Coordination mode states */
 ModeToggle.state-parallel {
-    color: $text;
-    border-bottom: tall $surface-lighten-2;
+    color: $mode-toggle-inactive-color;
+    border-bottom: tall $mode-toggle-border;
 }
 
 ModeToggle.state-decomposition {
@@ -703,6 +703,22 @@ ModeToggle.state-decomposition {
 
 /* Refinement on - highlighted as active state */
 ModeToggle.state-on {
+    color: $mode-toggle-active-color;
+    border-bottom: tall $mode-toggle-active-color;
+}
+
+/* Persona diversity modes - highlighted as active state */
+ModeToggle.state-perspective {
+    color: $mode-toggle-active-color;
+    border-bottom: tall $mode-toggle-active-color;
+}
+
+ModeToggle.state-implementation {
+    color: $mode-toggle-active-color;
+    border-bottom: tall $mode-toggle-active-color;
+}
+
+ModeToggle.state-methodology {
     color: $mode-toggle-active-color;
     border-bottom: tall $mode-toggle-active-color;
 }
@@ -5249,34 +5265,39 @@ ToastHolder {
 /* Keep toast visually distinct from timeline backgrounds in all themes. */
 Toast {
     width: auto;
-    min-width: 36;
-    max-width: 68;
+    min-width: 40;
+    max-width: 74;
     height: auto;
     background: $toast-bg;
-    border: solid $toast-border;
-    border-left: tall $primary;
+    border: none;
+    border-left: wide $primary;
     color: $text;
-    padding: 0 1;
+    padding: 1 2;
     margin-top: 1;
+    margin-right: 1;
     text-wrap: wrap;
     overflow: hidden;
 }
 
-/* Severity-specific left accent colors (override the theme defaults) */
+/* Severity-specific accents with subtle tinting. */
 Toast.-information {
-    border-left: tall $secondary;
+    background: $secondary 10%;
+    border-left: wide $secondary;
 }
 
 Toast.-warning {
-    border-left: tall $warning;
+    background: $warning 12%;
+    border-left: wide $warning;
 }
 
 Toast.-error {
-    border-left: tall $error;
+    background: $error 12%;
+    border-left: wide $error;
 }
 
 Toast.-success {
-    border-left: tall $success;
+    background: $success 12%;
+    border-left: wide $success;
 }
 
 /* ============================================================
@@ -6712,6 +6733,13 @@ FinalPresentationCard #final_card_votes {
     margin-bottom: 1;
 }
 
+FinalPresentationCard #final_card_header_compact {
+    display: none;
+    width: 100%;
+    height: auto;
+    color: $text;
+}
+
 FinalPresentationCard #final_card_body {
     width: 100%;
     height: auto;
@@ -6956,6 +6984,42 @@ FinalPresentationCard #final_card_button_spacer {
     height: 1;
 }
 
+/* Locked-mode professional presentation:
+ * Keep final answer visually aligned with timeline styling and reduce dead space.
+ */
+FinalPresentationCard.locked-mode {
+    height: 1fr;
+    margin: 0;
+    border: solid $surface-lighten-1;
+    background: $background;
+}
+
+FinalPresentationCard.locked-mode #final_card_header {
+    height: 2;
+    padding: 0 2;
+    background: $surface;
+    border-bottom: solid $surface-lighten-1;
+}
+
+FinalPresentationCard.locked-mode #final_card_title {
+    display: none;
+}
+
+FinalPresentationCard.locked-mode #final_card_winner {
+    display: none;
+}
+
+FinalPresentationCard.locked-mode #final_card_votes {
+    display: none;
+}
+
+FinalPresentationCard.locked-mode #final_card_header_compact {
+    display: block;
+    height: 1;
+    color: $text;
+    text-style: bold;
+}
+
 FinalPresentationCard.locked-mode #final_card_body {
     height: 1fr;
     max-height: 999;
@@ -6964,10 +7028,47 @@ FinalPresentationCard.locked-mode #final_card_body {
 FinalPresentationCard.locked-mode #final_card_content {
     height: 1fr;
     max-height: 999;
+    background: $background;
+    padding: 1 2;
+    overflow-y: auto;
 }
 
-FinalPresentationCard.locked-mode {
+FinalPresentationCard.locked-mode #file_explorer_panel {
+    width: 42;
+    min-width: 32;
+    background: $surface-darken-1;
+    border-left: solid $surface-lighten-1;
+    padding: 0 1;
+}
+
+FinalPresentationCard.locked-mode #file_explorer_panel #file_tree_header {
+    color: $primary;
+}
+
+FinalPresentationCard.locked-mode #file_explorer_panel #file_tree {
     height: 1fr;
+    max-height: 999;
+}
+
+FinalPresentationCard.locked-mode #file_explorer_panel #file_preview_header,
+FinalPresentationCard.locked-mode #file_explorer_panel #file_preview {
+    display: none;
+}
+
+FinalPresentationCard.locked-mode #final_card_post_eval,
+FinalPresentationCard.locked-mode #final_card_context_paths {
+    display: none;
+}
+
+FinalPresentationCard.locked-mode #final_card_footer {
+    height: 2;
+    background: $surface-darken-1;
+    border-top: solid $surface-lighten-1;
+    padding: 0 2;
+}
+
+FinalPresentationCard.locked-mode #continue_message {
+    display: none;
 }
 
 /* =============================================================================
@@ -7649,17 +7750,37 @@ SubagentModal #nav-text {
 
 /* --- Modal container --- */
 .review-modal {
-    width: 94%;
-    max-width: 160;
-    height: 88%;
-    max-height: 50;
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    max-height: 100%;
+    padding: 0;
+    border: none;
+}
+
+/* --- Header --- */
+.review-modal .modal-header {
+    height: auto;
+    width: 100%;
     padding: 0 1;
+    margin-bottom: 0;
+    background: $bg-surface;
+    border-bottom: solid $border-muted;
+}
+
+.review-modal .modal-close-btn {
+    height: 1;
+    min-height: 1;
+    border: none;
+    background: transparent;
+    color: $fg-muted;
 }
 
 /* --- Summary line --- */
 .review-modal .modal-summary {
     padding: 0 1;
     margin: 0;
+    background: $bg-surface;
 }
 
 /* --- Instructions hint --- */
@@ -7667,7 +7788,11 @@ SubagentModal #nav-text {
     padding: 0 1;
     margin: 0;
     color: $fg-subtle;
-    height: auto;
+    height: 1;
+    max-height: 1;
+    overflow: hidden;
+    background: $bg-surface;
+    border-bottom: solid $border-muted;
 }
 
 /* --- Two-panel content area --- */
@@ -7680,11 +7805,12 @@ SubagentModal #nav-text {
 /* ===== Left panel: file list ===== */
 
 .review-modal .review-file-list {
-    width: 28;
-    min-width: 24;
-    max-width: 36;
-    border-right: solid $border-muted;
+    width: 34;
+    min-width: 28;
+    max-width: 44;
+    border-right: solid $border-default;
     height: 100%;
+    background: $bg-surface;
 }
 
 /* File list header row with Select All / Deselect All buttons */
@@ -7693,6 +7819,7 @@ SubagentModal #nav-text {
     align: left middle;
     padding: 0 0 0 1;
     margin-bottom: 0;
+    border-bottom: solid $border-muted;
 }
 
 .review-modal .review-file-list-title {
@@ -7782,7 +7909,7 @@ SubagentModal #nav-text {
 
 .review-modal .review-diff-panel {
     width: 1fr;
-    padding-left: 1;
+    padding-left: 0;
     height: 100%;
 }
 
@@ -7790,7 +7917,8 @@ SubagentModal #nav-text {
 .review-modal .review-diff-header {
     height: auto;
     padding: 0 0 0 1;
-    color: $fg-muted;
+    color: $fg-secondary;
+    border-bottom: solid $border-muted;
 }
 
 /* Scrollable diff content area */
@@ -7812,6 +7940,9 @@ SubagentModal #nav-text {
 /* --- Footer button refinements --- */
 .review-modal .modal-footer {
     padding-top: 0;
+    margin-top: 0;
+    border-top: solid $surface-lighten-1;
+    background: $bg-surface;
 }
 
 .review-modal .modal-footer Button {

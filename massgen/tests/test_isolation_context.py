@@ -535,6 +535,68 @@ class TestChangeApplier:
 
         icm.cleanup_all()
 
+    def test_apply_changes_committed_only_with_base_ref(self, tmp_path):
+        """Committed-only changes should apply when base_ref is provided."""
+        from massgen.filesystem_manager import ChangeApplier, IsolationContextManager
+
+        init_test_repo(tmp_path)
+        icm = IsolationContextManager(session_id="test-session", write_mode="auto")
+        isolated_path = icm.initialize_context(str(tmp_path))
+
+        applier = ChangeApplier()
+        baseline_content = (tmp_path / "file.txt").read_text()
+        base_ref = Repo(isolated_path).head.commit.hexsha
+
+        (Path(isolated_path) / "file.txt").write_text("committed update")
+        wt_repo = Repo(isolated_path)
+        wt_repo.git.add("-A")
+        wt_repo.index.commit("committed change")
+
+        # Simulate already-clean working tree after commit.
+        assert not wt_repo.is_dirty(untracked_files=True)
+
+        applied = applier.apply_changes(
+            isolated_path,
+            str(tmp_path),
+            base_ref=base_ref,
+        )
+
+        assert baseline_content == "content"
+        assert applied == ["file.txt"]
+        assert (tmp_path / "file.txt").read_text() == "committed update"
+
+        icm.cleanup_all()
+
+    def test_detect_target_drift_identifies_changed_target_file(self, tmp_path):
+        """Drift detection flags files that changed in target after baseline."""
+        from massgen.filesystem_manager import ChangeApplier, IsolationContextManager
+
+        init_test_repo(tmp_path)
+        icm = IsolationContextManager(session_id="test-session", write_mode="auto")
+        isolated_path = icm.initialize_context(str(tmp_path))
+        info = icm.get_context_info(str(tmp_path))
+        base_ref = info.get("base_ref")
+        assert base_ref
+
+        # Presenter change in isolated context
+        (Path(isolated_path) / "file.txt").write_text("presenter update")
+        wt_repo = Repo(isolated_path)
+        wt_repo.git.add("-A")
+        wt_repo.index.commit("presenter commit")
+
+        # Independent drift in target context after baseline
+        (tmp_path / "file.txt").write_text("source drift")
+
+        applier = ChangeApplier()
+        drift = applier.detect_target_drift(
+            source_path=isolated_path,
+            target_path=str(tmp_path),
+            base_ref=base_ref,
+        )
+
+        assert drift == ["file.txt"]
+        icm.cleanup_all()
+
     def test_apply_changes_nested_directory(self, tmp_path):
         """Test applying changes in nested directories."""
         from massgen.filesystem_manager import ChangeApplier, IsolationContextManager
@@ -560,6 +622,44 @@ class TestChangeApplier:
         assert len(applied) == 1
         assert "subdir/nested.txt" in applied
         assert (tmp_path / "subdir" / "nested.txt").read_text() == "modified nested"
+
+        icm.cleanup_all()
+
+    def test_apply_changes_with_approved_hunks_applies_partial_file(self, tmp_path):
+        """When approved_hunks is provided, only selected hunks should apply."""
+        from massgen.filesystem_manager import ChangeApplier, IsolationContextManager
+
+        repo = init_test_repo(tmp_path)
+        target_lines = [f"line {i}\n" for i in range(1, 13)]
+        (tmp_path / "file.txt").write_text("".join(target_lines))
+        repo.git.add("file.txt")
+        repo.index.commit("seed multiline file")
+
+        icm = IsolationContextManager(session_id="test-session", write_mode="auto")
+        isolated_path = icm.initialize_context(str(tmp_path))
+
+        source_lines = target_lines.copy()
+        source_lines[1] = "line two changed\n"  # hunk 0
+        source_lines[10] = "line eleven changed\n"  # hunk 1
+        (Path(isolated_path) / "file.txt").write_text("".join(source_lines))
+
+        source_repo = Repo(isolated_path)
+        combined_diff = source_repo.git.diff("--", "file.txt")
+        assert "@@" in combined_diff
+
+        applier = ChangeApplier()
+        applied = applier.apply_changes(
+            isolated_path,
+            str(tmp_path),
+            approved_files=["file.txt"],
+            approved_hunks={"file.txt": [0]},
+            combined_diff=combined_diff,
+        )
+
+        final_lines = (tmp_path / "file.txt").read_text().splitlines(keepends=True)
+        assert applied == ["file.txt"]
+        assert final_lines[1] == "line two changed\n"
+        assert final_lines[10] == "line 11\n"
 
         icm.cleanup_all()
 

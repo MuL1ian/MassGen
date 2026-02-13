@@ -126,6 +126,11 @@ class CoordinationConfig:
                    - "isolated": Use shadow repos for full isolation
                    - "legacy": Use direct writes (no isolation, current behavior)
                    - None: Disabled (default, same as "legacy")
+        drift_conflict_policy: How to handle target-file drift when applying isolated
+                              presenter changes back to source context.
+                              - "skip": Skip drifted files, apply remaining files (default)
+                              - "prefer_presenter": Apply presenter changes even on drift
+                              - "fail": Block apply if any drift is detected
     """
 
     enable_planning_mode: bool = False
@@ -165,11 +170,13 @@ class CoordinationConfig:
     task_decomposer: TaskDecomposerConfig = field(default_factory=TaskDecomposerConfig)
     write_mode: Optional[str] = None  # "auto" | "worktree" | "isolated" | "legacy"
     enable_changedoc: bool = True  # Write changedoc.md decision journal during coordination
+    drift_conflict_policy: str = "skip"  # "skip" | "prefer_presenter" | "fail"
 
     def __post_init__(self):
         """Validate configuration after initialization."""
         self._validate_broadcast_config()
         self._validate_timeout_config()
+        self._validate_drift_conflict_policy()
 
     def _validate_timeout_config(self):
         """Validate subagent timeout configuration."""
@@ -218,6 +225,14 @@ class CoordinationConfig:
             if self.broadcast_timeout < 30:
                 logger.warning(f"Broadcast timeout is very low ({self.broadcast_timeout}s). Agents may not have enough time to respond.")
 
+    def _validate_drift_conflict_policy(self):
+        """Validate drift conflict policy for isolated change apply."""
+        valid_policies = {"skip", "prefer_presenter", "fail"}
+        if self.drift_conflict_policy not in valid_policies:
+            raise ValueError(
+                "Invalid drift_conflict_policy: " f"{self.drift_conflict_policy}. " f"Must be one of: {sorted(valid_policies)}",
+            )
+
 
 @dataclass
 class AgentConfig:
@@ -237,6 +252,7 @@ class AgentConfig:
         voting_sensitivity: Controls how critical agents are when voting ("lenient", "balanced", "strict")
         max_new_answers_per_agent: Maximum number of new answers each agent can provide (None = unlimited)
         max_new_answers_global: Maximum number of new answers across all agents (None = unlimited)
+        checklist_require_gap_report: In checklist_gated mode, require a markdown gap report before verdict (default: True)
         answer_novelty_requirement: How different new answers must be from existing ones ("lenient", "balanced", "strict")
         fairness_enabled: Enable fairness controls across all coordination modes (default: True)
         fairness_lead_cap_answers: Maximum allowed lead in answer revisions over slowest active peer
@@ -254,6 +270,7 @@ class AgentConfig:
     voting_threshold: Optional[int] = None  # Numeric threshold for ROI-style voting (e.g., 15 = 15% improvement required)
     max_new_answers_per_agent: Optional[int] = None
     max_new_answers_global: Optional[int] = None
+    checklist_require_gap_report: bool = True
     answer_novelty_requirement: str = "lenient"
     fairness_enabled: bool = True
     fairness_lead_cap_answers: int = 2
@@ -956,6 +973,7 @@ class AgentConfig:
             "voting_threshold": self.voting_threshold,
             "max_new_answers_per_agent": self.max_new_answers_per_agent,
             "max_new_answers_global": self.max_new_answers_global,
+            "checklist_require_gap_report": self.checklist_require_gap_report,
             "answer_novelty_requirement": self.answer_novelty_requirement,
             "fairness_enabled": self.fairness_enabled,
             "fairness_lead_cap_answers": self.fairness_lead_cap_answers,
@@ -973,6 +991,7 @@ class AgentConfig:
             "enable_planning_mode": self.coordination_config.enable_planning_mode,
             "planning_mode_instruction": self.coordination_config.planning_mode_instruction,
             "max_orchestration_restarts": self.coordination_config.max_orchestration_restarts,
+            "drift_conflict_policy": self.coordination_config.drift_conflict_policy,
         }
 
         # Handle debug fields
@@ -1005,6 +1024,7 @@ class AgentConfig:
         voting_threshold = data.get("voting_threshold")
         max_new_answers_per_agent = data.get("max_new_answers_per_agent")
         max_new_answers_global = data.get("max_new_answers_global")
+        checklist_require_gap_report = data.get("checklist_require_gap_report", True)
         answer_novelty_requirement = data.get("answer_novelty_requirement", "lenient")
         fairness_enabled = data.get("fairness_enabled", True)
         fairness_lead_cap_answers = data.get("fairness_lead_cap_answers", 2)
@@ -1041,6 +1061,7 @@ class AgentConfig:
             voting_threshold=voting_threshold,
             max_new_answers_per_agent=max_new_answers_per_agent,
             max_new_answers_global=max_new_answers_global,
+            checklist_require_gap_report=checklist_require_gap_report,
             answer_novelty_requirement=answer_novelty_requirement,
             fairness_enabled=fairness_enabled,
             fairness_lead_cap_answers=fairness_lead_cap_answers,

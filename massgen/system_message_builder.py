@@ -129,6 +129,7 @@ class SystemMessageBuilder:
         agent_mapping: Optional[Dict[str, str]] = None,
         voting_sensitivity_override: Optional[str] = None,
         voting_threshold: Optional[int] = None,
+        checklist_require_gap_report: bool = True,
         answers_used: int = 0,
         answer_cap: Optional[int] = None,
         coordination_mode: str = "voting",
@@ -202,7 +203,16 @@ class SystemMessageBuilder:
         # PRIORITY 1 (CRITICAL): MassGen Coordination - vote/new_answer or decomposition primitives
         if coordination_mode == "decomposition":
             decomp_sensitivity = voting_sensitivity_override or self.message_templates._voting_sensitivity
-            builder.add_section(DecompositionSection(subtask=agent_subtask, voting_threshold=voting_threshold, voting_sensitivity=decomp_sensitivity, answers_used=answers_used, answer_cap=answer_cap))
+            builder.add_section(
+                DecompositionSection(
+                    subtask=agent_subtask,
+                    voting_threshold=voting_threshold,
+                    voting_sensitivity=decomp_sensitivity,
+                    answers_used=answers_used,
+                    answer_cap=answer_cap,
+                    checklist_require_gap_report=checklist_require_gap_report,
+                ),
+            )
         else:
             # Use per-agent override if provided, otherwise fall back to orchestrator default
             voting_sensitivity = voting_sensitivity_override or self.message_templates._voting_sensitivity
@@ -215,6 +225,7 @@ class SystemMessageBuilder:
                     vote_only=vote_only,
                     round_number=round_number,
                     voting_threshold=voting_threshold,
+                    checklist_require_gap_report=checklist_require_gap_report,
                     answers_used=answers_used,
                     answer_cap=answer_cap,
                 ),

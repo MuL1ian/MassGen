@@ -162,6 +162,8 @@ class TuiModeState:
     # Parallel persona generation toggle (off by default).
     # When enabled (and coordination mode is parallel), runtime persona generation is used.
     parallel_personas_enabled: bool = False
+    # Diversity mode for persona generation ("perspective", "implementation", "methodology").
+    persona_diversity_mode: str = "perspective"
     # Set to True after the user explicitly changes the coordination toggle
     coordination_mode_user_set: bool = False
     # Optional per-agent subtask overrides for decomposition mode
@@ -377,7 +379,7 @@ class TuiModeState:
         if self.coordination_mode == "decomposition":
             parts.append("Coord: Decomposition")
         elif self.parallel_personas_enabled:
-            parts.append("Personas: ON")
+            parts.append(f"Personas: {self.persona_diversity_mode.title()}")
 
         # Refinement mode
         if not self.refinement_enabled:
