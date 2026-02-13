@@ -83,23 +83,29 @@ def test_anonymous_mapping_uses_sorted_agent_ids():
 
 
 def test_vote_with_suggestions_stored_correctly():
-    """Test that suggestions field is properly stored in AgentVote."""
-    tracker = _init_tracker(["agent_a", "agent_b"])
+    """Test that suggestions field is properly stored in AgentVote as dict."""
+    tracker = _init_tracker(["agent_a", "agent_b", "agent_c"])
     tracker.add_agent_answer("agent_a", "answer a")
     tracker.add_agent_answer("agent_b", "answer b")
+    tracker.add_agent_answer("agent_c", "answer c")
     tracker.start_new_iteration()
 
-    tracker.track_agent_context("agent_a", {"agent_b": "answer b"})
+    tracker.track_agent_context("agent_a", {"agent_b": "answer b", "agent_c": "answer c"})
     tracker.add_agent_vote(
         "agent_a",
-        {"agent_id": "agent_b", "reason": "best answer", "suggestions": "Consider adding examples"},
+        {
+            "agent_id": "agent_b",
+            "reason": "best answer",
+            "suggestions": {"agent_c": "Consider adding examples", "agent_a": "Fix edge cases"},
+        },
     )
 
     vote = tracker.votes[-1]
     assert vote.voter_id == "agent_a"
     assert vote.voted_for == "agent_b"
     assert vote.reason == "best answer"
-    assert vote.suggestions == "Consider adding examples"
+    assert isinstance(vote.suggestions, dict)
+    assert vote.suggestions == {"agent_c": "Consider adding examples", "agent_a": "Fix edge cases"}
 
 
 def test_vote_without_suggestions_backward_compatible():
@@ -121,14 +127,14 @@ def test_vote_without_suggestions_backward_compatible():
 
 
 def test_vote_with_empty_suggestions():
-    """Test that empty string suggestions are handled gracefully."""
+    """Test that empty dict suggestions are handled gracefully."""
     tracker = _init_tracker(["agent_a", "agent_b"])
     tracker.add_agent_answer("agent_a", "answer a")
     tracker.add_agent_answer("agent_b", "answer b")
     tracker.start_new_iteration()
 
     tracker.track_agent_context("agent_a", {"agent_b": "answer b"})
-    tracker.add_agent_vote("agent_a", {"agent_id": "agent_b", "reason": "best answer", "suggestions": ""})  # Empty string
+    tracker.add_agent_vote("agent_a", {"agent_id": "agent_b", "reason": "best answer", "suggestions": {}})  # Empty dict
 
     vote = tracker.votes[-1]
-    assert vote.suggestions == ""
+    assert vote.suggestions == {}

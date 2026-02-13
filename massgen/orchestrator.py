@@ -4917,6 +4917,33 @@ Your answer:"""
             logger.debug(f"[Orchestrator] Could not compute plan progress: {e}")
             return None
 
+    def _get_suggestions_for_agent(self, agent_id: str) -> List[str]:
+        """
+        Collect all suggestions targeting this agent from recent votes.
+
+        Returns formatted feedback lines with anonymous voter attribution.
+        """
+        suggestions_for_agent = []
+        anon_mapping = self.coordination_tracker.get_reverse_agent_mapping()
+
+        # Collect suggestions from all votes
+        for voter_id, voter_state in self.agent_states.items():
+            if not voter_state.votes:
+                continue
+
+            suggestions_dict = voter_state.votes.get("suggestions")
+            if not suggestions_dict or not isinstance(suggestions_dict, dict):
+                continue
+
+            if agent_id not in suggestions_dict:
+                continue
+
+            voter_anon = anon_mapping.get(voter_id, voter_id)
+            feedback = suggestions_dict[agent_id]
+            suggestions_for_agent.append(f"• From {voter_anon}: {feedback}")
+
+        return suggestions_for_agent
+
     def _build_tool_result_injection(
         self,
         agent_id: str,
@@ -5033,25 +5060,47 @@ Your answer:"""
                 header,
                 "",
                 *lines,
-                "=" * 60,
-                "REQUIRED ACTION - You MUST do one of the following:",
-                "=" * 60,
-                "",
-                "1. **ADD A TASK** to your plan: 'Evaluate agent answer(s) and decide next action'",
-                "   - Use update_task_status or create a new task to track this evaluation",
-                "   - Read their workspace files (paths above) to understand their solution",
-                "   - Read their execution_trace.md to see their full tool usage and reasoning",
-                "   - Compare their approach to yours",
-                "",
-                "2. **THEN CHOOSE ONE**:",
-                "   a) VOTE for their answer if it's complete and correct (use vote tool)",
-                "   b) BUILD on their work - improve/extend it and submit YOUR enhanced answer",
-                "   c) MERGE approaches - combine the best parts of their work with yours",
-                "   d) CONTINUE your own approach if you believe it's better",
-                "",
-                "DO NOT ignore this update - you must explicitly evaluate and decide!",
-                "=" * 60,
             ]
+
+            # Add per-agent feedback if available
+            feedback_for_agent = self._get_suggestions_for_agent(agent_id)
+            if feedback_for_agent:
+                injection_parts.extend(
+                    [
+                        "",
+                        "=" * 60,
+                        "FEEDBACK FROM OTHER AGENTS",
+                        "=" * 60,
+                        "",
+                        "Other agents have provided suggestions for improving your answer:",
+                        "",
+                        *feedback_for_agent,
+                        "",
+                    ]
+                )
+
+            injection_parts.extend(
+                [
+                    "=" * 60,
+                    "REQUIRED ACTION - You MUST do one of the following:",
+                    "=" * 60,
+                    "",
+                    "1. **ADD A TASK** to your plan: 'Evaluate agent answer(s) and decide next action'",
+                    "   - Use update_task_status or create a new task to track this evaluation",
+                    "   - Read their workspace files (paths above) to understand their solution",
+                    "   - Read their execution_trace.md to see their full tool usage and reasoning",
+                    "   - Compare their approach to yours",
+                    "",
+                    "2. **THEN CHOOSE ONE**:",
+                    "   a) VOTE for their answer if it's complete and correct (use vote tool)",
+                    "   b) BUILD on their work - improve/extend it and submit YOUR enhanced answer",
+                    "   c) MERGE approaches - combine the best parts of their work with yours",
+                    "   d) CONTINUE your own approach if you believe it's better",
+                    "",
+                    "DO NOT ignore this update - you must explicitly evaluate and decide!",
+                    "=" * 60,
+                ]
+            )
 
         return "\n".join(injection_parts)
 
@@ -8273,11 +8322,16 @@ Your answer:"""
 
                             voted_agent_anon = tool_args.get("agent_id")
                             reason = tool_args.get("reason", "")
-                            suggestions = tool_args.get("suggestions")
+                            suggestions_anon = tool_args.get("suggestions")  # Dict with anon IDs
 
                             # Convert anonymous agent ID back to real agent ID
                             # Use global agent mapping (consistent with vote tool enum and injection)
                             agent_mapping = self.coordination_tracker.get_anonymous_agent_mapping()
+
+                            # Convert anonymous suggestions keys to real agent IDs
+                            suggestions_real = None
+                            if suggestions_anon and isinstance(suggestions_anon, dict):
+                                suggestions_real = {agent_mapping.get(anon_id, anon_id): feedback for anon_id, feedback in suggestions_anon.items()}
 
                             voted_agent = agent_mapping.get(
                                 voted_agent_anon,
@@ -8331,7 +8385,7 @@ Your answer:"""
                             self.agent_states[agent_id].votes = {
                                 "agent_id": voted_agent,
                                 "reason": reason,
-                                "suggestions": suggestions,
+                                "suggestions": suggestions_real,  # Store with real agent IDs
                             }
 
                             # Record vote to shared memory
@@ -9557,18 +9611,10 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
         is_tie = vote_results.get("is_tie", False)
 
         # Build voting summary -- note we only include the number of votes and reasons for the selected agent. There is no information about the distribution of votes beyond this.
-        # Get anonymous mapping for display
-        anon_mapping = self.coordination_tracker.get_reverse_agent_mapping()
-
         voting_summary = f"You received {vote_counts.get(selected_agent_id, 0)} vote(s)"
         if voter_details.get(selected_agent_id):
             reasons = [v["reason"] for v in voter_details[selected_agent_id]]
             voting_summary += f" with feedback: {'; '.join(reasons)}"
-
-            # Add suggestions section with anonymous voter IDs
-            suggestions_list = [f"- From {anon_mapping.get(v['voter'], v['voter'])}: {v['suggestions']}" for v in voter_details[selected_agent_id] if v.get("suggestions")]
-            if suggestions_list:
-                voting_summary += "\n\nSuggestions for improvement:\n" + "\n".join(suggestions_list)
 
         if is_tie:
             voting_summary += " (tie-broken by registration order)"

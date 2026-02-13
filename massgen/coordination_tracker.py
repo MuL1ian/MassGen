@@ -119,7 +119,7 @@ class AgentVote:
     voted_for_label: str  # Answer label like "agent1.1"
     voter_anon_id: str  # Anonymous voter ID like "agent1"
     reason: str
-    suggestions: Optional[str] = None  # Optional specific suggestions for improvement
+    suggestions: Optional[Dict[str, str]] = None  # Dict[agent_id, feedback] for targeted suggestions
     timestamp: float = field(default_factory=lambda: time.time())
     available_answers: List[str] = field(default_factory=list)
 
