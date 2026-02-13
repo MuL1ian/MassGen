@@ -25,6 +25,9 @@ def _configure_snapshot_terminal_environment(monkeypatch) -> None:  # noqa: ANN0
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.setenv("COLORTERM", "truecolor")
+    monkeypatch.setenv("COLUMNS", "150")
+    monkeypatch.setenv("LINES", "40")
+    monkeypatch.setenv("FORCE_COLOR", "1")
 
 
 def _seed_final_card_shell(timeline: TimelineSection, option_class: str) -> None:
