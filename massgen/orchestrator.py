@@ -9535,6 +9535,11 @@ INSTRUCTIONS FOR NEXT ATTEMPT:
                             pass
                     self._isolation_manager = None
                     self._isolation_worktree_paths = {}
+                    yield StreamChunk(
+                        type="status",
+                        content="⚠️  File isolation unavailable — changes will be written directly without review.",
+                        source=selected_agent_id,
+                    )
 
             # Recreate Docker container with write access to context paths
             # The original container was created with read-only mounts for context paths

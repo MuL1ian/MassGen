@@ -182,12 +182,12 @@ class IsolationContextManager:
 
         wm = self._worktree_managers[repo_root]
 
-        # Generate branch name: use branch_label if explicitly provided, otherwise short random
+        # Generate branch name with random suffix for uniqueness
         self._branch_counter += 1
+        random_suffix = secrets.token_hex(4)
         if self.branch_label:
-            branch_name = self.branch_label
+            branch_name = f"{self.branch_label}_{random_suffix}"
         else:
-            random_suffix = secrets.token_hex(4)
             branch_name = f"massgen/{random_suffix}"
 
         # Create worktree path - prefer workspace if available
