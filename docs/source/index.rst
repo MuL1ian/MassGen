@@ -192,7 +192,7 @@ Recent Releases
 
 **v0.1.51 (February 13, 2026)** - Change Documents & Coordination Traceability
 
-Decision journal system for multi-agent coordination traceability. Changedoc-anchored evaluation checklists with gap reports. Review modal with multi-file diff visualization. Drift conflict policy for safer change application. ``--cwd-context`` CLI flag. Final lock UI prototypes.
+Review modal with multi-file diff visualization. Decision journal system for multi-agent coordination traceability. Changedoc-anchored evaluation checklists with gap reports. Drift conflict policy for safer change application. ``--cwd-context`` CLI flag.
 
 **v0.1.50 (February 11, 2026)** - Chunked Plan Execution & Skill Lifecycle Management
 

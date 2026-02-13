@@ -7,7 +7,7 @@ After posting, update the social links below.
 
 ## Release Summary
 
-We're excited to release MassGen v0.1.51, focused on Change Documents & Coordination Traceability! 🚀 Decision journal system for multi-agent coordination traceability. Changedoc-anchored evaluation checklists with gap reports. Review modal with multi-file diff visualization. Drift conflict policy for safer change application. `--cwd-context` CLI flag. Final lock UI prototypes.
+We're excited to release MassGen v0.1.51, focused on Change Documents & Coordination Traceability! 🚀 Review modal with multi-file diff visualization. Decision journal system for multi-agent coordination traceability. Changedoc-anchored evaluation checklists with gap reports. Drift conflict policy for safer change application. `--cwd-context` CLI flag.
 
 ## Install
 
@@ -29,7 +29,7 @@ Copy everything below this line, then append content from `feature-highlights.md
 
 ---
 
-We're excited to release MassGen v0.1.51, focused on Change Documents & Coordination Traceability! 🚀 Decision journal system for multi-agent coordination traceability. Changedoc-anchored evaluation checklists with gap reports. Review modal with multi-file diff visualization. Drift conflict policy for safer change application. `--cwd-context` CLI flag.
+We're excited to release MassGen v0.1.51, focused on Change Documents & Coordination Traceability! 🚀 Review modal with multi-file diff visualization. Decision journal system for multi-agent coordination traceability. Changedoc-anchored evaluation checklists with gap reports. Drift conflict policy for safer change application. `--cwd-context` CLI flag.
 
 **Key Features:**
 
@@ -51,7 +51,6 @@ We're excited to release MassGen v0.1.51, focused on Change Documents & Coordina
 **Also in this release:**
 - `--cwd-context` CLI flag for injecting CWD as context path (`ro`/`rw`)
 - `.massgen_scratch/` scratch directory in worktrees for temporary agent files
-- 8 experimental final lock UI layout prototypes
 - Mode bar responsive labels adapting to terminal width
 
 **Bug Fixes:**

@@ -236,7 +236,6 @@ Most configurations use environment variables for API keys:so
 - **Drift Conflict Policy**: `drift_conflict_policy: skip|prefer_presenter|fail` for safer change application
 - **Review Modal Improvements**: Multi-context, multi-file diff visualization with critique
 - **`--cwd-context` CLI Flag**: Inject CWD as context path (`ro`/`rw`)
-- **Final Lock UI Prototypes**: 8 experimental layout options for final answer mode
 
 **Try It:**
 ```bash

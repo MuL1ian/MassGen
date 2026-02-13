@@ -165,7 +165,6 @@ This project started with the "threads of thought" and "iterative refinement" id
 - **🔍 Review Modal Improvements** - Multi-context, multi-file diff visualization with critique capabilities
 - **🛡️ Drift Conflict Policy** - Configurable handling of target-file drift: `skip`, `prefer_presenter`, or `fail`
 - **🎯 `--cwd-context` CLI Flag** - Inject CWD as context path (`ro`/`rw`) — equivalent to `Ctrl+P` in TUI
-- **🧪 Final Lock UI Prototypes** - 8 experimental layout options for final answer mode
 
 **Try v0.1.51 Features:**
 ```bash
@@ -1258,7 +1257,6 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 - **Change Safety**: Configurable handling of target-file drift: `skip` (default), `prefer_presenter`, or `fail`
 
 #### Changed
-- **Final Lock UI Prototypes**: 8 experimental layout options (Signal Strip, Editorial Split, Command Deck, etc.)
 - **Mode Bar Responsive Labels**: Compact labels adapting to terminal width
 - **`--cwd-context` CLI Flag**: Inject CWD as context path (`ro`/`rw`) — equivalent to `Ctrl+P` in TUI
 
@@ -1515,10 +1513,10 @@ We welcome community contributions to achieve these goals.
 
 ### v0.1.52 Roadmap
 
-Version 0.1.52 focuses on worktree isolation improvements and targeted agent queries:
+Version 0.1.52 focuses on spec support for planning and targeted agent queries:
 
 #### Planned Features
-- **Git Worktree Isolation** ([#853](https://github.com/massgen/MassGen/issues/853)): Worktree isolation improvements for agent file changes
+- **Spec Support for Planning** ([#881](https://github.com/massgen/MassGen/issues/881)): Add spec/proposal support to planning workflows
 - **Targeted Agent Queries** ([#809](https://github.com/massgen/MassGen/issues/809)): Support targeted queries to specific agents via subagent for more efficient coordination
 
 ---

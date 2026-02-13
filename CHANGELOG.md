@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Recent Releases
 
 **v0.1.51 (February 13, 2026)** - Change Documents & Coordination Traceability
-Decision journal system for multi-agent coordination traceability. Changedoc-anchored evaluation checklists with gap reports. Review modal with multi-file diff visualization. Drift conflict policy for safer change application. `--cwd-context` CLI flag. Final lock UI prototypes.
+Review modal with multi-file diff visualization. Decision journal system for multi-agent coordination traceability. Changedoc-anchored evaluation checklists with gap reports. Drift conflict policy for safer change application. `--cwd-context` CLI flag.
 
 **v0.1.50 (February 11, 2026)** - Chunked Plan Execution & Skill Lifecycle Management
 Chunked plan execution for safer long-form task completion with progress checkpoints. Skill lifecycle management with consolidation, organizer, and previous-session skill loading. Iterative planning review modal. Responsive TUI mode bar. Worktree improvements with branch accumulation and cross-agent diff visibility.
@@ -45,8 +45,6 @@ Log analysis mode built into TUI mode bar for in-app run analysis. Fairness gate
 
 ### Changed
 - **Review Modal Improvements**: Multi-context, multi-file diff visualization with critique capabilities
-
-- **Final Lock UI Prototypes**: 8 experimental layout options (Signal Strip, Editorial Split, Command Deck, etc.)
 
 - **Mode Bar Responsive Labels**: Compact labels adapting to terminal width
 

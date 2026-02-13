@@ -42,7 +42,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.52** | 02/16/26 | Git Worktree Isolation for Agent Changes | @ncrispino | Worktree isolation improvements for agent file changes ([#853](https://github.com/massgen/MassGen/issues/853)) |
+| **v0.1.52** | 02/16/26 | Spec Support for Planning Mode | @ncrispino | Add spec/proposal support to planning workflows ([#881](https://github.com/massgen/MassGen/issues/881)) |
 | | | Refactor ask_others for Targeted Agent Queries | @ncrispino | Support targeted agent queries via subagent for more efficient coordination ([#809](https://github.com/massgen/MassGen/issues/809)) |
 | **v0.1.53** | 02/18/26 | Curated Recommended Models List for Quickstart Wizard | @ncrispino | Curated model recommendations in quickstart wizard ([#840](https://github.com/massgen/MassGen/issues/840)) |
 | | | Support Dragging Screenshots into TUI Bar on Mac | @ncrispino | Enable drag-and-drop screenshot functionality in TUI input bar ([#831](https://github.com/massgen/MassGen/issues/831)) |
@@ -173,10 +173,6 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - Equivalent to `Ctrl+P` in TUI
 - **Use Case**: Quick project context injection from CLI
 
-**6. Final Lock UI Prototypes** (@ncrispino)
-- 8 experimental layout options (Signal Strip, Editorial Split, Command Deck, etc.)
-- **Use Case**: Exploring optimal final answer presentation layouts
-
 ### Success Criteria
 - ✅ Changedoc system captures decision provenance during coordination
 - ✅ Changedoc-anchored evaluation checklist with gap reports
@@ -186,14 +182,14 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.52 - Worktree Isolation & Targeted Agent Queries
+## 📋 v0.1.52 - Spec Support for Planning & Targeted Agent Queries
 
 ### Features
 
-**1. Git Worktree Isolation for Agent Changes** (@ncrispino)
-- Issue: [#853](https://github.com/massgen/MassGen/issues/853)
-- Worktree isolation improvements for agent file changes
-- **Use Case**: Safer agent file operations with improved isolation workflow
+**1. Spec Support for Planning Mode** (@ncrispino)
+- Issue: [#881](https://github.com/massgen/MassGen/issues/881)
+- Add spec/proposal support to planning workflows
+- **Use Case**: Structured specification creation and review during planning mode
 
 **2. Refactor ask_others for Targeted Agent Queries** (@ncrispino)
 - Issue: [#809](https://github.com/massgen/MassGen/issues/809)
@@ -203,7 +199,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - **Use Case**: More efficient coordination by querying specific agents rather than broadcasting to all
 
 ### Success Criteria
-- ✅ Worktree isolation handles edge cases correctly
+- ✅ Spec support integrated into planning workflows
 - ✅ Targeted `ask_others(target_agent_id="Agent-1", question="...")` working
 - ✅ Selective broadcast with `agent_prompts` dict functional
 - ✅ Improved context passing via streaming buffer
