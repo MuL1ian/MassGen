@@ -131,6 +131,14 @@ _CHECKLIST_ITEMS = [
     "Any remaining ideas for improvement are truly minor or cosmetic, not substantive.",
 ]
 
+_CHECKLIST_ITEMS_CHANGEDOC = [
+    "The changedoc captures every significant decision the task demands. No important " "choices were made implicitly in code but missing from the changedoc.",
+    "Each decision has strong, specific rationale tied to task requirements. No weak " '"Why" fields or strawman alternatives.',
+    "Every decision is traceable to specific artifacts — Implementation fields reference " "actual code locations, and the output implements what was decided.",
+    "The actual deliverable achieves genuine quality, depth, and polish. Would impress " "the person who asked.",
+    "At least one genuinely novel or ambitious element (NEW markers or evident in output). " "Goes beyond the safe, obvious approach.",
+]
+
 
 def _checklist_budget_context(remaining: int, total: int) -> str:
     """Generate budget context string for checklist modes."""
@@ -262,6 +270,111 @@ lead somewhere that incremental refinement never would.
   improve the result — even while keeping other parts that already work well?
 - Are all current answers converging on the same basic approach? If so, varying
   has extra value — it explores paths that pure refinement misses.\""""
+
+
+def _build_changedoc_checklist_analysis() -> str:
+    """Build changedoc-anchored analysis section for checklist modes.
+
+    Replaces the generic _build_checklist_analysis() when changedoc is enabled.
+    Grounds evaluation in the agent's decision journal rather than generic
+    quality assessment. 7 steps that map to the changedoc checklist items.
+    """
+    return """## Changedoc-Anchored Analysis
+
+Complete your full analysis before reading the Decision section below. Do not let
+the decision criteria influence your assessment.
+
+### Decision Audit
+
+For each decision (DEC-*) in the changedoc:
+- **Rationale strength**: Is the "Why" field specific and tied to task requirements,
+  or generic and hand-wavy? A strong rationale references concrete constraints, trade-offs,
+  or evidence — not just "this seemed best."
+- **Alternative depth**: Are rejected alternatives genuinely different approaches, or
+  strawmen set up to lose? Would a thoughtful colleague have considered these same
+  alternatives?
+- **Implementation accuracy**: Do the Implementation fields reference actual code
+  locations that exist and match what was decided?
+
+Then ask: **What decisions are MISSING?** What important choices were made implicitly
+in code but never recorded? What trade-offs were navigated without being articulated?
+
+### Per-Answer Assessment
+
+For each answer, assess:
+- **Output quality**: Look at the actual result the user receives — the artifact,
+  deliverable, or answer itself. Is it something you would be proud to deliver? Does
+  it feel crafted and impressive, or merely functional? Be honest and specific.
+- **Changedoc-output alignment**: Does the output actually implement what the changedoc
+  decided? Or did the code drift from the documented decisions?
+
+### Best Answer Identification
+
+Which answer is strongest considering BOTH output quality AND decision quality?
+A polished output with a shallow changedoc is not better than a slightly rougher
+output backed by thorough, well-reasoned decisions — the decisions enable future
+iteration while polish is easily added.
+
+### Unique Content Audit
+
+For each non-best answer:
+- Does its changedoc contain decisions or rationale worth preserving that the best
+  answer's changedoc LACKS?
+- Are there NEW-marked decisions that represent genuinely original thinking?
+- "Worse overall" does not mean "has nothing to offer." Look carefully at the
+  decision journal, not just the output.
+
+If no answer has meaningful unique content beyond the best, say so explicitly.
+
+*If there is only one answer, evaluate its changedoc on its own merits — consider
+what decisions are missing or under-reasoned.*
+
+### The Ideal Decision Set
+
+Before evaluating whether the current answer is "good enough," first establish what
+decisions this task **demands**. Step back from the existing changedocs entirely.
+
+Given the original question, describe in concrete bullet points:
+- What decisions **MUST** be made for any competent solution?
+- What additional decisions would distinguish a **crafted** result from a merely
+  **competent** one?
+- What decisions would a user *wish* were articulated that they didn't think to ask for?
+- Where would genuinely novel or ambitious thinking (NEW markers) add the most value?
+
+Do not anchor to what already exists. Describe the ideal decision set as if designing
+a spec from scratch.
+
+### Gap Analysis
+
+Now compare the current best answer against your ideal:
+- **Missing decisions**: What decisions from your ideal set are absent from the changedoc?
+- **Weak decisions**: Where is rationale thin, alternatives shallow, or implementation
+  fields inaccurate?
+- **Output gaps**: Does the deliverable achieve genuine quality, depth, and polish —
+  or is it merely functional?
+- **Traceability gaps**: Are there code choices that lack corresponding changedoc entries?
+- **Novelty deficit**: Is there at least one genuinely novel or ambitious element, or
+  does everything take the safe, obvious path?
+
+Do not confuse *correctness fixes* with *quality improvements*. An answer can be
+technically correct and still have a shallow decision journal.
+
+*If there is only one answer, the gap analysis is especially important — the first
+attempt rarely captures all important decisions.*
+
+If the current best genuinely matches your ideal with only cosmetic gaps remaining,
+say so — but be rigorous.
+
+### Fresh Approach Consideration
+
+Don't only think about polishing the existing changedoc — also consider whether
+**different decisions entirely** might produce a better result. Could a fundamentally
+different architectural choice, creative direction, or problem decomposition lead
+somewhere that incremental refinement of existing decisions never would?
+
+- Are all current changedocs converging on the same basic decisions? If so, varying
+  has extra value — it explores decision paths that pure refinement misses.
+- Could challenging a core assumption in the changedoc unlock a better outcome?\""""
 
 
 def _build_checklist_decision(
@@ -2517,6 +2630,7 @@ class EvaluationSection(SystemPromptSection):
         answers_used: int = 0,
         answer_cap: Optional[int] = None,
         checklist_require_gap_report: bool = True,
+        has_changedoc: bool = False,
     ):
         super().__init__(
             title="MassGen Coordination",
@@ -2531,6 +2645,7 @@ class EvaluationSection(SystemPromptSection):
         self.answers_used = answers_used
         self.answer_cap = answer_cap
         self.checklist_require_gap_report = checklist_require_gap_report
+        self.has_changedoc = has_changedoc
 
     def build_content(self) -> str:
         # Vote-only mode: agent has exhausted their answer limit
@@ -2626,28 +2741,30 @@ Your goal is to iteratively refine answers until they meet the quality bar.
             total = self.answer_cap or 5
             threshold = self.voting_threshold if self.voting_threshold is not None else 5
 
-            analysis = _build_checklist_analysis()
+            items = _CHECKLIST_ITEMS_CHANGEDOC if self.has_changedoc else _CHECKLIST_ITEMS
+            analysis = _build_changedoc_checklist_analysis() if self.has_changedoc else _build_checklist_analysis()
             if effective_sensitivity == "checklist":
                 decision = _build_checklist_decision(
                     threshold,
                     remaining,
                     total,
-                    _CHECKLIST_ITEMS,
+                    items,
                 )
             else:
                 decision = _build_checklist_scored_decision(
                     threshold,
                     remaining,
                     total,
-                    _CHECKLIST_ITEMS,
+                    items,
                 )
             evaluation_section = f"""{analysis}
 
 {decision}"""
         elif effective_sensitivity == "checklist_gated":
-            analysis = _build_checklist_analysis()
+            items = _CHECKLIST_ITEMS_CHANGEDOC if self.has_changedoc else _CHECKLIST_ITEMS
+            analysis = _build_changedoc_checklist_analysis() if self.has_changedoc else _build_checklist_analysis()
             decision = _build_checklist_gated_decision(
-                _CHECKLIST_ITEMS,
+                items,
                 require_gap_report=self.checklist_require_gap_report,
             )
             evaluation_section = f"""{analysis}
@@ -2773,6 +2890,7 @@ class DecompositionSection(SystemPromptSection):
         answers_used: int = 0,
         answer_cap: Optional[int] = None,
         checklist_require_gap_report: bool = True,
+        has_changedoc: bool = False,
     ):
         super().__init__(
             title="MassGen Decomposition Coordination",
@@ -2785,6 +2903,7 @@ class DecompositionSection(SystemPromptSection):
         self.answers_used = answers_used
         self.answer_cap = answer_cap
         self.checklist_require_gap_report = checklist_require_gap_report
+        self.has_changedoc = has_changedoc
 
     def _build_decision_block(self) -> str:
         """Build the new_answer vs stop decision block, threshold-aware if set."""
@@ -2793,13 +2912,14 @@ class DecompositionSection(SystemPromptSection):
             total = self.answer_cap or 5
 
             if self.voting_sensitivity in ("checklist", "checklist_scored"):
-                analysis = _build_checklist_analysis()
+                items = _CHECKLIST_ITEMS_CHANGEDOC if self.has_changedoc else _CHECKLIST_ITEMS
+                analysis = _build_changedoc_checklist_analysis() if self.has_changedoc else _build_checklist_analysis()
                 if self.voting_sensitivity == "checklist":
                     decision = _build_checklist_decision(
                         self.voting_threshold,
                         remaining,
                         total,
-                        _CHECKLIST_ITEMS,
+                        items,
                         terminate_action="stop",
                         iterate_action="new_answer",
                     )
@@ -2808,7 +2928,7 @@ class DecompositionSection(SystemPromptSection):
                         self.voting_threshold,
                         remaining,
                         total,
-                        _CHECKLIST_ITEMS,
+                        items,
                         terminate_action="stop",
                         iterate_action="new_answer",
                     )
@@ -2819,9 +2939,10 @@ Both are terminal actions that end your round.
 
 {decision}"""
             elif self.voting_sensitivity == "checklist_gated":
-                analysis = _build_checklist_analysis()
+                items = _CHECKLIST_ITEMS_CHANGEDOC if self.has_changedoc else _CHECKLIST_ITEMS
+                analysis = _build_changedoc_checklist_analysis() if self.has_changedoc else _build_checklist_analysis()
                 decision = _build_checklist_gated_decision(
-                    _CHECKLIST_ITEMS,
+                    items,
                     terminate_action="stop",
                     iterate_action="new_answer",
                     require_gap_report=self.checklist_require_gap_report,

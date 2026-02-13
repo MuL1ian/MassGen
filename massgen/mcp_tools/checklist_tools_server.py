@@ -160,6 +160,17 @@ def _evaluate_gap_report(report_path: str, state: Dict[str, Any]) -> Dict[str, A
         "performance_reliability": ["performance", "latency", "reliability", "robustness", "error handling"],
         "security_safety": ["security", "privacy", "safety", "permissions", "compliance"],
         "testing_validation": ["test", "validation", "verification", "observability", "monitoring", "metrics"],
+        "decision_quality": [
+            "decision",
+            "changedoc",
+            "rationale",
+            "alternative",
+            "traceability",
+            "implementation field",
+            "origin",
+            "missing decision",
+            "weak rationale",
+        ],
     }
     categories_hit = [category for category, keywords in categories.items() if any(keyword in lowered for keyword in keywords)]
     result["categories_hit"] = categories_hit

@@ -201,6 +201,7 @@ class SystemMessageBuilder:
         builder.add_section(OutputFirstVerificationSection(decomposition_mode=is_decomposition))
 
         # PRIORITY 1 (CRITICAL): MassGen Coordination - vote/new_answer or decomposition primitives
+        changedoc_enabled = self.config and hasattr(self.config, "coordination_config") and getattr(self.config.coordination_config, "enable_changedoc", False)
         if coordination_mode == "decomposition":
             decomp_sensitivity = voting_sensitivity_override or self.message_templates._voting_sensitivity
             builder.add_section(
@@ -211,6 +212,7 @@ class SystemMessageBuilder:
                     answers_used=answers_used,
                     answer_cap=answer_cap,
                     checklist_require_gap_report=checklist_require_gap_report,
+                    has_changedoc=changedoc_enabled,
                 ),
             )
         else:
@@ -228,6 +230,7 @@ class SystemMessageBuilder:
                     checklist_require_gap_report=checklist_require_gap_report,
                     answers_used=answers_used,
                     answer_cap=answer_cap,
+                    has_changedoc=changedoc_enabled,
                 ),
             )
 

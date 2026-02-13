@@ -617,10 +617,13 @@ class Orchestrator(ChatAgent):
 
         from massgen.system_prompt_sections import (
             _CHECKLIST_ITEMS,
+            _CHECKLIST_ITEMS_CHANGEDOC,
             _checklist_confidence_cutoff,
             _checklist_effective_threshold,
             _checklist_required_true,
         )
+
+        items = _CHECKLIST_ITEMS_CHANGEDOC if self._is_changedoc_enabled() else _CHECKLIST_ITEMS
 
         for agent_id, agent in self.agents.items():
             backend = agent.backend
@@ -651,7 +654,7 @@ class Orchestrator(ChatAgent):
                 "cutoff": _checklist_confidence_cutoff(effective_t),
             }
             backend._checklist_state = checklist_state
-            backend._checklist_items = list(_CHECKLIST_ITEMS)
+            backend._checklist_items = list(items)
 
             if getattr(backend, "supports_sdk_mcp", False):
                 # SDK path: in-process MCP server (ClaudeCode)
@@ -659,7 +662,7 @@ class Orchestrator(ChatAgent):
                     agent_id,
                     backend,
                     checklist_state,
-                    _CHECKLIST_ITEMS,
+                    items,
                 )
             else:
                 # Stdio path: backend writes specs file at execution time.

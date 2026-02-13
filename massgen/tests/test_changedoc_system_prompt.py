@@ -11,7 +11,13 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from massgen.system_message_builder import SystemMessageBuilder
-from massgen.system_prompt_sections import ChangedocSection
+from massgen.system_prompt_sections import (
+    _CHECKLIST_ITEMS_CHANGEDOC,
+    ChangedocSection,
+    EvaluationSection,
+    _build_changedoc_checklist_analysis,
+    _build_checklist_analysis,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -204,3 +210,108 @@ class TestChangedocInBuildCoordinationMessage:
 
         # Subsequent round: should mention inheriting
         assert "inherit" in msg.lower() or "build on" in msg.lower()
+
+
+# ---------------------------------------------------------------------------
+# Changedoc-anchored evaluation checklist tests
+# ---------------------------------------------------------------------------
+
+
+class TestChangedocChecklist:
+    """Tests for changedoc-anchored evaluation checklist items and analysis."""
+
+    def test_changedoc_checklist_items_count(self):
+        """_CHECKLIST_ITEMS_CHANGEDOC has exactly 5 items."""
+        assert len(_CHECKLIST_ITEMS_CHANGEDOC) == 5
+
+    def test_changedoc_checklist_items_content(self):
+        """Changedoc items mention changedoc, rationale, and traceability."""
+        joined = " ".join(_CHECKLIST_ITEMS_CHANGEDOC).lower()
+        assert "changedoc" in joined
+        assert "rationale" in joined
+        assert "traceab" in joined  # traceability or traceable
+
+    def test_changedoc_analysis_has_decision_audit(self):
+        """_build_changedoc_checklist_analysis() mentions key steps."""
+        analysis = _build_changedoc_checklist_analysis()
+        assert "Decision Audit" in analysis
+        assert "Ideal Decision Set" in analysis
+        assert "Gap Analysis" in analysis
+
+    def test_changedoc_analysis_differs_from_generic(self):
+        """Changedoc analysis is distinct from the generic analysis."""
+        generic = _build_checklist_analysis()
+        changedoc = _build_changedoc_checklist_analysis()
+        assert generic != changedoc
+        # Generic has "Ideal Version", changedoc has "Ideal Decision Set"
+        assert "Ideal Version" not in changedoc
+        assert "Ideal Decision Set" not in generic
+
+    def test_evaluation_section_uses_changedoc_items(self):
+        """EvaluationSection(has_changedoc=True) produces changedoc-aware text."""
+        section = EvaluationSection(
+            voting_sensitivity="checklist_gated",
+            has_changedoc=True,
+        )
+        content = section.build_content()
+        # Should contain changedoc checklist items, not generic ones
+        assert "Decision Completeness" in content or "changedoc" in content.lower()
+        assert "Decision Audit" in content
+
+    def test_evaluation_section_uses_generic_items(self):
+        """EvaluationSection(has_changedoc=False) produces original text."""
+        section = EvaluationSection(
+            voting_sensitivity="checklist_gated",
+            has_changedoc=False,
+        )
+        content = section.build_content()
+        # Should contain generic items, not changedoc-specific analysis
+        assert "Ideal Version" in content
+        assert "Decision Audit" not in content
+
+    def test_system_message_builder_passes_changedoc_flag(self):
+        """Builder derives changedoc flag from config and produces changedoc-aware eval."""
+        config = _make_config(enable_changedoc=True)
+        mt = _make_message_templates()
+        mt._voting_sensitivity = "checklist_gated"
+        agents = {"agent_a": _make_agent()}
+        builder = SystemMessageBuilder(config=config, message_templates=mt, agents=agents)
+        agent = _make_agent()
+
+        msg = builder.build_coordination_message(
+            agent=agent,
+            agent_id="agent_a",
+            answers=None,
+            planning_mode_enabled=False,
+            use_skills=False,
+            enable_memory=False,
+            enable_task_planning=False,
+            previous_turns=[],
+        )
+
+        # The coordination section should use changedoc analysis
+        assert "Decision Audit" in msg
+
+    def test_system_message_builder_generic_when_changedoc_off(self):
+        """Builder without changedoc uses generic checklist."""
+        config = _make_config(enable_changedoc=False)
+        mt = _make_message_templates()
+        mt._voting_sensitivity = "checklist_gated"
+        agents = {"agent_a": _make_agent()}
+        builder = SystemMessageBuilder(config=config, message_templates=mt, agents=agents)
+        agent = _make_agent()
+
+        msg = builder.build_coordination_message(
+            agent=agent,
+            agent_id="agent_a",
+            answers=None,
+            planning_mode_enabled=False,
+            use_skills=False,
+            enable_memory=False,
+            enable_task_planning=False,
+            previous_turns=[],
+        )
+
+        # The coordination section should use generic analysis
+        assert "Ideal Version" in msg
+        assert "Decision Audit" not in msg
