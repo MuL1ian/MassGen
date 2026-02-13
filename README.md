@@ -69,7 +69,7 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🆕 Latest Features</h3></summary>
 
-- [v0.1.50 Features](#-latest-features-v0150)
+- [v0.1.51 Features](#-latest-features-v0151)
 </details>
 
 <details open>
@@ -122,15 +122,15 @@ This project started with the "threads of thought" and "iterative refinement" id
 <details open>
 <summary><h3>🗺️ Roadmap</h3></summary>
 
-- [Recent Achievements (v0.1.50)](#recent-achievements-v0150)
-- [Previous Achievements (v0.0.3 - v0.1.49)](#previous-achievements-v003---v0149)
+- [Recent Achievements (v0.1.51)](#recent-achievements-v0151)
+- [Previous Achievements (v0.0.3 - v0.1.50)](#previous-achievements-v003---v0150)
 - [Key Future Enhancements](#key-future-enhancements)
   - Bug Fixes & Backend Improvements
   - Advanced Agent Collaboration
   - Expanded Model, Tool & Agent Integrations
   - Improved Performance & Scalability
   - Enhanced Developer Experience
-- [v0.1.51 Roadmap](#v0151-roadmap)
+- [v0.1.52 Roadmap](#v0152-roadmap)
 </details>
 
 <details open>
@@ -155,27 +155,28 @@ This project started with the "threads of thought" and "iterative refinement" id
 
 ---
 
-## 🆕 Latest Features (v0.1.50)
+## 🆕 Latest Features (v0.1.51)
 
-**🎉 Released: February 11, 2026**
+**🎉 Released: February 13, 2026**
 
-**What's New in v0.1.50:**
-- **📦 Chunked Plan Execution** - Plans divided into chunks (e.g., `C01_foundation`) and executed one at a time with progress checkpoints, chunk browsing in TUI, and frozen plan snapshots
-- **🔄 Iterative Planning Review** - New modal with Continue Planning / Quick Edit / Finalize Plan options for plan iteration before execution
-- **🛠️ Skill Lifecycle Management** - New lifecycle modes (`create_or_update`, `create_new`, `consolidate`), skill organizer for merging overlapping skills, `SKILL_REGISTRY.md` routing guide
-- **📂 Previous-Session Skills** - Load evolving skills from past run logs with `load_previous_session_skills` config
-- **🌿 Worktree Improvements** - Branch accumulation across rounds, cross-agent diff visibility via branch summaries, orphan cleanup
-- **📱 Responsive TUI Mode Bar** - Vertical/horizontal adaptive layout with compact labels on narrow terminals
+**What's New in v0.1.51:**
+- **📝 Change Documents (Changedoc)** - Decision journals agents write in `tasks/changedoc.md` during coordination, capturing decision provenance, rationale, and code traceability
+- **✅ Changedoc-Anchored Evaluation** - 5 changedoc-specific checklist items with mandatory gap report before verdict
+- **🔍 Review Modal Improvements** - Multi-context, multi-file diff visualization with critique capabilities
+- **🛡️ Drift Conflict Policy** - Configurable handling of target-file drift: `skip`, `prefer_presenter`, or `fail`
+- **🎯 `--cwd-context` CLI Flag** - Inject CWD as context path (`ro`/`rw`) — equivalent to `Ctrl+P` in TUI
 
-**Try v0.1.50 Features:**
+**Try v0.1.51 Features:**
 ```bash
 # Install or upgrade
 pip install --upgrade massgen
 
-# Launch with chunked plan execution and skill lifecycle
+# Launch — changedoc is enabled by default
 uv run massgen
+
+# Or add your project context quickly
+uv run massgen --cwd-context ro
 ```
-> Press `Shift+Tab` then press the three dots above the input bar to see plan settings.
 
 → [See full release history and examples](massgen/configs/README.md#release-history--examples)
 
@@ -1236,41 +1237,36 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 ⚠️ **Early Stage Notice:** As MassGen is in active development, please expect upcoming breaking architecture changes as we continue to refine and improve the system.
 
-### Recent Achievements (v0.1.50)
+### Recent Achievements (v0.1.51)
 
-**🎉 Released: February 11, 2026**
+**🎉 Released: February 13, 2026**
 
-#### Chunked Plan Execution
-- **Progress Checkpoints**: Plans divided into chunks (e.g., `C01_foundation`) executed one at a time
-- **Chunk Browsing**: Browse chunks in TUI with chunk-level progress tracking
-- **Frozen Snapshots**: Original plan state preserved during execution
-- **Plan Sizing**: `target_steps` and `target_chunks` parameters with dynamic mode
+#### Change Documents (Changedoc)
+- **Decision Journals**: Agents write `tasks/changedoc.md` during coordination capturing decision provenance, rationale, and code traceability
+- **Observation Context**: Changedocs passed to other agents in `<changedoc>` tags for shared decision awareness
+- **Config**: `enable_changedoc: true` (default on)
 
-#### Iterative Planning Review Modal
-- **Plan Iteration**: New modal with Continue Planning / Quick Edit / Finalize Plan options
-- **Quick Edit**: Inline plan adjustments before execution begins
+#### Changedoc-Anchored Evaluation
+- **Specialized Checklist**: 5 changedoc-specific items — Decision Completeness, Rationale Quality, Traceability, Output Quality, Novel Elements
+- **Gap Report**: Mandatory structured gap analysis before verdict (`checklist_require_gap_report: true`)
 
-#### Skill Lifecycle Management
-- **Lifecycle Modes**: `create_or_update`, `create_new`, `consolidate` for evolving skills
-- **Skill Organizer**: Merge overlapping skills into consolidated workflows
-- **SKILL_REGISTRY.md**: Routing guide for skill discovery and selection
-- **Previous-Session Skills**: Load skills from past run logs with `load_previous_session_skills`
-- **Local Skills MCP**: New MCP tool for skill access in Docker/local execution
+#### Review Modal Improvements
+- **Multi-File Diffs**: Enhanced GitDiffReviewModal with multi-context, multi-file diff visualization and critique capabilities
 
-#### Worktree Improvements
-- **Branch Accumulation**: Branches accumulate across rounds instead of being recreated
-- **Cross-Agent Visibility**: Other agents see diffs from worktree branches via `generate_branch_summaries()`
-- **Orphan Cleanup**: Automatic cleanup of orphan worktrees
+#### Drift Conflict Policy
+- **Change Safety**: Configurable handling of target-file drift: `skip` (default), `prefer_presenter`, or `fail`
 
 #### Changed
-- **Responsive TUI Mode Bar**: Vertical/horizontal adaptive layout with compact labels on narrow terminals
-- **TUI Homescreen & Theming**: Improved welcome screen layout, CSS refinements, palette updates
-- **Skills Modal**: Source grouping (builtin/project/user/previous_session), quick actions (Enable All/Disable All)
+- **Mode Bar Responsive Labels**: Compact labels adapting to terminal width
+- **`--cwd-context` CLI Flag**: Inject CWD as context path (`ro`/`rw`) — equivalent to `Ctrl+P` in TUI
 
 #### Bug Fixes
-- Test fixes across hooks, Docker mounts, and snapshots (PR #877)
+- Final presentation fallback for empty presentations
+- Task execution timing fixes
 
-### Previous Achievements (v0.0.3 - v0.1.49)
+### Previous Achievements (v0.0.3 - v0.1.50)
+
+✅ **Chunked Plan Execution & Skill Lifecycle Management (v0.1.50)**: Chunked plan execution for safer long-form task completion with progress checkpoints. Skill lifecycle management with consolidation, organizer, and previous-session skill loading. Iterative planning review modal. Responsive TUI mode bar. Worktree improvements with branch accumulation and cross-agent diff visibility.
 
 ✅ **Coordination Quality: Log Analysis TUI, Fairness Gate & Checklist Voting (v0.1.49)**: Log analysis mode built into TUI mode bar for in-app run analysis. Fairness gate prevents fast agents from dominating coordination. Checklist voting tool for structured quality evaluation. Automated testing infrastructure with CI/CD and SVG snapshot baselines.
 
@@ -1515,12 +1511,12 @@ MassGen is currently in its foundational stage, with a focus on parallel, asynch
 
 We welcome community contributions to achieve these goals.
 
-### v0.1.51 Roadmap
+### v0.1.52 Roadmap
 
-Version 0.1.51 focuses on worktree isolation improvements and targeted agent queries:
+Version 0.1.52 focuses on spec support for planning and targeted agent queries:
 
 #### Planned Features
-- **Git Worktree Isolation** ([#853](https://github.com/massgen/MassGen/issues/853)): Worktree isolation improvements for agent file changes
+- **Spec Support for Planning** ([#881](https://github.com/massgen/MassGen/issues/881)): Add spec/proposal support to planning workflows
 - **Targeted Agent Queries** ([#809](https://github.com/massgen/MassGen/issues/809)): Support targeted queries to specific agents via subagent for more efficient coordination
 
 ---

@@ -1,10 +1,10 @@
 # MassGen Roadmap
 
-**Current Version:** v0.1.50
+**Current Version:** v0.1.51
 
 **Release Schedule:** Mondays, Wednesdays, Fridays @ 9am PT
 
-**Last Updated:** February 11, 2026
+**Last Updated:** February 13, 2026
 
 This roadmap outlines MassGen's development priorities for upcoming releases. Each release focuses on specific capabilities with real-world use cases.
 
@@ -42,11 +42,11 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 | Release | Target | Feature | Owner | Use Case |
 |---------|--------|---------|-------|----------|
-| **v0.1.51** | 02/13/26 | Git Worktree Isolation for Agent Changes | @ncrispino | Worktree isolation improvements for agent file changes ([#853](https://github.com/massgen/MassGen/issues/853)) |
+| **v0.1.52** | 02/16/26 | Spec Support for Planning Mode | @ncrispino | Add spec/proposal support to planning workflows ([#881](https://github.com/massgen/MassGen/issues/881)) |
 | | | Refactor ask_others for Targeted Agent Queries | @ncrispino | Support targeted agent queries via subagent for more efficient coordination ([#809](https://github.com/massgen/MassGen/issues/809)) |
-| **v0.1.52** | 02/16/26 | Curated Recommended Models List for Quickstart Wizard | @ncrispino | Curated model recommendations in quickstart wizard ([#840](https://github.com/massgen/MassGen/issues/840)) |
+| **v0.1.53** | 02/18/26 | Curated Recommended Models List for Quickstart Wizard | @ncrispino | Curated model recommendations in quickstart wizard ([#840](https://github.com/massgen/MassGen/issues/840)) |
 | | | Support Dragging Screenshots into TUI Bar on Mac | @ncrispino | Enable drag-and-drop screenshot functionality in TUI input bar ([#831](https://github.com/massgen/MassGen/issues/831)) |
-| **v0.1.53** | 02/18/26 | Per-agent Isolated Write Contexts During Coordination | @ncrispino | Per-agent isolated write contexts during coordination ([#854](https://github.com/massgen/MassGen/issues/854)) |
+| **v0.1.54** | 02/20/26 | Per-agent Isolated Write Contexts During Coordination | @ncrispino | Per-agent isolated write contexts during coordination ([#854](https://github.com/massgen/MassGen/issues/854)) |
 | | | Fix Rounds Appearing and Log Dir Content in Multi-Turn | @ncrispino | Fix round display and log directory issues in multi-turn sessions ([#848](https://github.com/massgen/MassGen/issues/848)) |
 
 *All releases ship on MWF @ 9am PT when ready*
@@ -141,14 +141,55 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.51 - Worktree Isolation & Targeted Agent Queries
+## 📋 v0.1.51 - Reviewing Coordination & Change Documents
 
 ### Features
 
-**1. Git Worktree Isolation for Agent Changes** (@ncrispino)
-- Issue: [#853](https://github.com/massgen/MassGen/issues/853)
-- Worktree isolation improvements for agent file changes
-- **Use Case**: Safer agent file operations with improved isolation workflow
+**1. Change Documents (Changedoc)** (@ncrispino)
+- PR: [#896](https://github.com/massgen/MassGen/pull/896)
+- Decision journals agents write in `tasks/changedoc.md` during coordination, capturing decision provenance, rationale, and code traceability
+- Changedocs passed to other agents in `<changedoc>` tags for shared decision awareness
+- Config: `enable_changedoc: true` (default on)
+- **Use Case**: Multi-agent coordination traceability with decision provenance
+
+**2. Changedoc-Anchored Evaluation Checklist** (@ncrispino)
+- PR: [#896](https://github.com/massgen/MassGen/pull/896)
+- 5 changedoc-specific checklist items: Decision Completeness, Rationale Quality, Traceability, Output Quality, Novel Elements
+- Mandatory gap report before verdict (`checklist_require_gap_report: true`)
+- **Use Case**: Structured quality evaluation anchored to decision documents
+
+**3. Review Modal Improvements** (@ncrispino)
+- PR: [#896](https://github.com/massgen/MassGen/pull/896)
+- Multi-context, multi-file diff visualization with critique capabilities
+- **Use Case**: Enhanced code review with multi-file diff support
+
+**4. Drift Conflict Policy** (@ncrispino)
+- Configurable handling of target-file drift when applying isolated changes
+- `drift_conflict_policy: skip|prefer_presenter|fail`
+- **Use Case**: Safer change application when target files have been modified
+
+**5. CLI `--cwd-context` Flag** (@ncrispino)
+- Inject CWD into context paths: `ro`/`read` for read-only, `rw`/`write` for write access
+- Equivalent to `Ctrl+P` in TUI
+- **Use Case**: Quick project context injection from CLI
+
+### Success Criteria
+- ✅ Changedoc system captures decision provenance during coordination
+- ✅ Changedoc-anchored evaluation checklist with gap reports
+- ✅ Review modal supports multi-file diffs
+- ✅ Drift conflict policy prevents unsafe change application
+- ✅ `--cwd-context` CLI flag injects project context
+
+---
+
+## 📋 v0.1.52 - Spec Support for Planning & Targeted Agent Queries
+
+### Features
+
+**1. Spec Support for Planning Mode** (@ncrispino)
+- Issue: [#881](https://github.com/massgen/MassGen/issues/881)
+- Add spec/proposal support to planning workflows
+- **Use Case**: Structured specification creation and review during planning mode
 
 **2. Refactor ask_others for Targeted Agent Queries** (@ncrispino)
 - Issue: [#809](https://github.com/massgen/MassGen/issues/809)
@@ -158,14 +199,14 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 - **Use Case**: More efficient coordination by querying specific agents rather than broadcasting to all
 
 ### Success Criteria
-- ✅ Worktree isolation handles edge cases correctly
+- ✅ Spec support integrated into planning workflows
 - ✅ Targeted `ask_others(target_agent_id="Agent-1", question="...")` working
 - ✅ Selective broadcast with `agent_prompts` dict functional
 - ✅ Improved context passing via streaming buffer
 
 ---
 
-## 📋 v0.1.52 - Quickstart Model Curation & TUI Screenshots
+## 📋 v0.1.53 - Quickstart Model Curation & TUI Screenshots
 
 ### Features
 
@@ -185,7 +226,7 @@ Want to contribute or collaborate on a specific track? Reach out to the track ow
 
 ---
 
-## 📋 v0.1.53 - Per-agent Isolated Write Contexts & Multi-Turn Fixes
+## 📋 v0.1.54 - Per-agent Isolated Write Contexts & Multi-Turn Fixes
 
 ### Features
 
@@ -794,7 +835,7 @@ These features are being actively developed on **separate parallel tracks** and 
 - Support targeted queries to specific agents via subagent spawning
 - Three modes: broadcast to all, selective broadcast, targeted ask
 - Pass full `_streaming_buffer` to shadow agents for improved context
-- **Target:** v0.1.51
+- **Target:** v0.1.52
 
 ### Track: Decomposition Coordination Mode (@ncrispino, nickcrispino)
 - PR: [#858](https://github.com/massgen/MassGen/pull/858)
@@ -960,5 +1001,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code standards, te
 
 *This roadmap is community-driven. Releases ship on **Mondays, Wednesdays, Fridays @ 9am PT**. Timelines may shift based on priorities and feedback. Open an issue to suggest changes!*
 
-**Last Updated:** February 11, 2026
+**Last Updated:** February 13, 2026
 **Maintained By:** MassGen Team
