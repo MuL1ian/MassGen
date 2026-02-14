@@ -2623,6 +2623,44 @@ on the same approach, varying is especially valuable.
 Each iteration costs time and resources. When you produce a `new_answer`, the result must be
 **obviously and substantially better** — a user should immediately see the improvement.
 Identify concrete improvements, then actually implement them — do not just acknowledge gaps.{novelty_section}
+
+**ANSWER FORMAT GUIDELINES:**
+When calling `new_answer`, your content should be HIGH-LEVEL and concise:
+
+✓ DO:
+- State what you created/accomplished
+- Specify where files are located (workspace paths)
+- Explain how to run/use it
+- List key features or improvements
+- Include task completion status if using task planning
+
+✗ DON'T:
+- Include full code listings (code belongs in workspace files)
+- Copy-paste entire file contents
+- Include implementation details that other agents don't need
+
+EXAMPLE FORMAT:
+```
+I created a Snake game with mobile support and saved it to deliverable/.
+
+Workspace: /workspace/agent1/
+Files created:
+- deliverable/index.html (main game)
+- deliverable/README.md (instructions)
+
+How to run:
+1. Open deliverable/index.html in a browser
+
+Features:
+- Keyboard and touch controls
+- Scoring system
+- Responsive design
+
+Task Status: 5/5 completed
+```
+
+Remember: Other agents will see your answer as context. Keep it focused on WHAT you delivered, not HOW you implemented it.
+
 Make sure you actually call `vote` or `new_answer` (in tool call format).
 
 *Note*: The CURRENT TIME is **{time.strftime("%Y-%m-%d")}**."""
@@ -2777,6 +2815,44 @@ for verification without changing your actual output.
 **TOOLS:**
 - `new_answer`: Submit your work (content = summary of what you did + key deliverables)
 - `stop`: Signal you are satisfied and done (summary = what you accomplished and how it connects; status = "complete" or "blocked")
+
+**ANSWER FORMAT GUIDELINES:**
+Your `new_answer` content should be HIGH-LEVEL and concise:
+
+✓ DO:
+- State what you created/accomplished in your subtask
+- Specify where files are located (workspace paths)
+- Explain how to run/use your component
+- List key features or improvements
+- Mention integration points with other agents' work
+
+✗ DON'T:
+- Include full code listings (code belongs in workspace files)
+- Copy-paste entire file contents
+- Include low-level implementation details
+
+EXAMPLE:
+```
+I completed the authentication module and saved it to deliverable/auth/.
+
+Workspace: /workspace/agent2/
+Files created:
+- deliverable/auth/login.py (JWT-based auth)
+- deliverable/auth/middleware.py (request validation)
+- tests/test_auth.py (unit tests)
+
+How to use:
+- Import AuthMiddleware in your app
+- Add JWT_SECRET to environment
+
+Integration points:
+- Exports authenticate() function for agent1's API
+- Uses database models from agent3
+
+Tests: 12/12 passing
+```
+
+Remember: Other agents need to understand what you delivered and how to integrate with it, not HOW you implemented it.
 
 Make sure you actually call `new_answer` or `stop` (in tool call format).
 
